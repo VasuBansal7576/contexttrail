@@ -21,6 +21,13 @@ describe("qualityLadder", () => {
       expect(ladder[i]).toBeLessThan(ladder[i - 1]);
     }
   });
+
+  it("ends exactly at the 0.55 spec minimum with no lower value", () => {
+    const ladder = qualityLadder();
+    expect(ladder[ladder.length - 1]).toBe(MIN_QUALITY);
+    expect(ladder.filter((q) => q === MIN_QUALITY)).toHaveLength(1);
+    expect(Math.min(...ladder)).toBe(MIN_QUALITY);
+  });
 });
 
 describe("payload budget", () => {

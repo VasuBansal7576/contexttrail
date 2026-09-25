@@ -52,16 +52,18 @@ export function isSupportedImageFile(file: File): boolean {
   return /\.(jpe?g|png|webp)$/i.test(file.name);
 }
 
-/** Pure: quality ladder tried from high to low, bounded by MIN_QUALITY. */
+/** Pure: quality ladder tried from high to low, ending exactly at MIN_QUALITY. */
 export function qualityLadder(
   start: number = START_QUALITY,
   min: number = MIN_QUALITY,
   step: number = QUALITY_STEP,
 ): number[] {
+  const floor = Math.round(min * 100) / 100;
   const ladder: number[] = [];
-  for (let q = start; q >= min - 1e-9; q -= step) {
+  for (let q = start; q > min + 1e-9; q -= step) {
     ladder.push(Math.round(q * 100) / 100);
   }
+  if (ladder[ladder.length - 1] !== floor) ladder.push(floor);
   return ladder;
 }
 
