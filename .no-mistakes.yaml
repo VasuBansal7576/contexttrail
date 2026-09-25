@@ -1,0 +1,19 @@
+# ContextTrail gate policy (project-scoped; committed for local landing).
+#
+# Pin the no-mistakes pipeline agent to OpenCode for this repository so the
+# global `agent: auto` default (which resolves to Claude here) cannot be
+# selected by any later gate run in this repo. Which OpenCode model runs is
+# pinned separately in ./opencode.json (`model` / `small_model`), restricted
+# to the approved free crew IDs plus an `enabled_providers` allowlist and a
+# provider model whitelist so no paid fallback can be selected.
+#
+# Official syntax verified against:
+#   https://kunchenguid.github.io/no-mistakes/reference/repo-config/#agent
+#   https://kunchenguid.github.io/no-mistakes/guides/agents/#per-repo-override
+# Type: string (or string[] for an ordered fallback list). Values are the same
+# names as global `agent`; repo config takes precedence over global config.
+#
+# Trust note (official docs): `agent` is read only from the trusted default
+# branch copy of this file, never from a pushed feature SHA, so this pin takes
+# effect once this file is on the default branch the daemon resolves.
+agent: opencode
