@@ -1,0 +1,279 @@
+/**
+ * Screen 6 — Evidence viewer (spec sections 3.14, 4.8).
+ *
+ * Dark immersive modal. Shows submitted and retrieved images side by side
+ * (accessible toggle on narrow screens), source details with attributed
+ * excerpts, and collapsible technical details. Missing images or excerpts
+ * render as explicit limitations — never substituted or invented.
+ */
+"use client";
+
+import { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
+import {
+  contextLabel,
+  mediaRelationshipLabel,
+  occurrenceDate,
+  occurrenceDatePrecision,
+  occurrenceDateSource,
+  occurrenceExcerpt,
+  occurrenceId,
+  occurrenceImage,
+  str,
+  type JsonRecord,
+} from "@/lib/stream/result-view";
+import { Badge } from "@/components/ui";
+import { cn } from "@/components/cn";
+
+interface EvidenceViewerProps {
+  open: boolean;
+  items: JsonRecord[];
+  index: number;
+  submittedImageUrl: string | null;
+  claim: string | null;
+  onClose: () => void;
+  onNavigate: (index: number) => void;
+}
+
+function TechDetails({ occurrence }: { occurrence: JsonRecord }) {
+  const rows: Array<[string, string | null]> = [
+    ["Search engine", str(occurrence, "engine")],
+    ["Result position", str(occurrence, "position") ?? str(occurrence, "resultPosition")],
+    ["Lens result type", str(occurrence, "lensResultType") ?? str(occurrence, "resultType")],
+    ["Canonical URL", str(occurrence, "canonicalUrl")],
+    ["Publication-date source", occurrenceDateSource(occurrence)],
+    ["Retrieval timestamp", str(occurrence, "retrievedAt") ?? str(occurrence, "retrievalTimestamp")],
+    ["Model version", str(occurrence, "jevModel") ?? str(occurrence, "modelVersion")],
+  ];
+  const visible = rows.filter(([, v]) => v !== null);
+  if (visible.length === 0) return null;
+  return (
+    <details className="mt-4 rounded-lg bg-white/5 px-4 py-3 ring-1 ring-white/10">
+      <summary className="min-h-[32px] cursor-pointer text-sm font-medium text-white/80">
+        Technical details
+      </summary>
+      <dl className="mt-2 space-y-1 text-xs text-white/60">
+        {visible.map(([label, value]) => (
+          <div key={label} className="flex gap-2">
+            <dt className="shrink-0 font-medium text-white/45">{label}:</dt>
+            <dd className="break-all">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
+}
+
+export default function EvidenceViewer({
+  open,
+  items,
+  index,
+  submittedImageUrl,
+  claim,
+  onClose,
+  onNavigate,
+}: EvidenceViewerProps) {
+  const [mobileTab, setMobileTab] = useState<"submitted" | "retrieved">("retrieved");
+  const occurrence = items[index] ?? null;
+
+  useEffect(() => {
+    if (open) setMobileTab("retrieved");
+  }, [open, index]);
+
+  const title = occurrence ? (str(occurrence, "title") ?? "Untitled result") : "Evidence";
+  const domain = occurrence ? str(occurrence, "domain") : null;
+  const url = occurrence ? (str(occurrence, "url") ?? str(occurrence, "sourceUrl")) : null;
+  const retrievedImage = occurrence ? occurrenceImage(occurrence) : null;
+  const mediaLabel = occurrence ? mediaRelationshipLabel(occurrence) : null;
+  const ctxLabel = occurrence ? contextLabel(occurrence) : null;
+  const date = occurrence ? occurrenceDate(occurrence) : null;
+  const precision = occurrence ? occurrenceDatePrecision(occurrence) : null;
+  const dateSource = occurrence ? occurrenceDateSource(occurrence) : null;
+  const excerpt = occurrence ? occurrenceExcerpt(occurrence) : { text: null, source: null };
+  const reportingOrigin = occurrence
+    ? (str(occurrence, "reportingOrigin") ?? str(occurrence, "reportingOriginStatus"))
+    : null;
+
+  const position = items.length > 0 ? `${Math.min(index + 1, items.length)} of ${items.length}` : "0 of 0";
+
+  return (
+    <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
+        <Dialog.Content
+          aria-describedby={undefined}
+          className="fixed inset-0 z-50 overflow-y-auto bg-deep text-white"
+        >
+          <div className="mx-auto max-w-[1280px] px-5 py-5 sm:px-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-sm text-white/80 ring-1 ring-white/25 transition hover:text-white hover:ring-white/50"
+                >
+                  <span aria-hidden="true">←</span> Back to timeline
+                </button>
+              </Dialog.Close>
+              <div className="flex items-center gap-2" role="group" aria-label="Browse evidence">
+                <button
+                  type="button"
+                  disabled={index <= 0}
+                  onClick={() => onNavigate(index - 1)}
+                  aria-label="Previous evidence"
+                  className="min-h-[44px] rounded-full px-4 text-sm ring-1 ring-white/25 transition enabled:hover:ring-white/50 disabled:opacity-40"
+                >
+                  ‹ Previous
+                </button>
+                <p aria-live="polite" className="min-w-[64px] text-center text-sm text-white/70">
+                  {position}
+                </p>
+                <button
+                  type="button"
+                  disabled={index >= items.length - 1}
+                  onClick={() => onNavigate(index + 1)}
+                  aria-label="Next evidence"
+                  className="min-h-[44px] rounded-full px-4 text-sm ring-1 ring-white/25 transition enabled:hover:ring-white/50 disabled:opacity-40"
+                >
+                  Next ›
+                </button>
+              </div>
+            </div>
+
+            {occurrence ? (
+              <div className="mt-6 grid gap-8 lg:grid-cols-[2fr_1fr]">
+                {/* Image comparison */}
+                <div>
+                  <div role="group" aria-label="Choose image to inspect" className="mb-3 flex gap-2 lg:hidden">
+                    {(["submitted", "retrieved"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        aria-pressed={mobileTab === tab}
+                        onClick={() => setMobileTab(tab)}
+                        className={cn(
+                          "min-h-[44px] flex-1 rounded-full px-4 text-sm capitalize ring-1 transition",
+                          mobileTab === tab
+                            ? "bg-white text-ink ring-white"
+                            : "text-white/70 ring-white/25",
+                        )}
+                      >
+                        {tab} image
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <figure className={cn(mobileTab !== "submitted" && "hidden lg:block")}>
+                      <figcaption className="mb-2 text-sm font-medium text-white/70">
+                        Submitted image
+                      </figcaption>
+                      {submittedImageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={submittedImageUrl}
+                          alt="The image submitted for this investigation"
+                          className="max-h-[60vh] w-full rounded-xl object-contain bg-black/40 ring-1 ring-white/15"
+                        />
+                      ) : (
+                        <p className="rounded-xl bg-white/5 p-6 text-sm text-white/55 ring-1 ring-white/10">
+                          Submitted image unavailable in this view.
+                        </p>
+                      )}
+                    </figure>
+                    <figure className={cn(mobileTab !== "retrieved" && "hidden lg:block")}>
+                      <figcaption className="mb-2 text-sm font-medium text-white/70">
+                        Retrieved image
+                      </figcaption>
+                      {retrievedImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={retrievedImage}
+                          alt={`Retrieved image from ${domain ?? "unknown source"}`}
+                          className="max-h-[60vh] w-full rounded-xl object-contain bg-black/40 ring-1 ring-white/15"
+                        />
+                      ) : (
+                        <p className="rounded-xl bg-white/5 p-6 text-sm text-white/55 ring-1 ring-white/10">
+                          Retrieved image unavailable — the source image could not be loaded. It
+                          is not replaced with your submitted image.
+                        </p>
+                      )}
+                    </figure>
+                  </div>
+                </div>
+
+                {/* Source details */}
+                <div>
+                  <Dialog.Title className="font-serif text-3xl leading-tight">{title}</Dialog.Title>
+                  {domain ? <p className="mt-1 text-sm text-white/60">{domain}</p> : null}
+                  <p className="mt-2 text-sm text-white/60">
+                    {date ?? "Date unknown"}
+                    {precision && date ? ` · ${precision}` : ""}
+                    {dateSource ? ` · ${dateSource}` : date ? " · date source unknown" : ""}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {mediaLabel ? (
+                      <Badge tone={mediaLabel === "Visual lead" ? "neutral" : "info"} className="bg-white/10 text-white ring-white/20">
+                        {mediaLabel}
+                        {mediaLabel === "Exact match" ? " · reported by Google Lens" : ""}
+                      </Badge>
+                    ) : null}
+                    {ctxLabel ? (
+                      <Badge tone="neutral" className="bg-white/10 text-white ring-white/20">
+                        {ctxLabel}
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <h3 className="mt-5 text-sm font-semibold tracking-wide text-white/50 uppercase">
+                    Source excerpt
+                  </h3>
+                  {excerpt.text ? (
+                    <figure className="mt-2">
+                      <blockquote className="border-l-2 border-white/20 pl-3 text-[15px] leading-relaxed text-white/85">
+                        “{excerpt.text}”
+                      </blockquote>
+                      <figcaption className="mt-1 pl-3 text-xs text-white/50">
+                        {excerpt.source ?? "Search snippet"}
+                      </figcaption>
+                    </figure>
+                  ) : (
+                    <p className="mt-2 text-sm text-white/60">No excerpt available</p>
+                  )}
+
+                  {reportingOrigin ? (
+                    <p className="mt-3 text-sm text-white/65">Reporting origin: {reportingOrigin}</p>
+                  ) : (
+                    <p className="mt-3 text-sm text-white/65">Reporting origin unresolved.</p>
+                  )}
+
+                  {claim ? (
+                    <p className="mt-3 text-sm text-white/60">
+                      Submitted claim: <span className="text-white/85">“{claim}”</span>
+                    </p>
+                  ) : null}
+
+                  {url ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-paper px-5 py-2.5 text-sm font-medium text-ink transition hover:bg-white"
+                    >
+                      Open original source <span aria-hidden="true">↗</span>
+                    </a>
+                  ) : (
+                    <p className="mt-5 text-sm text-white/55">No source link was retrieved for this occurrence.</p>
+                  )}
+
+                  <TechDetails occurrence={occurrence} />
+                  <p className="mt-3 text-xs text-white/40">Evidence ID: {occurrenceId(occurrence, `#${index}`)}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-10 text-center text-white/60">No evidence selected.</p>
+            )}
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
