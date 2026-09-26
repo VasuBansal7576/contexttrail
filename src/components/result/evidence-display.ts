@@ -235,7 +235,14 @@ export function splitCompositeExcerpt(raw: string | null): CompositeExcerpt {
   const empty = { title: null, snippet: null, body: null };
   if (!raw) return empty;
   const match = raw.match(/^Title:(.*?)\r?\n\r?\nSnippet:(.*?)\r?\n\r?\n([\s\S]*)$/);
-  if (!match) return { title: null, snippet: null, body: raw };
+  if (!match) {
+    // A bare "Title:" wrapper with no snippet or body is not an excerpt —
+    // the title already heads the card, and quoting it would manufacture
+    // page-text attribution from nothing extracted.
+    const titleOnly = raw.match(/^Title:([^\n]*)$/);
+    if (titleOnly) return { title: titleOnly[1].trim() || null, snippet: null, body: null };
+    return { title: null, snippet: null, body: raw };
+  }
   const title = match[1].trim() || null;
   const snippet = match[2].trim() || null;
   const body = match[3].trim() || null;
