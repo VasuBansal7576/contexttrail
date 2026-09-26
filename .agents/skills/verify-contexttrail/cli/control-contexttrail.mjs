@@ -2787,6 +2787,47 @@ async function drive(opts = {}) {
   let stream = null;
   let session = null;
   let outcome = "PASS";
+
+  // An interrupted drive (Ctrl-C, a supervisor's SIGTERM) must still hand back
+  // what it can prove. Closing the browser flushes the recording encoder, so the
+  // partial video is collected into the drive's evidence and the record is
+  // written as INCOMPLETE with no assertion verdict — a killed run is never
+  // reported as a pass, and never leaves an unpreserved recording behind.
+  let interrupting = false;
+  const onInterrupt = (signal) => {
+    if (interrupting) return;
+    interrupting = true;
+    (async () => {
+      try {
+        if (fault && session?.page) {
+          faultHits = await session.page
+            .evaluate(() => Number(window.__ctFaultHits ?? 0))
+            .catch(() => 0);
+        }
+        await session?.context?.close().catch(() => {});
+        await session?.browser?.close().catch(() => {});
+        const collected = collectVideos(videoStaged, videoStageDir, driveDir);
+        rec.push("drive.interrupted", "FAIL", `interrupted by ${signal}`);
+        rec.close();
+        writeJson(path.join(driveDir, "drive.json"), {
+          ...initialRecord,
+          outcome: "INCOMPLETE",
+          complete: false,
+          interruptedBy: signal,
+          finishedAt: new Date().toISOString(),
+          videos: collected,
+          faultFired: fault ? faultHits > 0 : null,
+          note:
+            "interrupted before completion: assertions recorded up to the signal are kept, " +
+            "the recording is preserved, and no pass verdict is claimed",
+        });
+      } finally {
+        process.exit(EXIT_ASSERT);
+      }
+    })();
+  };
+  process.on("SIGINT", () => onInterrupt("SIGINT"));
+  process.on("SIGTERM", () => onInterrupt("SIGTERM"));
   let failure = null;
   let failureStack = "";
 
