@@ -460,9 +460,11 @@ export async function runInvestigation(
     }
   };
 
-  /** §16 — classify one candidate; judgment stays null on failure (§29). */
+  /** §16 — classify one candidate; judgment stays null on failure (§29).
+   *  Past the deadline no new semantic work dispatches — the run finalizes
+   *  with the evidence already in hand (§26/§28). */
   const classifyOne = async (c: EvidenceCandidate): Promise<boolean> => {
-    if (deps.jev === null || c.judgment !== null) return false;
+    if (deps.jev === null || c.judgment !== null || deadlineHit()) return false;
     telemetry.jevAttempted += 1;
     const t0 = now();
     try {
@@ -716,6 +718,13 @@ export async function runInvestigation(
     if (deps.jev === null) {
       limitations.add("semantic_classification_unavailable");
       stage("FAST_CLASSIFY", "completed", "Jev unavailable");
+    } else if (deadlineHit()) {
+      // §26/§28 — past the deadline, stop starting new semantic work and
+      // finalize available evidence; unclassified stays honestly limited.
+      if (toClassify.length > 0 && jevSuccesses === 0) {
+        limitations.add("semantic_classification_unavailable");
+      }
+      stage("FAST_CLASSIFY", "completed", "deadline — classification skipped");
     } else {
       const results = await Promise.all(toClassify.map((c) => classifyOne(c)));
       const succeeded = results.filter(Boolean).length;

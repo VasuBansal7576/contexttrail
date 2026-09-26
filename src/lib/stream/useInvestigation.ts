@@ -93,6 +93,56 @@ const INITIAL_SNAPSHOT: InvestigationSnapshot = {
 
 const RESULT_CACHE_KEY = "contexttrail.latest-result";
 
+/** Sentinel abort reason distinguishing the client watchdog from an
+ *  explicit user cancellation — the caught stream error does not reliably
+ *  preserve it (native body cancellation surfaces a bare AbortError). */
+const WATCHDOG_REASON = "watchdog";
+
+/**
+ * Reduce an aborted/failed stream read to the honest failure state
+ * (spec §4.8, §29). Classification reads the owned controller's abort
+ * *reason*, never the thrown error's message: watchdog → timed_out
+ * (failed, partial evidence preserved); user abort → cancelled; a
+ * non-aborted transport failure → failed, with copy that distinguishes
+ * interruption after evidence from failure before any arrived.
+ */
+export function classifyStreamFailure(
+  snapshot: InvestigationSnapshot,
+  signal: AbortSignal,
+): InvestigationSnapshot {
+  if (snapshot.phase !== "streaming" && snapshot.phase !== "preparing") {
+    return snapshot;
+  }
+  const partial = snapshot.evidence.length > 0;
+  if (signal.aborted) {
+    const timedOut =
+      signal.reason instanceof Error && signal.reason.message === WATCHDOG_REASON;
+    return {
+      ...snapshot,
+      phase: timedOut ? "failed" : "cancelled",
+      error: timedOut
+        ? {
+            code: "timed_out",
+            message:
+              "The investigation timed out waiting for the service. Partial evidence, if any, is shown below.",
+            partial,
+          }
+        : snapshot.error,
+    };
+  }
+  return {
+    ...snapshot,
+    phase: "failed",
+    error: {
+      code: "network_error",
+      message: partial
+        ? "The connection to the investigation service was interrupted. The evidence retrieved so far is shown below."
+        : "Could not reach the investigation service. Check your connection and try again — no evidence was retrieved.",
+      partial,
+    },
+  };
+}
+
 function stageLabel(name: string): string {
   return STAGE_LABELS[name] ?? name;
 }
@@ -280,7 +330,7 @@ export function useInvestigation() {
       abortRef.current = controller;
 
       setSnapshot({ ...INITIAL_SNAPSHOT, phase: "preparing" });
-      watchdogRef.current = setTimeout(() => controller.abort(new Error("watchdog")), STREAM_WATCHDOG_MS);
+      watchdogRef.current = setTimeout(() => controller.abort(new Error(WATCHDOG_REASON)), STREAM_WATCHDOG_MS);
 
       const fail = (code: string, message: string, partial = false) => {
         clearWatchdog();
@@ -361,32 +411,10 @@ export function useInvestigation() {
           }
           return prev;
         });
-      } catch (err) {
-        if (controller.signal.aborted) {
-          clearWatchdog();
-          setSnapshot((prev) =>
-            prev.phase === "streaming" || prev.phase === "preparing"
-              ? {
-                  ...prev,
-                  phase: err instanceof Error && err.message === "watchdog" ? "failed" : "cancelled",
-                  error:
-                    err instanceof Error && err.message === "watchdog"
-                      ? {
-                          code: "timed_out",
-                          message:
-                            "The investigation timed out waiting for the service. Partial evidence, if any, is shown below.",
-                          partial: prev.evidence.length > 0,
-                        }
-                      : prev.error,
-                }
-              : prev,
-          );
-          return;
-        }
-        fail(
-          "network_error",
-          "Could not reach the investigation service. Check your connection and try again — no evidence was retrieved.",
-        );
+      } catch {
+        clearWatchdog();
+        setSnapshot((prev) => classifyStreamFailure(prev, controller.signal));
+        return;
       }
     },
     [clearWatchdog],
