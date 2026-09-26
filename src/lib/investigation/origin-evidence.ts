@@ -61,7 +61,7 @@ const ENTITY_NAME = `([A-Z][A-Za-z0-9.'-]*(?:${NAME_TAIL}){0,4})`;
  * acquisition/reporting origin for the media.
  */
 const MEDIA_BOUND_PUBLISHER_PATTERN = new RegExp(
-  `(?:image|photo|photograph|footage|video)\\s+(?:was\\s+|were\\s+)?(?:first\\s+|originally\\s+)?(?:published|released|obtained|distributed|issued|verified|documented)\\s+by\\s+(?:the\\s+)?${ENTITY_NAME}`,
+  `(?:image|photo|photograph|footage|video)\\s+(?:was\\s+|were\\s+)?((?:first|originally)\\s+published|(?:first\\s+|originally\\s+)?(?:released|obtained|acquired|distributed|issued|verified|documented)|published)\\s+by\\s+(?:the\\s+)?${ENTITY_NAME}`,
   "g",
 );
 const NAMED_BYLINE_PATTERN = new RegExp(
@@ -147,8 +147,13 @@ function ownOutletKey(registrableDomain: string): string {
 
 /** Named attribution extracted from one candidate's fetched page text. */
 interface NamedEvidence {
-  /** Media-bound publisher credits ("the image was released by X"). */
+  /** Media-bound acquisition/reporting credits ("the image was released by
+   *  X", "first published by X"). A bare "published by X" names the hosting
+   *  act, not acquisition, and is kept separately. */
   mediaPublishers: string[];
+  /** Media-bound hosting credits ("the image was published by X") —
+   *  evidence of publication only; never an acquisition origin claim. */
+  hostingCredits: string[];
   /** Named byline outlets ("Reported by Y for the X"). */
   bylineOutlets: string[];
   /** Sentences carrying the attribution, retained as inspectable support. */
@@ -161,7 +166,7 @@ interface NamedEvidence {
  * by the sentence that follows it.
  */
 function extractNamedEvidence(text: string): NamedEvidence {
-  const out: NamedEvidence = { mediaPublishers: [], bylineOutlets: [], spans: [] };
+  const out: NamedEvidence = { mediaPublishers: [], hostingCredits: [], bylineOutlets: [], spans: [] };
   const sentences = splitSentences(text);
   for (let i = 0; i < sentences.length; i++) {
     const s = sentences[i];
@@ -172,7 +177,12 @@ function extractNamedEvidence(text: string): NamedEvidence {
     let found = false;
     MEDIA_BOUND_PUBLISHER_PATTERN.lastIndex = 0;
     while ((m = MEDIA_BOUND_PUBLISHER_PATTERN.exec(s)) !== null) {
-      if (m[1]) { out.mediaPublishers.push(m[1].trim()); found = true; }
+      if (m[1] && m[2]) {
+        // The first alternation keeps "first/originally published" an
+        // acquisition claim; a bare "published by X" is hosting only.
+        (m[1].trim() === "published" ? out.hostingCredits : out.mediaPublishers).push(m[2].trim());
+        found = true;
+      }
     }
     NAMED_BYLINE_PATTERN.lastIndex = 0;
     while ((m = NAMED_BYLINE_PATTERN.exec(s)) !== null) {
@@ -319,25 +329,34 @@ export function refineReportingOrigins(
     if (c.reportingOrigin.status === "separate_origin_evidenced") continue;
     const text = pageTexts.get(c.id) ?? "";
     const ev = extractNamedEvidence(text);
-    if (ev.mediaPublishers.length === 0 && ev.bylineOutlets.length === 0) continue;
+    if (
+      ev.mediaPublishers.length === 0 &&
+      ev.hostingCredits.length === 0 &&
+      ev.bylineOutlets.length === 0
+    ) continue;
     const own = ownOutletKey(c.registrableDomain);
+    // External named providers/outlets constrain promotion: a page that
+    // credits a source it does not own shared that source — it cannot
+    // claim a separate acquisition origin on the same evidence.
+    const external = new Set<string>();
+    for (const p of [...ev.mediaPublishers, ...ev.hostingCredits, ...ev.bylineOutlets]) {
+      const k = nameKey(p);
+      if (k !== "" && k !== own) external.add(k);
+    }
+    if (external.size > 0) {
+      for (const k of external) {
+        const list = providerGroups.get(k) ?? [];
+        list.push({ c, spans: ev.spans });
+        providerGroups.set(k, list);
+      }
+      continue;
+    }
     const selfBound =
       own !== "" &&
       ev.mediaPublishers.some((p) => nameKey(p) === own);
     if (selfBound) {
       separate.push({ c, spans: ev.spans });
       continue;
-    }
-    // External named providers/outlets cluster the candidate.
-    const names = new Set<string>();
-    for (const p of [...ev.mediaPublishers, ...ev.bylineOutlets]) {
-      const k = nameKey(p);
-      if (k !== "" && k !== own) names.add(k);
-    }
-    for (const k of names) {
-      const list = providerGroups.get(k) ?? [];
-      list.push({ c, spans: ev.spans });
-      providerGroups.set(k, list);
     }
   }
 

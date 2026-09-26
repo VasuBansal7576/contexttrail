@@ -6,7 +6,7 @@
  * REQUIRED behavior — they fail while the defect stands.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { makeExact, makeJudgment } from "./testkit";
 import { refineReportingOrigins } from "../origin-evidence";
 import { evaluateClaimPolicy } from "../policy";
@@ -395,5 +395,290 @@ describe("run-level adversarial probes", () => {
     const result = events.find((e) => e.type === "investigation.completed")?.result;
     expect(result?.limitations).toContain("semantic_classification_unavailable");
     expect(result?.limitations).not.toContain("semantic_classification_partial");
+  });
+});
+
+/* -------- follow-up recheck at 6e082bb (R1–R3; R4 UI is Muse's) -------- */
+
+describe("R1 — a common provider credit constrains separate-origin promotion", () => {
+  it("shared provider + host publication credit still resolves to ONE shared group — no CONTEXT_CONFLICT", () => {
+    const a = makeExact({
+      id: "alpha",
+      sourceUrl: "https://alpha.example.org/story",
+      canonicalUrl: "https://alpha.example.org/story",
+      domain: "alpha.example.org",
+      registrableDomain: "alpha.example.org",
+      judgment: strongConflictJudgment(),
+    });
+    const b = makeExact({
+      id: "beta",
+      sourceUrl: "https://beta.example.org/story",
+      canonicalUrl: "https://beta.example.org/story",
+      domain: "beta.example.org",
+      registrableDomain: "beta.example.org",
+      judgment: strongConflictJudgment(),
+    });
+    refineReportingOrigins([a, b], new Map([
+      [a.id, filler("The photograph was released by Reuters. The photograph was published by Alpha.", "mango nectar olive papaya quince")],
+      [b.id, filler("The photograph was released by Reuters. The photograph was published by Beta.", "raspberry saffron tamarind ugli vanilla")],
+    ]));
+    // "Published by this host" proves hosting, not independent acquisition —
+    // the common Reuters credit keeps both in one shared group.
+    expect(a.reportingOrigin.status).toBe("shared_origin");
+    expect(b.reportingOrigin.status).toBe("shared_origin");
+    expect(a.reportingOrigin.groupId).toBe(b.reportingOrigin.groupId);
+    expect(evaluateClaimPolicy([a, b]).status).not.toBe("CONTEXT_CONFLICT");
+  });
+
+  it("a self-bound acquisition credit alongside a common provider cannot break out as separate", () => {
+    const a = makeExact({
+      id: "alpha",
+      sourceUrl: "https://alpha.example.org/story",
+      canonicalUrl: "https://alpha.example.org/story",
+      domain: "alpha.example.org",
+      registrableDomain: "alpha.example.org",
+    });
+    refineReportingOrigins([a], new Map([
+      [a.id, filler("The photograph was released by Reuters. The photograph was released by Alpha.", "walnut xigua yam zucchini almond")],
+    ]));
+    expect(a.reportingOrigin.status).not.toBe("separate_origin_evidenced");
+  });
+
+  it("positive control — own acquisition credit alone still evidences a separate origin", () => {
+    const a = makeExact({
+      id: "own",
+      sourceUrl: "https://dailyexaminer.example.org/story",
+      canonicalUrl: "https://dailyexaminer.example.org/story",
+      domain: "dailyexaminer.example.org",
+      registrableDomain: "dailyexaminer.example.org",
+    });
+    refineReportingOrigins([a], new Map([
+      [a.id, filler("The photograph was released by the Daily Examiner.", "basil clove dill elderberry fennel")],
+    ]));
+    expect(a.reportingOrigin.status).toBe("separate_origin_evidenced");
+  });
+});
+
+describe("R2 — page binding cannot infect unrelated nested entities", () => {
+  const boundAdversaryLd = (pageUrl: string) =>
+    JSON.stringify({
+      "@type": "WebPage",
+      url: pageUrl,
+      hasPart: {
+        "@type": "ItemList",
+        itemListElement: [
+          {
+            "@type": "NewsArticle",
+            url: "https://other.example.org/related",
+            datePublished: "1999-01-01",
+          },
+        ],
+      },
+      mainEntity: {
+        "@type": "NewsArticle",
+        url: pageUrl,
+        datePublished: "2024-01-01",
+      },
+    });
+  const boundAdversaryHtml = (pageUrl: string) =>
+    `<html><head><script type="application/ld+json">${boundAdversaryLd(pageUrl)}</script></head><body><article><p>${"Actual page body. ".repeat(30)}</p></article></body></html>`;
+
+  it("extractPage(html, fetchedUrl) accepts the mainEntity date and rejects the unrelated nested article", () => {
+    const ex = extractPage(
+      boundAdversaryHtml("https://target.example.org/story"),
+      "https://target.example.org/story",
+    );
+    expect(ex.jsonLdDates).toEqual(["2024-01-01"]);
+    expect(ex.rejectedJsonLdDates).toEqual([
+      { value: "1999-01-01", reason: "contradictory_entity_binding" },
+    ]);
+  });
+
+  it("full pipeline — a 1999 nested-article date cannot backdate a 2024 story", async () => {
+    type Item = {
+      sourceUrl: string;
+      observedAt: string | null;
+      dateProvenance: { value: string | null; entityBinding: string | null; rejectedCandidates: Array<{ value: string }> };
+    };
+    const events: Array<{
+      type: string;
+      result?: { timeline?: Item[]; supportingEvidence?: Item[] };
+    }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: null, timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      {
+        serpapi: {
+          uploadImage: async () => "controlled",
+          search: async (p: { engine?: string; type?: string }) =>
+            p.type === "exact_matches"
+              ? { exact_matches: [{ title: "exact", link: "https://unique.example.org/item" }] }
+              : p.type === "about_this_image"
+                ? { about_this_image: { sections: [] } }
+                : p.engine === "google_lens"
+                  ? { visual_matches: [{ title: "target", link: "https://target.example.org/story" }] }
+                  : p.engine === "google_news"
+                    ? { news_results: [] }
+                    : { organic_results: [] },
+        } as never,
+        jev: VERIFIED_JEV_CLIENT as never,
+        fetchPage: async (url: string): Promise<FetchedPage> => ({
+          url,
+          html: url === "https://target.example.org/story"
+            ? boundAdversaryHtml(url)
+            : `<html><body><article><p>${"Controlled factual page body. ".repeat(25)}</p></article></body></html>`,
+        }),
+      },
+    );
+    const result = events.find((e) => e.type === "investigation.completed")?.result;
+    const items = [
+      ...(result?.timeline ?? []),
+      ...(result?.supportingEvidence ?? []),
+    ];
+    const target = items.find((t) => t.sourceUrl === "https://target.example.org/story");
+    expect(target?.dateProvenance.value).toBe("2024-01-01");
+    for (const t of items) {
+      expect(t.observedAt ?? t.dateProvenance.value).not.toBe("1999-01-01");
+      expect(t.dateProvenance.value).not.toBe("1999-01-01");
+    }
+    expect(target?.dateProvenance.rejectedCandidates.map((r) => r.value)).toContain("1999-01-01");
+  });
+});
+
+describe("R3 — request attribution and telemetry accounting", () => {
+  const weakJev = {
+    ask: async () => ({
+      answers: { ...GOOD_ANSWERS, relevance: { type: "noul", noul: 0.3 } },
+      model: "jev-1.13.0",
+      identity: VERIFIED_JEV,
+    }),
+  };
+
+  it("requestLog counts retained per attempt — an empty adaptive call retains 0", async () => {
+    const events: Array<{
+      type: string;
+      result?: { requestLog?: Array<{ engine: string; attempted: number; returned: number; retained: number }> };
+    }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: "controlled claim", timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      {
+        serpapi: {
+          uploadImage: async () => "controlled",
+          search: async (p: { engine?: string; type?: string; q?: string }) => {
+            if (p.type === "all" && typeof p.q === "string") {
+              // adaptive_lens_refined — returns nothing.
+              return { visual_matches: [] };
+            }
+            return p.type === "exact_matches"
+              ? { exact_matches: [{ title: "exact", link: "https://unique.example.org/item" }] }
+              : p.type === "about_this_image"
+                ? { about_this_image: { sections: [] } }
+                : p.engine === "google_lens"
+                  ? { visual_matches: [{ title: "visual lead", link: "https://visual.example.org/a" }] }
+                  : p.engine === "google_news"
+                    ? { news_results: [] }
+                    : { organic_results: [] };
+          },
+        } as never,
+        jev: weakJev as never,
+        fetchPage: fetchPageStub,
+      },
+    );
+    const log = events.find((e) => e.type === "investigation.completed")?.result?.requestLog ?? [];
+    const adaptive = log.find((r) => r.engine === "adaptive_lens_refined");
+    expect(adaptive).toMatchObject({ attempted: 1, returned: 0, retained: 0 });
+    const lensAll = log.find((r) => r.engine === "lens_all");
+    expect(lensAll?.retained).toBe(1);
+  });
+
+  it("a provider JSON-error attempt is recorded in the request log", async () => {
+    const events: Array<{
+      type: string;
+      result?: { requestLog?: Array<{ engine: string; attempted: number; returned: number }> };
+    }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: "controlled claim", timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      {
+        serpapi: {
+          uploadImage: async () => "controlled",
+          search: async (p: { engine?: string; type?: string }) =>
+            p.engine === "google_news"
+              ? { search_metadata: { status: "Error" } }
+              : p.type === "exact_matches"
+                ? { exact_matches: [{ title: "exact", link: "https://unique.example.org/item" }] }
+                : p.type === "about_this_image"
+                  ? { about_this_image: { sections: [] } }
+                  : p.engine === "google_lens"
+                    ? { visual_matches: [] }
+                    : { organic_results: [] },
+        } as never,
+        jev: VERIFIED_JEV_CLIENT as never,
+        fetchPage: fetchPageStub,
+      },
+    );
+    const log = events.find((e) => e.type === "investigation.completed")?.result?.requestLog ?? [];
+    expect(log).toContainEqual(
+      expect.objectContaining({ engine: "google_news_claim", attempted: 1, returned: 0 }),
+    );
+  });
+
+  it("telemetry carries per-search and per-Jev duration/model status plus budget counters", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await runInvestigation(
+        { media: new Uint8Array([1]), claim: "controlled claim", timezone: "UTC", locale: "en" },
+        () => {},
+        { serpapi: baseSerp as never, jev: VERIFIED_JEV_CLIENT as never, fetchPage: fetchPageStub },
+      );
+      const records = spy.mock.calls
+        .map((c) => String(c[0] ?? ""))
+        .filter((s) => s.includes("telemetry"))
+        .map((s) => JSON.parse(s.slice(s.indexOf("telemetry") + 10).trim()) as Record<string, unknown>);
+      const final = records.find((r) => r.kind === "investigation") as {
+        searches: Array<{ ms: number }>;
+        jev: { calls: Array<{ kind: string; ms: number; identityStatus: string; model: string | null }> };
+        budget: { used: number; remaining: number };
+      };
+      expect(final).toBeDefined();
+      for (const s of final.searches) expect(typeof s.ms).toBe("number");
+      expect(final.jev.calls.length).toBeGreaterThan(0);
+      for (const call of final.jev.calls) {
+        expect(typeof call.ms).toBe("number");
+        expect(call.identityStatus).toBe("verified");
+        expect(call.model).toBe("jev-1.13.0");
+      }
+      expect(typeof final.budget.used).toBe("number");
+      expect(typeof final.budget.remaining).toBe("number");
+      expect(final.budget.used + final.budget.remaining).toBeGreaterThanOrEqual(final.budget.used);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("telemetry never logs a raw unverified provider model string", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await runInvestigation(
+        { media: new Uint8Array([1]), claim: "controlled claim", timezone: "UTC", locale: "en" },
+        () => {},
+        {
+          serpapi: baseSerp as never,
+          jev: {
+            ask: async () => ({
+              answers: GOOD_ANSWERS,
+              model: "jev-9.9.9-unexpected",
+              identity: { requested: "jev-1.13.0", reported: "jev-9.9.9-unexpected", status: "unexpected", pinned: true },
+            }),
+          } as never,
+          fetchPage: fetchPageStub,
+        },
+      );
+      const raw = JSON.stringify(spy.mock.calls);
+      expect(raw).not.toContain("jev-9.9.9-unexpected");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

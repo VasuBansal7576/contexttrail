@@ -57,6 +57,9 @@ type Binding = "page_url" | "main_entity" | "root_entity" | "nested";
 interface DateCandidate {
   value: string;
   bound: Binding;
+  /** The node asserted an absolute URL/@id that is NOT the fetched page —
+   *  it identifies as a different page, so its dates can never bind here. */
+  contradicted?: boolean;
 }
 
 function normalizePageUrl(u: string): string {
@@ -90,36 +93,54 @@ function collectEntityDates(
   }
   const o = node as Record<string, unknown>;
 
-  let selfBound = bound;
+  // Absolute page-identity URLs the node claims for itself. Relative or
+  // fragment identifiers are not page identity and are ignored.
+  const ownUrls: string[] = [];
   if (pageUrl !== null) {
     for (const key of ["url", "@id", "mainEntityOfPage"] as const) {
       const v = o[key];
-      if (typeof v === "string" && normalizePageUrl(v) === pageUrl) {
-        selfBound = "page_url";
-      } else if (
-        typeof v === "object" &&
-        v !== null &&
-        typeof (v as Record<string, unknown>)["@id"] === "string" &&
-        normalizePageUrl((v as Record<string, unknown>)["@id"] as string) === pageUrl
-      ) {
-        selfBound = "page_url";
-      }
+      const s =
+        typeof v === "string"
+          ? v
+          : typeof v === "object" && v !== null &&
+              typeof (v as Record<string, unknown>)["@id"] === "string"
+            ? ((v as Record<string, unknown>)["@id"] as string)
+            : null;
+      if (s === null || !/^https?:/i.test(s.trim())) continue;
+      ownUrls.push(normalizePageUrl(s));
     }
   }
-  if (selfBound === "nested" && depth === 0 && isPublicationEntity(o)) {
+
+  let selfBound = bound;
+  let contradicted = false;
+  if (ownUrls.length > 0) {
+    if (ownUrls.includes(pageUrl ?? "")) {
+      selfBound = "page_url";
+    } else {
+      // The entity identifies as a different page — it can never bind here.
+      selfBound = "nested";
+      contradicted = true;
+    }
+  }
+  if (!contradicted && selfBound === "nested" && depth === 0 && isPublicationEntity(o)) {
     selfBound = "root_entity";
   }
 
   if (isPublicationEntity(o)) {
     const fields: string[] = [];
     directDateFields(o, fields);
-    for (const v of fields) out.push({ value: v, bound: selfBound });
+    for (const v of fields) out.push({ value: v, bound: selfBound, contradicted });
   }
 
   for (const [k, v] of Object.entries(o)) {
-    // A `mainEntity` edge binds the child to the page; other children
-    // inherit their parent's binding (nested stays nested).
-    const childBound = k === "mainEntity" ? "main_entity" : selfBound;
+    // Only a `mainEntity` edge binds a child to the page — and only when the
+    // parent itself is the page (bound) or the document root. Ordinary
+    // containment (hasPart, ItemList members, related articles) never
+    // inherits page identity.
+    const childBound =
+      k === "mainEntity" && (selfBound !== "nested" || depth === 0)
+        ? "main_entity"
+        : "nested";
     collectEntityDates(v, out, pageUrl, childBound, depth + 1);
   }
 }
@@ -182,7 +203,12 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
       : accepted[0].bound;
   const rejectedJsonLdDates = candidates
     .filter((c) => c.bound === "nested")
-    .map((c) => ({ value: c.value, reason: "unbound_nested_entity" }));
+    .map((c) => ({
+      value: c.value,
+      reason: c.contradicted
+        ? "contradictory_entity_binding"
+        : "unbound_nested_entity",
+    }));
   if (jsonLdDates.length === 0) {
     for (const p of parsedLd) rootPublicationDate(p, jsonLdDates);
     if (jsonLdDates.length > 0) jsonLdDateBinding = "root_entity";

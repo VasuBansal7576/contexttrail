@@ -208,6 +208,7 @@ export interface RequestLogEntry {
   attempted: number;
   returned: number;
   retained: number;
+  durationMs: number;
 }
 
 /** One resolved reporting-origin group: its members and the basis codes

@@ -58,7 +58,11 @@ import {
 } from "./policy";
 import { buildTimeline } from "./timeline";
 import type { JevClient } from "../jev/client";
-import { judgmentFromAnswers, pairwiseFromAnswers } from "../jev/client";
+import {
+  judgmentFromAnswers,
+  pairwiseFromAnswers,
+  verifiedPinnedModel,
+} from "../jev/client";
 import {
   PAIRWISE_QUESTION,
   candidateState,
@@ -272,7 +276,25 @@ export async function runInvestigation(
     jevAttempted: 0,
     jevSucceeded: 0,
     pairwiseAttempted: 0,
-    searches: [] as Array<{ slot: string; engine: string; ok: boolean; count: number }>,
+    /** Per-search attempt records — the batch is retained for request
+     *  attribution only and is stripped before any record is logged. */
+    searches: [] as Array<{
+      slot: string;
+      engine: string;
+      ok: boolean;
+      count: number;
+      ms: number;
+      batch: NormalizedBatch | null;
+    }>,
+    /** Per-Jev call records — duration plus the *status* of the returned
+     *  identity; the model label is emitted only when verified/pinned and
+     *  is never the raw provider string. */
+    jevCalls: [] as Array<{
+      kind: "classify" | "pairwise";
+      ms: number;
+      identityStatus: string;
+      model: string | null;
+    }>,
     pagesAttempted: 0,
     pagesSucceeded: 0,
   };
@@ -356,23 +378,26 @@ export async function runInvestigation(
   ): Promise<SearchJobResult> => {
     const ticket = budget.reserveBase(slot);
     if (ticket === null) return { slot, engineLabel, batch: null, failed: true };
+    const t0 = now();
     try {
       const json = await serpLimiter(() => deps.serpapi!.search(params, shared.signal));
+      const ms = Math.max(0, now() - t0);
       if (serpapiResponseFailed(json)) {
         try {
           console.warn(`[investigate] serpapi ${slot} reported provider error`);
         } catch { /* diagnostics never break the pipeline */ }
+        telemetry.searches.push({ slot, engine: engineLabel, ok: false, count: 0, ms, batch: null });
         ticket.fail();
         return { slot, engineLabel, batch: null, failed: true };
       }
       ticket.succeed();
       const batch = normalize(json);
-      telemetry.searches.push({ slot, engine: engineLabel, ok: true, count: batch.reportedCount });
+      telemetry.searches.push({ slot, engine: engineLabel, ok: true, count: batch.reportedCount, ms, batch });
       emit({ type: "search.batch", engine: engineLabel, count: batch.reportedCount });
       return { slot, engineLabel, batch, failed: false };
     } catch (err) {
       logProviderFailure(`serpapi ${slot}`, err);
-      telemetry.searches.push({ slot, engine: engineLabel, ok: false, count: 0 });
+      telemetry.searches.push({ slot, engine: engineLabel, ok: false, count: 0, ms: Math.max(0, now() - t0), batch: null });
       ticket.fail();
       return { slot, engineLabel, batch: null, failed: true };
     }
@@ -387,12 +412,15 @@ export async function runInvestigation(
     if (choice.slot === "adaptive_lens_refined" && imageIdForLens !== null) {
       params.image_id = imageIdForLens;
     }
+    const t0 = now();
     try {
       const json = await serpLimiter(() => deps.serpapi!.search(params, shared.signal));
+      const ms = Math.max(0, now() - t0);
       if (serpapiResponseFailed(json)) {
         try {
           console.warn(`[investigate] serpapi ${choice.slot} reported provider error`);
         } catch { /* diagnostics never break the pipeline */ }
+        telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: false, count: 0, ms, batch: null });
         ticket.fail();
         return { slot: "adaptive", engineLabel: "expansion", batch: null, failed: true };
       }
@@ -401,12 +429,12 @@ export async function runInvestigation(
         choice.slot === "adaptive_lens_refined"
           ? normalizeLensAllResponse(json, { retrievedAt: new Date().toISOString() })
           : normalizeSearchResponse(json, "google_search", { retrievedAt: new Date().toISOString() });
-      telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: true, count: batch.reportedCount });
+      telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: true, count: batch.reportedCount, ms, batch });
       emit({ type: "search.batch", engine: "expansion", count: batch.reportedCount });
       return { slot: "adaptive", engineLabel: "expansion", batch, failed: false };
     } catch (err) {
       logProviderFailure(`serpapi ${choice.slot}`, err);
-      telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: false, count: 0 });
+      telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: false, count: 0, ms: Math.max(0, now() - t0), batch: null });
       ticket.fail();
       return { slot: "adaptive", engineLabel: "expansion", batch: null, failed: true };
     }
@@ -436,6 +464,7 @@ export async function runInvestigation(
   const classifyOne = async (c: EvidenceCandidate): Promise<boolean> => {
     if (deps.jev === null || c.judgment !== null) return false;
     telemetry.jevAttempted += 1;
+    const t0 = now();
     try {
       const excerpt = excerpts.get(c.id) ?? c.snippet;
       const res = await jevLimiter(() =>
@@ -445,6 +474,12 @@ export async function runInvestigation(
           shared.signal,
         ),
       );
+      telemetry.jevCalls.push({
+        kind: "classify",
+        ms: Math.max(0, now() - t0),
+        identityStatus: res.identity.status,
+        model: verifiedPinnedModel(res.identity),
+      });
       const judgment = judgmentFromAnswers(res.answers, {
         claimMode: mode === "claim_check",
         provenance: res.identity,
@@ -459,6 +494,12 @@ export async function runInvestigation(
       emit({ type: "evidence.classified", id: c.id, publicJudgment: judgment });
       return true;
     } catch (err) {
+      telemetry.jevCalls.push({
+        kind: "classify",
+        ms: Math.max(0, now() - t0),
+        identityStatus: "call_failed",
+        model: null,
+      });
       logProviderFailure(`jev classify for ${c.id}`, err);
       return false;
     }
@@ -860,6 +901,7 @@ export async function runInvestigation(
       telemetry.pairwiseAttempted = orderablePairs.length;
       await Promise.all(
         orderablePairs.map(async ([prev, cur]) => {
+          const t0 = now();
           try {
             const res = await jevLimiter(() =>
               deps.jev!.ask(
@@ -868,8 +910,20 @@ export async function runInvestigation(
                 shared.signal,
               ),
             );
+            telemetry.jevCalls.push({
+              kind: "pairwise",
+              ms: Math.max(0, now() - t0),
+              identityStatus: res.identity.status,
+              model: verifiedPinnedModel(res.identity),
+            });
             judgments.set(pairKey(prev.id, cur.id), pairwiseFromAnswers(res.answers, res.identity));
           } catch (err) {
+            telemetry.jevCalls.push({
+              kind: "pairwise",
+              ms: Math.max(0, now() - t0),
+              identityStatus: "call_failed",
+              model: null,
+            });
             logProviderFailure(`jev pairwise ${prev.id}~${cur.id}`, err);
             judgments.set(pairKey(prev.id, cur.id), null);
           }
@@ -892,25 +946,21 @@ export async function runInvestigation(
     stage("FINAL_POLICY", "started");
     const built = buildTimeline(pool, segments, displayExcerpts, excerpts);
     const coverage = { ...segments.coverage, displayedDatedCore: built.timeline.length };
-    // §34 request/operation log — per-slot attempted/returned counts plus
-    // how many pool candidates each retrieval kind retained. Counts only;
-    // no params, no provider payloads.
-    const SLOT_KIND: Record<string, RetrievalKind> = {
-      lens_all: "lens_visual",
-      lens_exact_matches: "lens_exact",
-      lens_about_this_image: "lens_about_image",
-      google_search_claim: "google_search",
-      google_news_claim: "google_news",
-      adaptive_lens_refined: "lens_visual",
-      adaptive_google_search: "google_search",
-    };
+    // §34 request/operation log — one row per actual attempt. `retained`
+    // counts the candidates from *that* attempt whose canonical URL
+    // survived deduplication into the investigated pool, not every pool
+    // member sharing the retrieval kind. Counts only; no params or
+    // provider payloads.
+    const poolCanonicals = new Set(pool.map((c) => c.canonicalUrl));
     const requestLog = telemetry.searches.map((s) => ({
       engine: s.slot,
       attempted: 1,
       returned: s.ok ? s.count : 0,
-      retained: pool.filter((c) =>
-        c.retrievals.some((r) => r.kind === SLOT_KIND[s.slot]),
-      ).length,
+      retained:
+        s.batch === null
+          ? 0
+          : s.batch.candidates.filter((c) => poolCanonicals.has(c.canonicalUrl)).length,
+      durationMs: s.ms,
     }));
     const takeaways: Takeaway[] =
       mode === "claim_check"
@@ -962,8 +1012,14 @@ export async function runInvestigation(
       durationMs: Math.max(0, now() - startedAt),
       status: result.mode === "claim_check" ? result.status : result.headline,
       candidates: pool.length,
-      searches: telemetry.searches,
-      jev: { attempted: telemetry.jevAttempted, succeeded: telemetry.jevSucceeded, pairwiseAttempted: telemetry.pairwiseAttempted },
+      searches: telemetry.searches.map(({ batch: _batch, ...s }) => s),
+      jev: {
+        attempted: telemetry.jevAttempted,
+        succeeded: telemetry.jevSucceeded,
+        pairwiseAttempted: telemetry.pairwiseAttempted,
+        calls: telemetry.jevCalls,
+      },
+      budget: { used: budget.used, remaining: budget.remaining, max: budget.maxSearches },
       pages: { attempted: telemetry.pagesAttempted, succeeded: telemetry.pagesSucceeded },
       // §16.5 eligibility rationale — bounded codes only, never raw
       // provider strings or the claim text.
