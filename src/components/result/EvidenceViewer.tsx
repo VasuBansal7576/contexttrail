@@ -627,6 +627,25 @@ export default function EvidenceViewer({
                     </button>
                   ) : null}
 
+                  {/* The one primary action sits with the source identity, ahead
+                      of the excerpt and the extended origin proof, so it is
+                      reachable without scrolling past a long quote. Nothing is
+                      hidden, shortened or reordered away: the excerpt, its full
+                      retrieved text, the attribution spans, the date provenance
+                      and the uncertainty all follow in the same order as before. */}
+                  {url ? (
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-paper px-5 py-2.5 text-sm font-medium text-ink transition hover:bg-white"
+                    >
+                      Open original source <span aria-hidden="true">↗</span>
+                    </a>
+                  ) : (
+                    <p className="mt-5 text-sm text-white/55">No source link was retrieved for this occurrence.</p>
+                  )}
+
                   <h3 className="mt-5 text-sm font-semibold tracking-wide text-white/50 uppercase">
                     {span ? (occurrence ? (displayAttributionOf(occurrence) ?? span.attribution) : span.attribution) : "Source excerpt"}
                   </h3>
@@ -691,19 +710,6 @@ export default function EvidenceViewer({
                       Submitted claim: <span className="text-white/85">“{claim}”</span>
                     </p>
                   ) : null}
-
-                  {url ? (
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-full bg-paper px-5 py-2.5 text-sm font-medium text-ink transition hover:bg-white"
-                    >
-                      Open original source <span aria-hidden="true">↗</span>
-                    </a>
-                  ) : (
-                    <p className="mt-5 text-sm text-white/55">No source link was retrieved for this occurrence.</p>
-                  )}
 
                   <TechnicalDetails
                     occurrence={occurrence}

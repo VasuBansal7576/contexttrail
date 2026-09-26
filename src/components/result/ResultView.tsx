@@ -527,10 +527,14 @@ export default function ResultView({
                     const groupSize = groupId ? (groupSizes.get(groupId) ?? null) : null;
                     return (
                       <li key={id} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
+                        {/* Narrow screens read the source identity first and in
+                            full: side-by-side, a non-shrinking action row left
+                            the title 130px for 206px of text and ellipsised even
+                            a short title. Desktop keeps the compact row. */}
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0 flex-1">
-                            <p className="truncate font-medium" title={title}>{title}</p>
-                            <p className="text-sm text-ink-soft">
+                            <p className="break-words font-medium" title={title}>{title}</p>
+                            <p className="break-words text-sm text-ink-soft">
                               {domain ?? "Unknown domain"}
                               {occurrenceDate(o) ? ` · ${occurrenceDate(o)}` : " · date unknown"}
                               {dateSrc ? ` · ${dateSrc}` : ""}
@@ -543,7 +547,7 @@ export default function ResultView({
                                 </Badge>
                               ) : null}
                             </div>
-                            <p className="mt-2 text-xs text-ink-soft">
+                            <p className="mt-2 break-words text-xs text-ink-soft">
                               {identity ? `Match basis: ${identity.basis}. ` : "Match basis not reported. "}
                               {reportingOriginLabel(o)}
                               {groupSize !== null && groupSize > 1 ? ` Group of ${groupSize} occurrences.` : ""}
