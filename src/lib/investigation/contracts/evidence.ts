@@ -104,6 +104,39 @@ export interface RetrievalRecord {
 import type { EvidenceJudgment } from "./judgment";
 
 /**
+ * §18.2 — descriptive metadata retained from a JSON-LD publication entity
+ * that binds to the fetched page (page_url / main_entity / root_entity).
+ * Bounded allowlist: trimmed/capped strings and name lists only — never
+ * full subtrees, and never from contradicted or unbound nested entities.
+ */
+export interface JsonLdEntityMetadata {
+  /** Which page-binding tier this entity satisfied. */
+  binding: "page_url" | "main_entity" | "root_entity";
+  types: string[];
+  headline: string | null;
+  author: string[];
+  publisher: string | null;
+  description: string | null;
+}
+
+/** §18.2 — source-bound page metadata retained from a deep read. */
+export interface PageMetadata {
+  jsonLd: JsonLdEntityMetadata[];
+  openGraph: Record<string, string>;
+}
+
+/** §34 — the verified per-question Jev distributions behind a judgment.
+ *  Present only when `judgment` exists — construction requires a verified
+ *  pinned-model identity, so these are never invented or unverified. */
+export interface JevDistributions {
+  relevance: number;
+  pageRole: EvidenceJudgment["pageRole"];
+  contextRelation: EvidenceJudgment["contextRelation"];
+  claimRelation: EvidenceJudgment["claimRelation"];
+  locationRelation: EvidenceJudgment["locationRelation"];
+}
+
+/**
  * §11 — the raw evidence candidate. Retain disputed-date candidates and the
  * reason for rejection; never promote a month/year date to a day; never let a
  * hash-only check claim NEAR_MATCH; never let a navigation flag claim
@@ -146,6 +179,9 @@ export interface EvidenceCandidate {
   dateEntityBinding?: string | null;
   /** JSON-LD dates rejected for this page, with binding reasons (§19.2). */
   rejectedDateCandidates?: Array<{ value: string; reason: string }>;
+  /** Source-bound JSON-LD/OpenGraph metadata retained by the deep read
+   *  (§18.2); null until a page is fetched, absent on failure. */
+  pageMetadata?: PageMetadata | null;
   pageText: string | null;
 
   judgment: EvidenceJudgment | null;

@@ -7,11 +7,11 @@
  * asserted continuity.
  */
 
-import type { EvidenceCandidate } from "./contracts/evidence";
+import type { EvidenceCandidate, JevDistributions } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
 import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
-import { isCoreOccurrence } from "./identity";
-import { chronoCompare, type SegmentResult } from "./divergence";
+import { type SegmentResult } from "./divergence";
+import { partitionOccurrences } from "./provenance-graph";
 
 /** Strong context-relationship label from a Jev judgment, else null. */
 function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
@@ -28,6 +28,32 @@ const DISPLAY_ATTRIBUTION: Record<string, string> = {
   serp_snippet: "Search snippet",
   page_composite: "Composite page excerpt (title/snippet/body)",
 };
+
+/** §34 — the actual provider search ids this occurrence was retrieved
+ *  under (deduped, in retrieval order). Empty when none were reported —
+ *  ids are never invented. */
+function searchIdsOf(c: EvidenceCandidate): string[] {
+  const out: string[] = [];
+  for (const id of [c.serpSearchId, ...c.retrievals.map((r) => r.searchId)]) {
+    if (id !== null && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** §34 — verified per-question Jev distributions; null unless the
+ *  candidate carries a judgment (a judgment exists only when the pinned
+ *  model identity was verified — the numbers are never fabricated). */
+function jevDistributionsOf(c: EvidenceCandidate): JevDistributions | null {
+  const j = c.judgment;
+  if (j === null) return null;
+  return {
+    relevance: j.relevance,
+    pageRole: j.pageRole,
+    contextRelation: j.contextRelation,
+    claimRelation: j.claimRelation,
+    locationRelation: j.locationRelation,
+  };
+}
 
 function toTimelineItem(
   c: EvidenceCandidate,
@@ -98,6 +124,9 @@ function toTimelineItem(
     engine: firstRetrieval?.kind ?? null,
     resultType: firstRetrieval?.resultType ?? null,
     jevModel: c.judgment?.model ?? null,
+    searchIds: searchIdsOf(c),
+    jevDistributions: jevDistributionsOf(c),
+    pageMetadata: c.pageMetadata ?? null,
   };
 }
 
@@ -127,26 +156,10 @@ export function buildTimeline(
    *  as `classificationContext`, never as the displayed quote. */
   modelExcerpts?: ReadonlyMap<string, string>,
 ): BuiltTimeline {
-  const dated: EvidenceCandidate[] = [];
-  const datedLead: EvidenceCandidate[] = [];
-  const datedContextual: EvidenceCandidate[] = [];
-  const undated: EvidenceCandidate[] = [];
-  for (const c of candidates) {
-    if (
-      c.publishedAt !== null &&
-      c.dateStatus === "usable" &&
-      c.datePrecision !== "unknown"
-    ) {
-      if (isCoreOccurrence(c)) dated.push(c);
-      else if (c.mediaRelationship === "VISUAL_LEAD") datedLead.push(c);
-      else datedContextual.push(c);
-    } else {
-      undated.push(c);
-    }
-  }
-  dated.sort(chronoCompare);
-  datedLead.sort(chronoCompare);
-  datedContextual.sort(chronoCompare);
+  // §23 — the partition comes from the provenance-graph module so the
+  // timeline's buckets and the graph's occurrence roles are one derivation.
+  const { datedCore: dated, datedLead, datedContextual, undated } =
+    partitionOccurrences(candidates);
 
   const divergenceId =
     segments?.firstObservedContextDivergence?.toOccurrenceId ?? null;

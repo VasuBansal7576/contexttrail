@@ -7,6 +7,7 @@
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import { EXCERPT_MAX_CHARS } from "../investigation/limits";
+import type { JsonLdEntityMetadata } from "../investigation/contracts/evidence";
 
 export interface PageExtraction {
   title: string | null;
@@ -21,6 +22,13 @@ export interface PageExtraction {
   jsonLdDateBinding: "page_url" | "main_entity" | "root_entity" | null;
   /** JSON-LD dates rejected for the page, with the binding reason. */
   rejectedJsonLdDates: Array<{ value: string; reason: string }>;
+  /** Descriptive metadata retained ONLY from JSON-LD publication entities
+   *  bound to the fetched page — never from contradicted or unbound nested
+   *  entities (§18.2, §19.2). Bounded allowlist fields. */
+  jsonLdMetadata: JsonLdEntityMetadata[];
+  /** OpenGraph (`og:*`, `article:*`) meta pairs actually present on the
+   *  page, bounded — raw retained candidates, never invented (§18.2). */
+  openGraph: Record<string, string>;
   /** article:published_time / equivalent meta values. */
   metaDates: string[];
   /** Explicit <time datetime> values. */
@@ -89,6 +97,56 @@ function ownPageUrls(o: Record<string, unknown>): string[] {
   return urls;
 }
 
+/* -------- §18.2 — bounded metadata retention from bound entities -------- */
+
+const META_STRING_CAP = 400;
+const META_LIST_CAP = 8;
+const META_ENTITY_CAP = 8;
+const OG_ENTRY_CAP = 32;
+
+function metaString(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== ""
+    ? v.trim().slice(0, META_STRING_CAP)
+    : null;
+}
+
+/** Names only — a Person/Organization node's own name, never its subtree. */
+function metaNames(v: unknown, cap = META_LIST_CAP): string[] {
+  const arr = Array.isArray(v) ? v : [v];
+  const out: string[] = [];
+  for (const n of arr) {
+    const s =
+      typeof n === "string"
+        ? metaString(n)
+        : metaString(
+            (n as Record<string, unknown> | null)?.name ??
+              (n as Record<string, unknown> | null)?.["@id"],
+          );
+    if (s !== null) out.push(s);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+/** Sanitized allowlist of descriptive fields from a bound publication
+ *  entity. Values are trimmed/capped strings or name lists — nothing else. */
+function entityMetadata(
+  o: Record<string, unknown>,
+  binding: Exclude<Binding, "nested">,
+): JsonLdEntityMetadata {
+  const t = o["@type"];
+  return {
+    binding,
+    types: (Array.isArray(t) ? t : [t])
+      .filter((x): x is string => typeof x === "string")
+      .slice(0, META_LIST_CAP),
+    headline: metaString(o.headline ?? o.name),
+    author: metaNames(o.author ?? o.creator),
+    publisher: metaNames(o.publisher, 1)[0] ?? null,
+    description: metaString(o.description),
+  };
+}
+
 /**
  * Walk a JSON-LD graph collecting publication dates with the entity
  * binding that produced them. A date is bound to the fetched page when
@@ -104,10 +162,11 @@ function collectEntityDates(
   pageUrl: string | null,
   bound: Binding,
   depth: number,
+  metaOut?: JsonLdEntityMetadata[],
 ): void {
   if (typeof node !== "object" || node === null || depth > 8) return;
   if (Array.isArray(node)) {
-    for (const n of node) collectEntityDates(n, out, pageUrl, bound, depth);
+    for (const n of node) collectEntityDates(n, out, pageUrl, bound, depth, metaOut);
     return;
   }
   const o = node as Record<string, unknown>;
@@ -133,6 +192,17 @@ function collectEntityDates(
     const fields: string[] = [];
     directDateFields(o, fields);
     for (const v of fields) out.push({ value: v, bound: selfBound, contradicted });
+    // §18.2 — retain descriptive metadata only from entities that bind to
+    // the fetched page; contradicted/unbound nested entities contribute
+    // nothing (their dates are rejected for the same reason).
+    if (
+      metaOut !== undefined &&
+      metaOut.length < META_ENTITY_CAP &&
+      selfBound !== "nested" &&
+      !contradicted
+    ) {
+      metaOut.push(entityMetadata(o, selfBound));
+    }
   }
 
   for (const [k, v] of Object.entries(o)) {
@@ -144,7 +214,7 @@ function collectEntityDates(
       k === "mainEntity" && (selfBound !== "nested" || depth === 0)
         ? "main_entity"
         : "nested";
-    collectEntityDates(v, out, pageUrl, childBound, depth + 1);
+    collectEntityDates(v, out, pageUrl, childBound, depth + 1, metaOut);
   }
 }
 
@@ -174,8 +244,11 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     }
   }
   const candidates: DateCandidate[] = [];
+  const jsonLdMetadata: JsonLdEntityMetadata[] = [];
   const normalizedUrl = pageUrl !== undefined ? normalizePageUrl(pageUrl) : null;
-  for (const p of parsedLd) collectEntityDates(p, candidates, normalizedUrl, "nested", 0);
+  for (const p of parsedLd) {
+    collectEntityDates(p, candidates, normalizedUrl, "nested", 0, jsonLdMetadata);
+  }
 
   // Strongest binding wins: a page-url-bound entity date beats a
   // mainEntity date, which beats a root-level publication entity. Dates
@@ -222,15 +295,25 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
   }
 
   const metaDates: string[] = [];
+  const openGraph: Record<string, string> = {};
   for (const el of doc.querySelectorAll("meta")) {
-    const key = (
-      el.getAttribute("property") ??
-      el.getAttribute("name") ??
-      ""
-    ).toLowerCase();
+    const rawKey = el.getAttribute("property") ?? el.getAttribute("name") ?? "";
+    const key = rawKey.toLowerCase();
     if (META_DATE_KEYS.has(key)) {
       const content = el.getAttribute("content");
       if (content !== null && content.trim() !== "") metaDates.push(content.trim());
+    }
+    // §18.2 — retain OpenGraph pairs (og:* + the OG article:* namespace) as
+    // bounded first-wins candidates; non-OG meta stays out.
+    if (
+      (key.startsWith("og:") || key.startsWith("article:")) &&
+      Object.keys(openGraph).length < OG_ENTRY_CAP &&
+      !(key in openGraph)
+    ) {
+      const content = el.getAttribute("content");
+      if (content !== null && content.trim() !== "") {
+        openGraph[key] = content.trim().slice(0, META_STRING_CAP);
+      }
     }
   }
 
@@ -258,7 +341,7 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length >= 40);
 
-  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, metaDates, timeDates };
+  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, jsonLdMetadata, openGraph, metaDates, timeDates };
 }
 
 /* ---------------- deterministic excerpt builder (§18.3) ---------------- */

@@ -165,6 +165,16 @@ export interface SegmentResult {
   /** occurrenceId -> pair ids it was an endpoint of where a pairwise
    *  comparison was actually performed (§14). */
   comparedPairsFor: Map<string, string[]>;
+  /** §34 — every evaluated adjacent pair in the displayed order: the
+   *  connector it produced and the actual pairwise distribution (null
+   *  when the comparison was not performed — never invented). */
+  comparisons: Array<{
+    pairId: string;
+    fromOccurrenceId: string;
+    toOccurrenceId: string;
+    connector: Exclude<TimelineConnector["kind"], "start">;
+    distribution: PairwiseContextJudgment | null;
+  }>;
 }
 
 /**
@@ -182,6 +192,7 @@ export function buildContextSegments(
   const segmentOf = new Map<string, number | null>();
   const connectorOf = new Map<string, TimelineConnector>();
   const comparedPairsFor = new Map<string, string[]>();
+  const comparisons: SegmentResult["comparisons"] = [];
   const recordComparedPair = (a: string, b: string) => {
     const pk = pairKey(a, b);
     comparedPairsFor.set(a, [...(comparedPairsFor.get(a) ?? []), pk]);
@@ -221,6 +232,7 @@ export function buildContextSegments(
         comparedPairIds: [],
       },
       comparedPairsFor,
+      comparisons,
     };
   }
 
@@ -235,6 +247,13 @@ export function buildContextSegments(
     // manufacture an ordered transition or a divergence edge.
     if (!strictlyBefore(prev, cur)) {
       connectorOf.set(cur.id, { kind: "unexamined", fromOccurrenceId: prev.id });
+      comparisons.push({
+        pairId: pairKey(prev.id, cur.id),
+        fromOccurrenceId: prev.id,
+        toOccurrenceId: cur.id,
+        connector: "unexamined",
+        distribution: null,
+      });
       allDecisive = false;
       earlierUnresolved = true;
       segmentOf.set(cur.id, null);
@@ -259,6 +278,13 @@ export function buildContextSegments(
             : "uncertain";
     }
     connectorOf.set(cur.id, { kind, fromOccurrenceId: prev.id });
+    comparisons.push({
+      pairId: pairKey(prev.id, cur.id),
+      fromOccurrenceId: prev.id,
+      toOccurrenceId: cur.id,
+      connector: kind,
+      distribution: j,
+    });
 
     if (kind === "same_context") {
       // Continue the current segment only if it is still asserted.
@@ -301,5 +327,6 @@ export function buildContextSegments(
       comparedPairIds,
     },
     comparedPairsFor,
+    comparisons,
   };
 }

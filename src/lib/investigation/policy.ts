@@ -17,20 +17,24 @@ import type {
   ClaimStatus,
   ClaimStatusBasis,
   ComparisonCoverage,
+  ComparisonRecord,
   Divergence,
   InvestigationResult,
   LimitationCode,
   PolicyReason,
-  ReportingGroupSummary,
   RequestLogEntry,
   Takeaway,
   TimelineItem,
 } from "./contracts/investigation";
+import {
+  buildProvenanceGraph,
+  toProvenanceProjection,
+  type ProvenanceGraph,
+} from "./provenance-graph";
 import { predatesClaim } from "./dates";
 import { countSourceDomains } from "./domain";
 import { isCoreOccurrence } from "./identity";
 import {
-  coreOccurrences,
   reportingGroupCount,
   satisfiesCorroborationGate,
   unresolvedOriginCount,
@@ -347,58 +351,41 @@ export interface ResultAssemblyInput {
   limitations: LimitationCode[];
   /** Per-operation retrieval accounting (§34). */
   requestLog: RequestLogEntry[];
+  /** §23 — the provenance graph this result derives from. When absent
+   *  (direct assembly), a graph is built from `candidates` alone so the
+   *  public projection is never absent. */
+  graph?: ProvenanceGraph;
+  /** §34 — the evaluated pairwise comparisons behind the segments. */
+  comparisons?: ComparisonRecord[];
 }
 
-/** Assemble the shared metrics both result modes carry. */
+/** Assemble the shared metrics both result modes carry. All
+ *  graph-derived fields come from the provenance graph's metrics — the
+ *  graph is the shared source, not a parallel derivation (§23). */
 export function sharedMetrics(input: ResultAssemblyInput) {
-  const core = coreOccurrences(input.candidates);
-  const dated = core
-    .filter(
-      (c) =>
-        c.publishedAt !== null &&
-        c.dateStatus === "usable" &&
-        c.datePrecision !== "unknown",
-    )
-    .sort(
-      (a, b) =>
-        (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-        a.id.localeCompare(b.id),
-    );
-
-  const groups = new Map<string, { memberIds: string[]; reason: Set<string> }>();
-  const unresolvedCandidateIds: string[] = [];
-  for (const c of core) {
-    if (c.reportingOrigin.status === "unresolved") {
-      unresolvedCandidateIds.push(c.id);
-      continue;
-    }
-    const g = groups.get(c.reportingOrigin.groupId) ?? {
-      memberIds: [],
-      reason: new Set<string>(),
-    };
-    g.memberIds.push(c.id);
-    for (const b of c.reportingOrigin.basis) g.reason.add(b);
-    groups.set(c.reportingOrigin.groupId, g);
-  }
-  const reportingGroups: ReportingGroupSummary[] = [...groups.entries()].map(
-    ([groupId, g]) => ({
-      groupId,
-      memberIds: g.memberIds,
-      reason: [...g.reason] as ReportingGroupSummary["reason"],
-    }),
-  );
+  const graph =
+    input.graph ??
+    buildProvenanceGraph({
+      candidates: input.candidates,
+      segments: null,
+      claim: null,
+      claimDate: null,
+    });
+  const m = graph.metrics;
 
   return {
-    earliestObservedOccurrence: dated[0]?.publishedAt ?? null,
-    sourceDomainCount: countSourceDomains(core),
-    reportingGroupCount: reportingGroupCount(core),
-    unresolvedOriginCount: unresolvedOriginCount(core),
+    earliestObservedOccurrence: m.earliestObservedOccurrence,
+    sourceDomainCount: m.sourceDomainCount,
+    reportingGroupCount: m.reportingGroupCount,
+    unresolvedOriginCount: m.unresolvedOriginCount,
     contextSegmentCount: input.contextSegmentCount,
     firstObservedContextDivergence: input.firstObservedContextDivergence,
     comparisonCoverage: input.coverage,
     requestLog: input.requestLog,
-    reportingGroups,
-    unresolvedCandidateIds,
+    reportingGroups: m.reportingGroups,
+    unresolvedCandidateIds: m.unresolvedCandidateIds,
+    comparisons: input.comparisons ?? [],
+    provenance: toProvenanceProjection(graph),
     limitations: input.limitations,
     undatedEvidence: input.undatedEvidence,
     supportingEvidence: input.supportingEvidence,

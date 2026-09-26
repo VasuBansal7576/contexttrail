@@ -39,6 +39,9 @@ export interface NormalizedBatch {
   surfacePresent: boolean;
   /** Provider-reported date text per candidate id (fed into §19.2 resolution). */
   dateTexts: Map<string, string>;
+  /** §34 — the provider search_metadata.id for this response; null when
+   *  absent. The request log attributes this exact attempt's id. */
+  searchId: string | null;
 }
 
 let seq = 0;
@@ -219,6 +222,7 @@ export function normalizeExactMatchesResponse(
     surfacePresent: exactState !== "malformed",
     exactState,
     dateTexts: new Map(),
+    searchId,
   };
 }
 
@@ -280,6 +284,7 @@ export function normalizeLensAllResponse(
     relatedQueries,
     surfacePresent: o !== null,
     dateTexts: new Map(),
+    searchId,
   };
 }
 
@@ -330,6 +335,7 @@ export function normalizeAboutThisImageResponse(
     relatedQueries: [],
     surfacePresent: about !== null,
     dateTexts,
+    searchId,
   };
 }
 
@@ -376,6 +382,7 @@ export function normalizeSearchResponse(
     relatedQueries: [],
     surfacePresent: o !== null,
     dateTexts,
+    searchId,
   };
 }
 

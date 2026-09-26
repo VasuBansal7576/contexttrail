@@ -282,3 +282,208 @@ describe("R2 residual — a contradicted root entity's date cannot re-enter via 
     expect(target?.dateProvenance.rejectedCandidates.map((r) => r.value)).toContain("1999-01-01");
   });
 });
+
+/* ---------- PRD 18.2/23/34 contract stage (coverage-matrix-final) ---------- */
+
+describe("18.2 — source-bound JSON-LD/OpenGraph metadata is retained", () => {
+  const richHtml = (fetchedUrl: string) =>
+    `<html><head>
+      <meta property="og:site_name" content="The Gazette" />
+      <meta property="og:title" content="Real headline" />
+      <meta property="og:type" content="article" />
+      <meta name="description" content="not-og" />
+      <script type="application/ld+json">${JSON.stringify({
+        "@type": "NewsArticle",
+        url: fetchedUrl,
+        headline: "Real headline",
+        author: [{ "@type": "Person", name: "A. Reporter" }],
+        publisher: { "@type": "Organization", name: "The Gazette" },
+        description: "A description.",
+        datePublished: "2024-03-04",
+      })}</script>
+      <script type="application/ld+json">${JSON.stringify({
+        "@type": "NewsArticle",
+        url: "https://other.example.org/related",
+        headline: "Contradicted headline",
+        publisher: { "@type": "Organization", name: "Wrong Outlet" },
+        datePublished: "1999-01-01",
+      })}</script>
+    </head><body><article><p>${"Body paragraph. ".repeat(30)}</p></article></body></html>`;
+
+  it("extractPage retains the bound entity's metadata and OpenGraph pairs", () => {
+    const ex = extractPage(richHtml("https://gazette.example.org/story"), "https://gazette.example.org/story");
+    // Bound entity metadata retained alongside dates/title/text.
+    const bound = ex.jsonLdMetadata.find((m) => m.headline === "Real headline");
+    expect(bound).toBeDefined();
+    expect(bound?.author).toContain("A. Reporter");
+    expect(bound?.publisher).toBe("The Gazette");
+    // The contradicted entity's metadata is never retained.
+    expect(ex.jsonLdMetadata.some((m) => m.headline === "Contradicted headline")).toBe(false);
+    expect(ex.jsonLdMetadata.some((m) => m.publisher === "Wrong Outlet")).toBe(false);
+    // OpenGraph pairs retained; non-OG meta is not swept in.
+    expect(ex.openGraph["og:site_name"]).toBe("The Gazette");
+    expect(ex.openGraph["og:type"]).toBe("article");
+    expect(ex.openGraph["description"]).toBeUndefined();
+  });
+});
+
+describe("23/34 — typed provenance graph + sanitized inspection fields", () => {
+  // Distinct page-bound dates so the two exact-match occurrences are
+  // strictly ordered and the pairwise comparison actually runs.
+  const PAGE_DATES: Record<string, string> = {
+    "https://a.example.org/item": "2024-01-02",
+    "https://b.example.org/item": "2024-03-04",
+  };
+  const metaHtml = (fetchedUrl: string) =>
+    `<html><head>
+      <meta property="og:site_name" content="The Gazette" />
+      <script type="application/ld+json">${JSON.stringify({
+        "@type": "NewsArticle",
+        url: fetchedUrl,
+        headline: "Fetched page headline",
+        author: { "@type": "Person", name: "A. Reporter" },
+        datePublished: PAGE_DATES[fetchedUrl] ?? "2024-02-15",
+      })}</script>
+    </head><body><article><p>${"Fetched page body. ".repeat(30)}</p></article></body></html>`;
+
+  const PAIRWISE_ANSWER = {
+    type: "choice",
+    choice: "DIFFERENT_CONTEXT",
+    probabilities: { SAME_CONTEXT: 0.02, DIFFERENT_CONTEXT: 0.95, UNCLEAR: 0.03 },
+  };
+
+  const jevMock = {
+    ask: async (_state: unknown, questions: Record<string, unknown>) => ({
+      answers: "pairwise_context" in questions ? { pairwise_context: PAIRWISE_ANSWER } : GOOD_ANSWERS,
+      model: "jev-1.13.0",
+      identity: VERIFIED_JEV,
+    }),
+  };
+
+  const serpapiMock = {
+    uploadImage: async () => "controlled",
+    search: async (p: { engine?: string; type?: string; q?: string }) => {
+      const meta = {
+        search_metadata: {
+          status: "Success",
+          id: `serp-${p.type === "all" ? p.engine : (p.type ?? p.engine)}`,
+        },
+      };
+      if (p.type === "exact_matches") {
+        return {
+          ...meta,
+          exact_matches: [
+            { title: "early", link: "https://a.example.org/item", date: "2024-01-02", position: 1 },
+            { title: "late", link: "https://b.example.org/item", date: "2024-03-04", position: 2 },
+          ],
+        };
+      }
+      if (p.type === "about_this_image") return { ...meta, about_this_image: { sections: [] } };
+      if (p.engine === "google_lens") return { ...meta, visual_matches: [{ title: "target", link: "https://b.example.org/item" }] };
+      if (p.engine === "google_news") return { ...meta, news_results: [] };
+      return { ...meta, organic_results: [] };
+    },
+  };
+
+  it("full pipeline exposes searchIds, Jev distributions, comparisons, and the provenance graph", async () => {
+    const events: Array<{ type: string; result?: Record<string, unknown> }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: null, timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      {
+        serpapi: serpapiMock as never,
+        jev: jevMock as never,
+        fetchPage: async (url: string): Promise<FetchedPage> => ({ url, html: metaHtml(url) }),
+      },
+    );
+    const result = events.find((e) => e.type === "investigation.completed")?.result;
+    expect(result).toBeDefined();
+    if (!result) return;
+
+    // §34 — sanitized actual search identifiers on the request log.
+    const reqLog = result.requestLog as Array<{ engine: string; searchId?: string | null }>;
+    expect(reqLog.length).toBeGreaterThan(0);
+    const lensRow = reqLog.find((r) => r.engine === "lens_all");
+    expect(lensRow?.searchId).toBe("serp-google_lens");
+
+    // §34 — per-item search ids + verified per-question distributions.
+    type Item = {
+      occurrenceId: string;
+      searchIds?: string[];
+      jevDistributions?: { pageRole: Record<string, number> } | null;
+      pageMetadata?: { openGraph: Record<string, string>; jsonLd: Array<{ headline: string | null }> } | null;
+    };
+    const all = [
+      ...(result.timeline as Item[]),
+      ...(result.undatedEvidence as Item[]),
+      ...(result.supportingEvidence as Item[]),
+      ...(result.contextualEvidence as Item[]),
+    ];
+    const exactItem = all.find((t) => t.searchIds?.includes("serp-exact_matches"));
+    expect(exactItem).toBeDefined();
+    const classified = all.find((t) => t.jevDistributions !== null && t.jevDistributions !== undefined);
+    expect(classified?.jevDistributions?.pageRole.reporting).toBe(0.8);
+    // §18.2 — deep-read metadata retained on the inspected candidate.
+    const deepRead = all.find((t) => t.pageMetadata?.jsonLd.some((m) => m.headline === "Fetched page headline"));
+    expect(deepRead).toBeDefined();
+    expect(deepRead?.pageMetadata?.openGraph["og:site_name"]).toBe("The Gazette");
+
+    // §23 — the typed provenance graph is present and relations are real.
+    const prov = result.provenance as {
+      media: { id: string };
+      occurrences: Array<{ id: string; domainId: string; segmentId: string | null }>;
+      sourceDomains: Array<{ id: string; domain: string; occurrenceIds: string[] }>;
+      contextSegments: Array<{ id: string; index: number; occurrenceIds: string[] }>;
+      divergenceEdges: Array<{ fromSegmentId: string; toSegmentId: string; toOccurrenceId: string }>;
+      claimContext: unknown;
+    } | undefined;
+    expect(prov).toBeDefined();
+    expect(prov?.media.id).toBe("media");
+    expect(prov?.occurrences.length).toBe(all.length);
+    // Registrable domains collapse a./b.example.org into one domain node
+    // that both occurrences point at.
+    const domain = prov?.sourceDomains.find((d) => d.domain === "example.org");
+    expect(domain).toBeDefined();
+    expect(domain?.occurrenceIds.length).toBeGreaterThanOrEqual(2);
+    expect(prov?.claimContext).toBeNull();
+    // The pairwise mock returns strong DIFFERENT_CONTEXT — a real
+    // divergence edge between segments must exist.
+    expect(prov?.contextSegments.length).toBeGreaterThanOrEqual(2);
+    expect(prov?.divergenceEdges.length).toBeGreaterThanOrEqual(1);
+
+    // §34 — comparison evidence: actual per-pair distributions.
+    const comparisons = result.comparisons as Array<{
+      pairId: string;
+      connector: string;
+      distribution: { differentContext: number } | null;
+    }> | undefined;
+    expect(comparisons).toBeDefined();
+    const decisive = comparisons?.find((c) => c.connector === "different_context");
+    expect(decisive?.distribution?.differentContext).toBe(0.95);
+  });
+
+  it("claim mode — provenance carries the claim context compared with segments", async () => {
+    const events: Array<{ type: string; result?: Record<string, unknown> }> = [];
+    await runInvestigation(
+      {
+        media: new Uint8Array([1]),
+        claim: "The image shows an event in March 2024.",
+        timezone: "UTC",
+        locale: "en",
+      },
+      (e) => events.push(e as never),
+      {
+        serpapi: serpapiMock as never,
+        jev: jevMock as never,
+        fetchPage: async (url: string): Promise<FetchedPage> => ({ url, html: metaHtml(url) }),
+      },
+    );
+    const result = events.find((e) => e.type === "investigation.completed")?.result;
+    const prov = result?.provenance as
+      | { claimContext: { claim: string; claimDate: string | null; comparedSegmentIds: string[] } | null }
+      | undefined;
+    expect(prov?.claimContext).not.toBeNull();
+    expect(prov?.claimContext?.claim).toContain("March 2024");
+    expect(prov?.claimContext?.comparedSegmentIds.length).toBeGreaterThanOrEqual(1);
+  });
+});

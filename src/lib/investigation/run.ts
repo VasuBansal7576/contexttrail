@@ -57,6 +57,7 @@ import {
   isQualifyingConflict,
 } from "./policy";
 import { buildTimeline } from "./timeline";
+import { buildProvenanceGraph } from "./provenance-graph";
 import type { JevClient } from "../jev/client";
 import {
   judgmentFromAnswers,
@@ -817,6 +818,13 @@ export async function runInvestigation(
           if (ex.title !== null) c.title ??= ex.title;
           c.dateEntityBinding = ex.jsonLdDateBinding;
           c.rejectedDateCandidates = ex.rejectedJsonLdDates;
+          // §18.2 — retain source-bound JSON-LD/OpenGraph metadata for
+          // inspection; null when the page yielded none.
+          c.pageMetadata =
+            ex.jsonLdMetadata.length > 0 ||
+            Object.keys(ex.openGraph).length > 0
+              ? { jsonLd: ex.jsonLdMetadata, openGraph: ex.openGraph }
+              : null;
           const src = dateSources.get(c.id) ?? {};
           src.pageJsonLd = ex.jsonLdDates[0] ?? null;
           src.pageMeta = ex.metaDates[0] ?? null;
@@ -970,7 +978,20 @@ export async function runInvestigation(
           ? 0
           : s.batch.candidates.filter((c) => poolCanonicals.has(c.canonicalUrl)).length,
       durationMs: s.ms,
+      // §34 — this attempt's actual provider search id; null on failure
+      // or when the provider returned none. Identifier only.
+      searchId: s.batch?.searchId ?? null,
     }));
+    // §23 — the typed provenance graph the result's timeline and summary
+    // both derive from: media→occurrences→domains, occurrences→segments,
+    // DIVERGES_TO edges, and (claim mode) the claim context.
+    const graph = buildProvenanceGraph({
+      candidates: pool,
+      segments,
+      claim,
+      claimDate,
+      claimDatePrecision,
+    });
     const takeaways: Takeaway[] =
       mode === "claim_check"
         ? deriveTakeaways({
@@ -997,6 +1018,8 @@ export async function runInvestigation(
             webContextAvailable,
             takeaways,
             requestLog,
+            graph,
+            comparisons: segments.comparisons,
           })
         : buildTraceResult({
             candidates: pool,
@@ -1009,6 +1032,8 @@ export async function runInvestigation(
             contextSegmentCount: segments.contextSegmentCount,
             limitations: [...limitations],
             requestLog,
+            graph,
+            comparisons: segments.comparisons,
           });
     // Stage completion precedes the terminal event — a client that stops
     // reading at investigation.completed still sees a finished stage list.

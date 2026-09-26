@@ -12,7 +12,9 @@ import type {
   ExcerptSource,
   IdentityBasis,
   IdentityEvidence,
+  JevDistributions,
   MediaRelationship,
+  PageMetadata,
   PublishedAtSource,
   ReportingOrigin,
   ReportingOriginBasis,
@@ -20,7 +22,7 @@ import type {
   RetrievalKind,
   RetrievalRecord,
 } from "./evidence";
-import type { EvidenceJudgment } from "./judgment";
+import type { EvidenceJudgment, PairwiseContextJudgment } from "./judgment";
 
 export type InvestigationMode = "trace" | "claim_check";
 
@@ -140,6 +142,17 @@ export interface TimelineItem {
   resultType: string | null;
   /** Jev model version when classified (§34), else null. */
   jevModel: string | null;
+  /** §34 — the actual provider search ids this occurrence was retrieved
+   *  under (deduped, retrieval order); empty when none were reported —
+   *  identifiers are never invented. */
+  searchIds: string[];
+  /** §34 — the verified per-question Jev distributions behind this
+   *  item's classification; null unless a verified pinned-model
+   *  judgment exists. Never unverified or synthesized numbers. */
+  jevDistributions: JevDistributions | null;
+  /** §18.2 — source-bound JSON-LD/OpenGraph metadata retained by the
+   *  deep read; null when none was retained. */
+  pageMetadata: PageMetadata | null;
 }
 
 /** §20.2 / §22 — the first observed context divergence marker. */
@@ -209,6 +222,9 @@ export interface RequestLogEntry {
   returned: number;
   retained: number;
   durationMs: number;
+  /** §34 — the actual SerpApi search id for this attempt; null when the
+   *  provider returned none. Identifiers only, never payloads. */
+  searchId: string | null;
 }
 
 /** One resolved reporting-origin group: its members and the basis codes
@@ -228,6 +244,70 @@ export interface PolicyReason {
   passed: boolean;
   detail: string;
   supportIds: string[];
+}
+
+/** §34 — one evaluated adjacent comparison in the displayed order. The
+ *  distribution is the actual pairwise Jev answer — null when the pair
+ *  was unexamined (interval overlap, budget, deadline); never invented. */
+export interface ComparisonRecord {
+  pairId: string;
+  fromOccurrenceId: string;
+  toOccurrenceId: string;
+  connector: Exclude<TimelineConnectorKind, "start">;
+  distribution: PairwiseContextJudgment | null;
+}
+
+/** §23 — the public projection of the internal provenance graph that
+ *  drives both the timeline and the result summary. Node/edge ids are
+ *  typed; an unobserved relation is reported as null/[], never
+ *  fabricated. */
+export interface ProvenanceProjection {
+  /** The submitted media asset node (M). */
+  media: { id: "media" };
+  /** M → O edges: one per investigated occurrence. */
+  occurrences: Array<{
+    id: string;
+    /** O → S edge target (source-domain node id). */
+    domainId: string;
+    /** O → K edge target; null when continuity was unresolved or the
+     *  occurrence was not in the compared run. */
+    segmentId: string | null;
+    role: "core" | "lead" | "contextual";
+    dated: boolean;
+  }>;
+  /** O → S: one domain node per registrable domain observed. */
+  sourceDomains: Array<{
+    id: string;
+    domain: string;
+    occurrenceIds: string[];
+  }>;
+  /** O → K: asserted context segments only. */
+  contextSegments: Array<{
+    id: string;
+    index: number;
+    occurrenceIds: string[];
+  }>;
+  /** K → K DIVERGES_TO edges — real asserted divergences only. */
+  divergenceEdges: Array<{
+    fromSegmentId: string;
+    toSegmentId: string;
+    fromOccurrenceId: string;
+    toOccurrenceId: string;
+    observedAt: string;
+    firstObserved: boolean;
+    earlierTransitionsUnresolved: boolean;
+  }>;
+  /** C → KQ claim context node; null in Trace mode. */
+  claimContext: {
+    claim: string;
+    claimDate: string | null;
+    claimDatePrecision: DatePrecision;
+    /** Actually-performed comparison pair ids. */
+    comparedPairIds: string[];
+    /** KQ → K "compared with" edges — segments a performed comparison
+     *  endpoint resolved into. */
+    comparedSegmentIds: string[];
+  } | null;
 }
 
 export interface SharedResultMetrics {
@@ -250,6 +330,12 @@ export interface SharedResultMetrics {
   reportingGroups: ReportingGroupSummary[];
   /** Core candidates whose reporting origin stayed unresolved (§13). */
   unresolvedCandidateIds: string[];
+  /** §34 — every evaluated pairwise comparison in displayed order, with
+   *  the actual distribution; empty when none ran. */
+  comparisons: ComparisonRecord[];
+  /** §23 — the typed public projection of the provenance graph behind
+   *  this result's timeline and summary. */
+  provenance: ProvenanceProjection;
   limitations: LimitationCode[];
   undatedEvidence: TimelineItem[];
   /** Dated core occurrences (EXACT_MATCH / verified NEAR_MATCH) only. */
