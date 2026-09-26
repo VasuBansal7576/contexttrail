@@ -16,9 +16,17 @@ import zlib from "node:zlib";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runInvestigation, type SearchProvider } from "../../../../src/lib/investigation/run";
-import { JEV_MODEL } from "../../../../src/lib/jev/client";
+import { JEV_MODEL, JevClient } from "../../../../src/lib/jev/client";
+import type { JevAskResult } from "../../../../src/lib/jev/client";
+// JevQuestion is DECLARED in jev/questions (jev/client only imports it), so the
+// type must come from its defining module. The question and state builders are
+// used directly so the direct client control speaks the real typed request.
+import {
+  evidenceQuestions,
+  candidateState,
+  type JevQuestion,
+} from "../../../../src/lib/jev/questions";
 import type { SerpapiParams } from "../../../../src/lib/serpapi/client";
-import type { JevClient } from "../../../../src/lib/jev/client";
 import type { FetchedPage } from "../../../../src/lib/pages/fetch";
 
 const GEN = process.env.CONTEXTTRAIL_GEN_FIXTURES === "1";
@@ -137,18 +145,53 @@ const serpapi: SearchProvider = {
   },
 };
 
-const jev = {
-  ask: async (_s: unknown, qs: Record<string, unknown>) => ({
-    answers: answers(qs, { context_relation: "DIFFERENT_CONTEXT", claim_relation: "NEUTRAL" }),
-    model: "jev-1.13.0",
-    identity: {
-      requested: "jev-1.13.0",
-      reported: "jev-1.13.0",
-      status: "verified",
-      pinned: true,
-    },
-  }),
-} as unknown as JevClient;
+/* ---------------------------------------------------------------------- *
+ * The real Jev client, over an injected fetch.
+ *
+ * These fixtures previously used plain objects cast to `JevClient` that
+ * carried a literal `{identity:{status:"verified",pinned:true}}`. That never
+ * crossed a fetch/JSON/model-envelope boundary, so nothing about the returned
+ * identity was actually proved — the double simply repeated its own literal.
+ * The typed `identity` result is PRODUCED BY THE CLIENT, never supplied here.
+ *
+ * `realJevClient` returns an actual `JevClient` whose fetch parses the outgoing
+ * request body, derives answers from the serialized state and questions, and
+ * returns a real `Response`. Model identity is therefore resolved and asserted
+ * by production code: a response with an absent, null or unexpected `model`
+ * makes the client throw, and no classification can be accepted from it.
+ * No credential is used; the key is a literal placeholder and never leaves
+ * this process, because fetch is injected.
+ * ---------------------------------------------------------------------- */
+const JEV_FIXTURE_PLACEHOLDER_KEY = "controlled-fixture-placeholder-not-a-credential";
+
+/** Derives the raw `{model, answers}` response body for one request. */
+type JevResponder = (req: { state: any; questions: Record<string, unknown> }) => Record<string, unknown>;
+
+const realJevClient = (respond: JevResponder, opts?: { model?: string }) => {
+  const requests: Array<{ state: any; questions: Record<string, unknown> }> = [];
+  const fetchImpl = (async (_url: string, init: RequestInit) => {
+    const req = JSON.parse(String(init.body)) as { state: any; questions: Record<string, unknown> };
+    requests.push(req);
+    return new Response(JSON.stringify(respond(req)), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+  const client = new JevClient({
+    apiKey: JEV_FIXTURE_PLACEHOLDER_KEY,
+    model: opts?.model ?? JEV_MODEL,
+    fetchImpl,
+  });
+  return { client, requests };
+};
+
+const jevDefault = (): JevClient =>
+  realJevClient(({ questions }) => ({
+    model: JEV_MODEL,
+    answers: answers(questions, { context_relation: "DIFFERENT_CONTEXT", claim_relation: "NEUTRAL" }),
+  })).client;
+
+const jev = jevDefault();
 
 /** Entity-bound JSON-LD publication dates per fixture domain — gives the
  *  deep-read phase real dated evidence so core occurrences land in the
@@ -480,22 +523,448 @@ const relevanceFor = (state: unknown): number => {
   return RELEVANCE_BY_TITLE[title ?? ""] ?? 0.7;
 };
 
-const jevPair = {
-  ask: async (s: unknown, qs: Record<string, unknown>) => ({
-    answers: answers(
-      qs,
-      {
-        context_relation: "DIFFERENT_CONTEXT",
-        claim_relation: "NEUTRAL",
-        page_role: "REPORTING",
-        ...pairwiseWinners(s),
-      },
-      relevanceFor(s),
-    ),
-    model: "jev-1.13.0",
-    identity: { requested: "jev-1.13.0", reported: "jev-1.13.0", status: "verified", pinned: true },
-  }),
-} as unknown as JevClient;
+const jevPair = realJevClient(({ state, questions }) => ({
+  model: JEV_MODEL,
+  answers: answers(
+    questions,
+    {
+      context_relation: "DIFFERENT_CONTEXT",
+      claim_relation: "NEUTRAL",
+      page_role: "REPORTING",
+      ...pairwiseWinners(state),
+    },
+    relevanceFor(state),
+  ),
+})).client;
+
+/* ======================================================================== *
+ * A8 — current-source state generators.
+ *
+ * Every state below is produced by driving the REAL runInvestigation
+ * orchestrator (from the accepted 9d404cb product authority) with controlled
+ * SerpApi / Jev / page-fetch doubles. Nothing writes a terminal status, date,
+ * graph, distribution or caveat directly: those are all derived by the
+ * product from the returned envelopes. The Jev doubles return the pinned model
+ * identity jev-1.13.0 through valid raw envelopes, and `answers()` keeps every
+ * choice distribution normalized so the validated contract cannot reject an
+ * unnormalized envelope.
+ *
+ * The knobs that decide each state are product-side, not cosmetic:
+ *   - reporting origin comes from NAMED EVIDENCE IN PAGE TEXT
+ *     ("the photograph was released by <Outlet>"), which is what promotes a
+ *     candidate to separate_origin_evidenced or groups it as shared origin;
+ *   - a DISPUTED date comes from two disagreeing PAGE-level date sources;
+ *   - an UNKNOWN date comes from having no usable date at all;
+ *   - qualifying conflicts / strong support come from the returned pairwise
+ *     relation probabilities against STRONG_RELATION_THRESHOLD (0.75);
+ *   - selection is capped at MAX_DIVERGENCE_OCCURRENCES (8), and an exact
+ *     segment count is only claimed when selection covers the whole run.
+ * ======================================================================== */
+
+/** One controlled occurrence. All fields are inputs, never outputs. */
+type Occ = {
+  /** Human title; also the key the Jev double dispatches on. */
+  title: string;
+  /** Registered host, which becomes the candidate's registrable domain. */
+  host: string;
+  /** SerpApi-visible date text. Omit for an unknown date. */
+  serpDate?: string;
+  /** Page JSON-LD date. Conflicts with pageMeta to produce a DISPUTED date. */
+  jsonLd?: string | null;
+  /** Page <meta> date. */
+  meta?: string | null;
+  /** Outlet name credited in the page text; drives reporting origin. */
+  credit?: string;
+  /** Jev winners for this occurrence, e.g. { claim_relation: "SUPPORTS" }. */
+  winners?: Record<string, string>;
+  /** Noul relevance. Must clear RELEVANCE_THRESHOLD (0.7) to be relevant. */
+  relevance?: number;
+  /** Pairwise winners keyed "fromTitle→toTitle". */
+  pair?: Record<string, Record<string, string>>;
+};
+
+/** The sentence that actually drives origin separation, per the product's
+ *  MEDIA_BOUND_PUBLISHER_PATTERN. nameKey("Conflict Alpha") must equal
+ *  ownOutletKey("conflict-alpha.example.org"). */
+const creditSentence = (outlet: string) =>
+  `The photograph was released by ${outlet} during the original reporting effort. `;
+
+const bodyFor = (o: Occ) => {
+  const parts: string[] = [];
+  if (o.credit) parts.push(creditSentence(o.credit));
+  // Long enough (>=400 chars) to be fetched, and distinct enough that article
+  // text duplication does not silently merge unrelated outlets.
+  parts.push(
+    `CONTROLLED FIXTURE body text for ${o.host} describing the reported photograph, ` +
+      `its acquisition and the surrounding context of the investigation. `.repeat(6),
+  );
+  return parts.join(" ");
+};
+
+const pageHtml = (url: string, o: Occ) => {
+  const ld =
+    o.jsonLd != null
+      ? `<script type="application/ld+json">${JSON.stringify({
+          "@context": "https://schema.org",
+          "@type": "NewsArticle",
+          headline: "CONTROLLED article",
+          datePublished: o.jsonLd,
+        })}</script>`
+      : "";
+  const meta =
+    o.meta != null
+      ? `<meta property="article:published_time" content="${o.meta}" />`
+      : "";
+  return `<html><head><title>CONTROLLED page</title>${ld}${meta}</head><body><article><p>${bodyFor(o)}</p></article></body></html>`;
+};
+
+/**
+ * Controlled SerpApi: lens exact_matches as the core occurrence source.
+ *
+ * `mirrorOrganicDates` additionally returns the SAME links from
+ * organic_results carrying a provider date. That is not decoration: the lens
+ * exact-match normalizer records no provider date at all, so a Lens-only
+ * investigation can date a candidate only by spending the deep-read page
+ * budget, which is capped at MAX_DEEP_READ_PAGES (5). Mirroring the link lets
+ * the product's own cross-retrieval date merge supply a date without a page
+ * fetch, which is the only way to reach more than five dated core occurrences.
+ */
+const buildSerpapi = (
+  occs: Occ[],
+  mirrorOrganicDates = false,
+  mirrorAboutDates = false,
+  mirrorNewsDates = false,
+): SearchProvider => ({
+  uploadImage: async () => "fixture-upload-id",
+  search: async (p: SerpapiParams) => {
+    if (p.engine === "google_lens" && p.type === "exact_matches") {
+      return {
+        search_metadata: { id: "fixture-lens-a8", status: "Success" },
+        exact_matches: occs.map((o, i) => ({
+          position: i + 1,
+          title: o.title,
+          link: `https://${o.host}/controlled/${i + 1}`,
+          ...(o.serpDate ? { date: o.serpDate } : {}),
+          thumbnail: `https://example.invalid/a8-${i + 1}.png`,
+        })),
+      };
+    }
+    if (p.engine === "google_lens" && p.type === "about_this_image") {
+      // The same links, again, carrying a provider date. The product merges
+      // date sources across the same canonical URL while retaining the exact
+      // identity, so a candidate can be dated WITHOUT spending the deep-read
+      // page budget. This is what makes more than five dated core occurrences
+      // reachable, and it corrects an earlier, wrong ceiling claim.
+      if (mirrorAboutDates) {
+        return {
+          search_metadata: { id: "fixture-about-a8", status: "Success" },
+          about_this_image: {
+            sections: [
+              {
+                section_text: "CONTROLLED FIXTURE pages using this image",
+                page_results: occs
+                  .filter((o) => o.serpDate)
+                  .map((o, i) => ({
+                    position: i + 1,
+                    title: o.title,
+                    link: `https://${o.host}/controlled/${occs.indexOf(o) + 1}`,
+                    date: o.serpDate,
+                  })),
+              },
+            ],
+          },
+        };
+      }
+      return { search_metadata: { id: "fixture-about-a8", status: "Success" }, about_this_image: { sections: [] } };
+    }
+    if (p.engine === "google_lens") {
+      return { search_metadata: { id: "fixture-lens-all-a8", status: "Success" }, visual_matches: [], related_content: [] };
+    }
+    if (p.engine === "google_news") {
+      if (mirrorNewsDates) {
+        return {
+          search_metadata: { id: "fixture-news-a8", status: "Success" },
+          news_results: occs
+            .filter((o) => o.serpDate)
+            .map((o, i) => ({
+              position: i + 1,
+              title: o.title,
+              link: `https://${o.host}/controlled/${occs.indexOf(o) + 1}`,
+              date: o.serpDate,
+            })),
+        };
+      }
+      return { search_metadata: { id: "fixture-news-a8", status: "Success" }, news_results: [] };
+    }
+    if (mirrorOrganicDates) {
+      return {
+        search_metadata: { id: "fixture-google-a8", status: "Success" },
+        organic_results: occs
+          .filter((o) => o.serpDate)
+          .map((o, i) => ({
+            position: i + 1,
+            title: o.title,
+            link: `https://${o.host}/controlled/${occs.indexOf(o) + 1}`,
+            date: o.serpDate,
+          })),
+      };
+    }
+    return { search_metadata: { id: "fixture-google-a8", status: "Success" }, organic_results: [] };
+  },
+});
+
+/**
+ * Controlled Jev over the REAL client. Answers are derived from the serialized
+ * request state; the pinned model identity is resolved and asserted by
+ * production code from the returned envelope, never supplied by the fixture.
+ */
+const buildJev = (occs: Occ[], opts?: { rejectPairwise?: boolean }): JevClient => {
+  const byTitle = new Map(occs.map((o) => [o.title, o]));
+  // The real pairwise state carries `occurrence_a`/`occurrence_b`; the
+  // classify state carries `result`. Dispatch on those exact shapes.
+  const pairFor = (s: unknown) => {
+    const st = (s ?? {}) as { occurrence_a?: { title?: string }; occurrence_b?: { title?: string } };
+    const at = st.occurrence_a?.title ?? "";
+    const bt = st.occurrence_b?.title ?? "";
+    const key = `${at}→${bt}`;
+    return byTitle.get(bt)?.pair?.[key] ?? byTitle.get(at)?.pair?.[key] ?? {};
+  };
+  const titleFor = (s: unknown) => (s as { result?: { title?: string } } | null | undefined)?.result?.title ?? "";
+  return realJevClient(({ state, questions }) => {
+    // A pairwise request is identifiable by its question key. Returning a model
+    // the client will not accept makes production code reject the comparison,
+    // which is a real coverage gap rather than an assigned fixture value.
+    if (opts?.rejectPairwise === true && "pairwise_context" in questions) {
+      return { model: "jev-0.0.1-not-the-pin", answers: {} };
+    }
+    const o = byTitle.get(titleFor(state));
+    return {
+      model: JEV_MODEL,
+      answers: answers(questions, { ...pairFor(state), ...(o?.winners ?? {}) }, o?.relevance ?? 0.9),
+    };
+  }).client;
+};
+
+/** Controlled page fetch. Per-host text/dates are the origin and date inputs. */
+const buildFetch = (occs: Occ[]) => {
+  const byHost = new Map(occs.map((o) => [o.host, o]));
+  return async (url: string): Promise<FetchedPage> => {
+    const host = new URL(url).hostname;
+    const o = byHost.get(host);
+    return { url, html: o ? pageHtml(url, o) : `<html><head><title>CONTROLLED page</title></head><body><article><p>${"Controlled unlisted host text. ".repeat(20)}</p></article></body></html>` };
+  };
+};
+
+/* ---------------------------------------------------------------------- *
+ * The nine current-source states.
+ *
+ * Each is a list of controlled occurrences. The claim string is only set
+ * where the state is a claim-mode result; trace-mode states pass null.
+ * ---------------------------------------------------------------------- */
+
+const SUPPORTS = { claim_relation: "SUPPORTS" } as const;
+const CONTRADICTS = { claim_relation: "CONTRADICTS" } as const;
+const SAME = { context_relation: "SAME_CONTEXT" } as const;
+const DIFF = { context_relation: "DIFFERENT_CONTEXT" } as const;
+
+/** 1. CONTEXT_CONFLICT — two qualifying conflicts, two registrable domains,
+ *  two separately evidenced reporting groups, identity condition met. */
+const STATE_CONFLICT: Occ[] = [
+  { title: "A8 conflict alpha", host: "conflict-alpha.test", serpDate: "Mar 3, 2019", jsonLd: "2019-03-03", credit: "Conflict Alpha", winners: CONTRADICTS, relevance: 0.95 },
+  { title: "A8 conflict beta", host: "conflict-beta.test", serpDate: "Apr 8, 2020", jsonLd: "2020-04-08", credit: "Conflict Beta", winners: CONTRADICTS, relevance: 0.93 },
+];
+
+/** 2. NO_CONFLICT_FOUND — zero qualifiers, >=3 relevant core, >=2 domains,
+ *  >=2 evidenced groups, >=1 strong support. Always carries the caveat. */
+const STATE_NO_CONFLICT: Occ[] = [
+  { title: "A8 calm alpha", host: "calm-alpha.test", serpDate: "Jan 4, 2019", jsonLd: "2019-01-04", credit: "Calm Alpha", winners: SUPPORTS, relevance: 0.95 },
+  { title: "A8 calm beta", host: "calm-beta.test", serpDate: "Feb 6, 2020", jsonLd: "2020-02-06", credit: "Calm Beta", winners: SUPPORTS, relevance: 0.93 },
+  { title: "A8 calm gamma", host: "calm-gamma.test", serpDate: "May 9, 2021", jsonLd: "2021-05-09", credit: "Calm Gamma", winners: SAME, relevance: 0.91 },
+];
+
+/** 3. Strong trace — many dated core, all same-context, no divergence. */
+const STATE_TRACE_STRONG: Occ[] = [
+  { title: "A8 strong one", host: "strong-one.test", serpDate: "2019-01-10", jsonLd: "2019-01-10", credit: "Strong One", winners: SAME, relevance: 0.95 },
+  { title: "A8 strong two", host: "strong-two.test", serpDate: "2019-06-11", jsonLd: "2019-06-11", credit: "Strong Two", winners: SAME, relevance: 0.94 },
+  { title: "A8 strong three", host: "strong-three.test", serpDate: "2020-03-12", jsonLd: "2020-03-12", credit: "Strong Three", winners: SAME, relevance: 0.93 },
+  { title: "A8 strong four", host: "strong-four.test", serpDate: "2021-09-13", jsonLd: "2021-09-13", credit: "Strong Four", winners: SAME, relevance: 0.92 },
+];
+
+/** 4a. Unresolved-origin chronology.
+ *
+ *  These inputs do NOT produce a limited headline. An unresolved origin is not
+ *  by itself a limit on reconstruction, so the product correctly reports a
+ *  reconstructed chronology; the earlier version of this fixture was named
+ *  "limited" and asserted nothing about its headline, which hid that. It is
+ *  renamed to what it actually is, and the unresolved-origin invariant is kept
+ *  as its own state. */
+const STATE_TRACE_UNRESOLVED_ORIGIN: Occ[] = [
+  { title: "A8 limited kept", host: "limited-kept.test", serpDate: "2019-02-02", jsonLd: "2019-02-02", credit: "Limited Kept", winners: SAME, relevance: 0.95 },
+  { title: "A8 limited kept two", host: "limited-kept-two.test", serpDate: "2019-08-02", jsonLd: "2019-08-02", credit: "Limited Kept Two", winners: SAME, relevance: 0.93 },
+  { title: "A8 limited orphan", host: "limited-orphan.test", serpDate: "2020-05-02", jsonLd: "2020-05-02", winners: CONTRADICTS, relevance: 0.92 },
+];
+
+/** 4b. Limited trace — relevant evidence exists, but too little of it is dated.
+ *
+ *  The strong headline requires >=2 relevant core AND >=2 dated core actually
+ *  displayed. Only one occurrence here carries a page date, so the product must
+ *  report LIMITED_MEDIA_HISTORY_FOUND together with
+ *  `insufficient_dated_occurrences` rather than claim a reconstructed history
+ *  from relevant-but-undated evidence. */
+const STATE_TRACE_LIMITED: Occ[] = [
+  { title: "A8 limited one dated", host: "limited-one-dated.test", serpDate: "2019-03-03", jsonLd: "2019-03-03", credit: "Limited One Dated", winners: SAME, relevance: 0.95 },
+  { title: "A8 limited two undated", host: "limited-two-undated.test", credit: "Limited Two Undated", winners: SAME, relevance: 0.93 },
+  { title: "A8 limited three undated", host: "limited-three-undated.test", credit: "Limited Three Undated", winners: SAME, relevance: 0.91 },
+];
+
+/** 5. No dated trace — nothing carries a usable date. */
+const STATE_TRACE_NO_DATED: Occ[] = [
+  { title: "A8 undated one", host: "undated-one.test", winners: SAME, relevance: 0.95 },
+  { title: "A8 undated two", host: "undated-two.test", winners: SAME, relevance: 0.93 },
+  { title: "A8 undated three", host: "undated-three.test", winners: SAME, relevance: 0.91 },
+];
+
+/** 6. Divergent trace — a genuine later verified divergence on a
+ *  separately evidenced origin. */
+const STATE_TRACE_DIVERGENT: Occ[] = [
+  { title: "A8 diverge one", host: "diverge-one.test", serpDate: "2019-03-01", jsonLd: "2019-03-01", credit: "Diverge One", winners: SAME, relevance: 0.95,
+    pair: { "A8 diverge one→A8 diverge two": { pairwise_context: "SAME_CONTEXT" } } },
+  { title: "A8 diverge two", host: "diverge-two.test", serpDate: "2019-09-01", jsonLd: "2019-09-01", credit: "Diverge Two", winners: SAME, relevance: 0.94,
+    pair: { "A8 diverge two→A8 diverge three": { pairwise_context: "DIFFERENT_CONTEXT" } } },
+  { title: "A8 diverge three", host: "diverge-three.test", serpDate: "2020-04-01", jsonLd: "2020-04-01", credit: "Diverge Three", winners: SAME, relevance: 0.93 },
+];
+
+/** 7. Disputed vs unknown placement — one occurrence has two disagreeing
+ *  PAGE date sources (disputed), the others have no date at all (unknown). */
+const STATE_PLACEMENT: Occ[] = [
+  { title: "A8 placed dated", host: "placed-dated.test", serpDate: "2019-04-04", jsonLd: "2019-04-04", credit: "Placed Dated", winners: SAME, relevance: 0.95 },
+  { title: "A8 placed disputed", host: "placed-disputed.test", jsonLd: "2019-04-04", meta: "2021-11-11", winners: SAME, relevance: 0.93 },
+  { title: "A8 placed unknown", host: "placed-unknown.test", winners: SAME, relevance: 0.91 },
+];
+
+/** 8. Eleven exact occurrences, used by three fixtures that differ only in how
+ *  the dates arrive.
+ *
+ *  SUPERSEDED — the previous version of this comment claimed a GLOBAL five-date
+ *  ceiling and that `comparison_coverage_incomplete` can never be emitted. BOTH
+ *  CLAIMS WERE FALSE and are withdrawn:
+ *
+ *   - the lens exact-match normalizer does return an empty `dateTexts`, but dates
+ *     also merge across the same canonical URL while exact identity is retained,
+ *     so the same eleven occurrences reach EIGHT dated core when the same links
+ *     are dated through another surface;
+ *   - `comparison_coverage_incomplete` IS emitted when adjacent comparisons fail
+ *     to complete (see controlled-trace-coverage-gap).
+ *
+ *  What IS bounded is retention: `RETENTION_CAPS.lens_exact` is reapplied after
+ *  dedupe, so with near-match verification disabled more than eight RETAINED
+ *  exact core occurrences is unavailable in this configuration. The
+ *  eight-selection cap is reachable, so a selection-truncation example is NOT
+ *  established. No product limit was changed and no API fix is warranted.
+ *
+ *  The three consumers:
+ *    controlled-trace-dated-core-ceiling  exact-only; dates come from page reads
+ *    controlled-trace-dated-core-merged    same links also dated elsewhere -> 8
+ *    controlled-trace-coverage-gap        merged dates, pairwise rejected -> 0 compared */
+const ORDINAL_WORDS = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven"];
+
+const STATE_OVER_EIGHT: Occ[] = ORDINAL_WORDS.map((word, i) => {
+  const day = `${2018 + Math.floor(i / 4)}-${String((i % 4) + 1).padStart(2, "0")}-15`;
+  return {
+    title: `A8 many ${word}`,
+    // Alphabetic host label: the outlet-credit pattern cannot capture a digit,
+    // so "many-01" would collapse every outlet into one shared group.
+    host: `many-${word.toLowerCase()}.test`,
+    serpDate: day,
+    // Trace mode runs no text-search engine, so with exact-only inputs a
+    // fetched page is the only date source. Eleven occurrences against a
+    // five-page budget is what makes the exact-only bound observable; the
+    // merged-date fixtures add the same links on a text/about surface instead.
+    jsonLd: day,
+    credit: `Many ${word}`,
+    winners: SAME,
+    relevance: 0.95 - i * 0.01,
+  };
+});
+
+/** 8b. A real comparison-coverage gap.
+ *
+ *  Same eleven exact occurrences with merged dates, but every pairwise
+ *  comparison is rejected at the client boundary, so the adjacent comparisons
+ *  never complete. Selection still covers the whole run, so this is NOT
+ *  selection truncation — the product must report incomplete coverage because
+ *  fewer comparisons completed than were orderable, and must not claim an exact
+ *  segment count. */
+const STATE_COVERAGE_GAP: Occ[] = STATE_OVER_EIGHT;
+
+/** 9. An uncertain earlier transition preceding a later verified divergence.
+ *
+ *  These inputs use EQUAL dates, not an imprecise date interval: the adjacent
+ *  pair cannot be strictly ordered, so it yields an `unexamined` connector and
+ *  withholds the segment count, while the later verified divergence survives.
+ *  The product's own imprecise-window controls remain carried elsewhere and are
+ *  deliberately NOT re-exercised here. */
+const STATE_UNCERTAIN_TRANSITION: Occ[] = [
+  { title: "A8 uncertain early", host: "uncertain-early.test", serpDate: "2019-05-01", jsonLd: "2019-05-01", credit: "Uncertain Early", winners: SAME, relevance: 0.95,
+    pair: { "A8 uncertain early→A8 later verified": { pairwise_context: "SAME_CONTEXT" } } },
+  { title: "A8 later verified", host: "later-verified.test", serpDate: "2019-05-01", jsonLd: "2019-05-01", credit: "Later Verified", winners: SAME, relevance: 0.94,
+    pair: { "A8 later verified→A8 final verified": { pairwise_context: "DIFFERENT_CONTEXT" } } },
+  { title: "A8 final verified", host: "final-verified.test", serpDate: "2020-07-07", jsonLd: "2020-07-07", credit: "Final Verified", winners: SAME, relevance: 0.93 },
+];
+
+/**
+ * Per-fixture expected distribution modes. A single global triple could only
+ * describe fixtures that all share one neutral default, so it silently
+ * forbade any state that deliberately asserts supports / contradicts /
+ * same-context. Each state now declares the mode it is actually driving, which
+ * asserts real semantics instead of one blanket value.
+ */
+const LEGACY_ARGMAX: Record<string, string | undefined> = {
+  contextRelation: "differentContext",
+  pageRole: "reporting",
+  claimRelation: "neutral",
+};
+const EXPECTED_ARGMAX_BY_FIXTURE: Record<string, Record<string, string | undefined>> = {};
+const argmaxFor = (name: string) => EXPECTED_ARGMAX_BY_FIXTURE[name] ?? LEGACY_ARGMAX;
+
+/**
+ * The distribution mode each state actually drives, asserted per fixture. These
+ * are the semantic outputs under test, not snapshots.
+ */
+const A8_ARGMAX: Record<string, Record<string, string>> = {
+  "controlled-conflict": { contextRelation: "sameContext", claimRelation: "contradicts" },
+  "controlled-no-conflict": { contextRelation: "sameContext", claimRelation: "supports" },
+  "controlled-trace-strong": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-unresolved-origin": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-limited": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-no-dated": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-divergent": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-placement-disputed-vs-unknown": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-dated-core-ceiling": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-dated-core-merged": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-coverage-gap": { contextRelation: "sameContext", claimRelation: "neutral" },
+  "controlled-trace-uncertain-transition": { contextRelation: "sameContext", claimRelation: "neutral" },
+};
+for (const [n, m] of Object.entries(A8_ARGMAX)) EXPECTED_ARGMAX_BY_FIXTURE[n] = m;
+
+/** name → { claim, occurrences }. The claim is null for trace-mode states. */
+const A8_STATES: Array<[string, string | null, Occ[], boolean?, boolean?, boolean?]> = [
+  ["controlled-conflict", "A controlled claim used to drive a corroborated context conflict.", STATE_CONFLICT],
+  ["controlled-no-conflict", "A controlled claim used to drive a corroborated no-conflict result.", STATE_NO_CONFLICT],
+  ["controlled-trace-strong", null, STATE_TRACE_STRONG],
+  ["controlled-trace-unresolved-origin", null, STATE_TRACE_UNRESOLVED_ORIGIN],
+  ["controlled-trace-limited", null, STATE_TRACE_LIMITED],
+  ["controlled-trace-no-dated", null, STATE_TRACE_NO_DATED],
+  ["controlled-trace-divergent", null, STATE_TRACE_DIVERGENT],
+  ["controlled-placement-disputed-vs-unknown", null, STATE_PLACEMENT],
+  ["controlled-trace-dated-core-ceiling", null, STATE_OVER_EIGHT],
+  // Same eleven exact occurrences, but the same links are also dated through
+  // about-this-image, so the dates merge without a deep read. This is the
+  // control that disproves the earlier "global five-date ceiling" claim.
+  ["controlled-trace-dated-core-merged", null, STATE_OVER_EIGHT, false, true],
+  ["controlled-trace-coverage-gap", null, STATE_COVERAGE_GAP, false, true, true],
+  ["controlled-trace-uncertain-transition", null, STATE_UNCERTAIN_TRANSITION],
+];
 
 describe.skipIf(!GEN)("controlled fixture generation", () => {
   it.each([
@@ -504,12 +973,21 @@ describe.skipIf(!GEN)("controlled fixture generation", () => {
     ["controlled-viewer", "This controlled claim describes a fictional event today.", serpapiViewer, jev],
     ["controlled-insufficient", "This controlled claim describes a fictional event today.", serpapiEmpty, jev],
     ["controlled-pair", "This controlled claim describes a fictional event today.", serpapiPair, jevPair],
-  ])("writes %s.ndjson", async (name, claim, provider, jevClient) => {
+    ...A8_STATES.map(
+      ([name, claim, occs, mirrorDates, mirrorAbout, rejectPairwise]) =>
+        [
+          name, claim,
+          buildSerpapi(occs, mirrorDates === true, mirrorAbout === true),
+          buildJev(occs, { rejectPairwise: rejectPairwise === true }),
+          buildFetch(occs),
+        ] as const,
+    ),
+  ])("writes %s.ndjson", async (name, claim, provider, jevClient, pageFetchOverride) => {
     const events: unknown[] = [];
     await runInvestigation(
       { media: new Uint8Array([1, 2, 3]), claim, timezone: "UTC", locale: "en" },
       (e) => events.push(e),
-      { serpapi: provider, jev: jevClient, fetchPage },
+      { serpapi: provider, jev: jevClient, fetchPage: pageFetchOverride ?? fetchPage },
     );
     const file = path.join(OUT, `${name}.ndjson`);
     fs.writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -543,8 +1021,25 @@ const CLAIM_FIXTURES = new Set([
   "controlled-viewer",
   "controlled-insufficient",
   "controlled-pair",
+  // A8: a corroborated conflict and a corroborated no-conflict, each driven
+  // into its terminal status by the real policy gates rather than asserted.
+  "controlled-conflict",
+  "controlled-no-conflict",
 ]);
-const TRACE_FIXTURES = new Set(["controlled-trace"]);
+const TRACE_FIXTURES = new Set([
+  "controlled-trace",
+  // A8 trace states.
+  "controlled-trace-strong",
+  "controlled-trace-unresolved-origin",
+  "controlled-trace-limited",
+  "controlled-trace-no-dated",
+  "controlled-trace-divergent",
+  "controlled-placement-disputed-vs-unknown",
+  "controlled-trace-dated-core-ceiling",
+  "controlled-trace-dated-core-merged",
+  "controlled-trace-coverage-gap",
+  "controlled-trace-uncertain-transition",
+]);
 const DATE_STATUSES = new Set(["usable", "approximate", "unknown", "absent"]);
 const DATE_PRECISIONS = new Set(["day", "month", "year", "unknown", "none"]);
 const IDENTITY_BASES = new Set([
@@ -578,6 +1073,21 @@ const CONNECTORS = new Set([
   "unknown",
   null,
 ]);
+/**
+ * Fixture hosts must be non-resolving. The original allowlist only accepted
+ * `fixture-*.example.org` and `example.*`, which pins every occurrence to the
+ * single registrable domain `example.org` — and a single registrable domain
+ * makes the corroborating-domain gate, and self-bound outlet credits,
+ * unreachable, so CONTEXT_CONFLICT and NO_CONFLICT_FOUND could never be
+ * driven. The IANA-reserved names below are the RFC 2606 / RFC 6761 set whose
+ * entire purpose is "never resolves", which is what this check is protecting.
+ * A real host is still rejected; see the reserved-host control below.
+ */
+const RESERVED_TLDS = ["test", "invalid", "example", "localhost"];
+const isFixtureHost = (host: string): boolean =>
+  /^(fixture-[a-z0-9-]+\.example\.org|example\.(org|com|net|invalid))$/.test(host) ||
+  new RegExp(`^[a-z0-9-]+\\.(${RESERVED_TLDS.join("|")})$`).test(host);
+
 const LIMITATION_CODES = new Set([
   "exact_match_retrieval_unavailable",
   "about_this_image_unavailable",
@@ -586,11 +1096,19 @@ const LIMITATION_CODES = new Set([
   "reporting_origins_unresolved",
   "unknown_dates_present",
   "unverified_visual_leads_present",
-  "no_current_media_corroboration",
-  "location_unresolved",
   "web_context_unavailable",
   "semantic_classification_unavailable",
-  "model_identity_unverified",
+  // Codes the product actually emits that the original set never listed. Kept
+  // honest by `limitation codes cover the product union` below, which reads the
+  // product's declared union and fails if the two ever drift apart again.
+  "no_exact_occurrences_returned",
+  "news_unavailable",
+  "semantic_classification_partial",
+  "page_fetch_partial_failure",
+  "analysis_time_limit_reached",
+  "comparison_coverage_incomplete",
+  "claim_date_unresolved",
+  "disputed_dates_present",
 ]);
 const TAKEAWAY_CODES = new Set([
   "temporal_conflict",
@@ -674,12 +1192,6 @@ const EXPECTED_LABELS: Record<string, readonly string[]> = {
 /** The controlled fixtures are authored to classify every candidate as a
  *  different-context, neutral, reporting-page hit — the exact shape that
  *  drives the conflict statuses the drives assert. */
-const EXPECTED_ARGMAX: Record<string, string | undefined> = {
-  contextRelation: "differentContext",
-  pageRole: "reporting",
-  claimRelation: "neutral",
-};
-
 const FIXTURE_FILES = fixtureNames();
 
 describe("controlled fixture contract", () => {
@@ -860,7 +1372,11 @@ describe("controlled fixture contract", () => {
     const events = readEvents(name);
     let checked = 0;
     const verdict = terminalResult(readEvents(name));
-    const hasCandidates = asArray(verdict["timeline"]).length > 0;
+    // "Has candidates" must come from the discovered evidence, NOT from the
+    // timeline. A trace whose occurrences are all undated has an empty
+    // timeline and still publishes a judgment for every candidate; keying this
+    // off the timeline wrongly demanded that such a fixture publish none.
+    const hasCandidates = events.some((e) => str(e, "type") === "evidence.discovered");
     walk(events, (node) => {
       const judgment = node["publicJudgment"];
       if (!judgment || typeof judgment !== "object") return;
@@ -886,7 +1402,7 @@ describe("controlled fixture contract", () => {
         }
         const sum = Object.values(record).reduce((a, b) => a + b, 0);
         expect(Math.abs(sum - 1), `${name}: ${key} sums to ${sum}`).toBeLessThan(1e-6);
-        const winner = EXPECTED_ARGMAX[key];
+        const winner = argmaxFor(name)[key];
         if (winner) {
           const argmax = Object.entries(record).sort((a, b) => b[1] - a[1])[0][0];
           expect(argmax, `${name}: ${key} mode must be ${winner}`).toBe(winner);
@@ -1073,6 +1589,61 @@ describe("controlled fixture contract", () => {
     },
   );
 
+  it("limitation codes cover the product union, so the allowlist cannot go stale", () => {
+    // Reads the product's own declared union. If the product gains a code and
+    // the fixture allowlist does not, this fails — which is exactly the drift
+    // that let real codes (claim_date_unresolved, disputed_dates_present) reach
+    // a fixture unnoticed.
+    const src = fs.readFileSync(
+      path.resolve(OUT, "../../../../src/lib/investigation/contracts/investigation.ts"),
+      "utf8",
+    );
+    const unionOf = (typeName: string): string[] => {
+      const at = src.indexOf(`export type ${typeName}`);
+      expect(at, `product contract must declare ${typeName}`).toBeGreaterThan(-1);
+      return [...src.slice(at, src.indexOf(";", at)).matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+    };
+    const limitationUnion = unionOf("LimitationCode");
+    const takeawayUnion = unionOf("TakeawayCode");
+    expect(limitationUnion.length).toBeGreaterThan(10);
+    for (const code of limitationUnion) {
+      expect(LIMITATION_CODES.has(code), `limitation code missing from allowlist: ${code}`).toBe(true);
+    }
+    for (const code of LIMITATION_CODES) {
+      expect(limitationUnion, `limitation allowlist lists a code the product no longer declares: ${code}`).toContain(code);
+    }
+    for (const code of takeawayUnion) {
+      expect(TAKEAWAY_CODES.has(code), `takeaway code missing from allowlist: ${code}`).toBe(true);
+    }
+    for (const code of TAKEAWAY_CODES) {
+      expect(takeawayUnion, `takeaway allowlist lists a code the product no longer declares: ${code}`).toContain(code);
+    }
+  });
+
+  it("the reserved-host allowlist still rejects real hosts", () => {
+    // Meaningful opposing control: widening the allowlist for RFC 2606 names
+    // must not have weakened the original intent.
+    for (const bad of [
+      "reuters.com",
+      "www.bbc.co.uk",
+      "news.bbc.co.uk",
+      "contexttrail.ai",
+      "fixture-news-a.example.org.attacker.net",
+      "conflict-alpha.test.evil.com",
+    ]) {
+      expect(isFixtureHost(bad), `real host must be rejected: ${bad}`).toBe(false);
+    }
+    for (const good of [
+      "fixture-news-a.example.org",
+      "example.invalid",
+      "conflict-alpha.test",
+      "calm-beta.invalid",
+      "many-one.test",
+    ]) {
+      expect(isFixtureHost(good), `reserved host must be accepted: ${good}`).toBe(true);
+    }
+  });
+
   it.each(FIXTURE_FILES)("%s: no real hosts and no credential material", (name) => {
     const events = readEvents(name);
     const raw = fs.readFileSync(path.join(OUT, `${name}.ndjson`), "utf8");
@@ -1084,7 +1655,7 @@ describe("controlled fixture contract", () => {
       const host = hostOf(url);
       expect(host, `${name}: unparsable url ${url}`).toBeTruthy();
       expect(
-        /^(fixture-[a-z0-9-]+\.example\.org|example\.(org|com|net|invalid))$/.test(host as string),
+        isFixtureHost(host as string),
         `${name}: real host in fixture: ${host}`,
       ).toBe(true);
     }
@@ -1253,27 +1824,181 @@ describe("controlled fixture contract", () => {
 });
 
 /* ---------------------------------------------------------------------- *
+ * Model-identity proof across the real client boundary.
+ *
+ * The old check only asserted that a hand-built double repeated its own
+ * literals. These controls instead drive the REAL JevClient and observe what
+ * production code does with a raw response whose `model` is pinned, absent,
+ * null, or unexpected. An unusable identity must not yield a single accepted
+ * classification.
+ * ---------------------------------------------------------------------- */
+
+describe("A8 model identity is resolved by the real client", () => {
+  const runOnce = async (respond: JevResponder) => {
+    const { client, requests } = realJevClient(respond);
+    const events: unknown[] = [];
+    await runInvestigation(
+      { media: new Uint8Array([1, 2, 3]), claim: "A controlled claim for the identity boundary.", timezone: "UTC", locale: "en" },
+      (e) => events.push(e),
+      { serpapi: buildSerpapi(STATE_CONFLICT), jev: client, fetchPage: buildFetch(STATE_CONFLICT) },
+    );
+    const result = (events[events.length - 1] as { result: any }).result;
+    const judged = [...asArray(result["timeline"]), ...asArray(result["undatedEvidence"])]
+      .filter((x) => str(x, "jevModel") !== null);
+    return { requests, result, judged };
+  };
+
+  it("pinned positive control: a matching returned model yields verified judgments", async () => {
+    const { requests, judged } = await runOnce(({ questions }) => ({
+      model: JEV_MODEL,
+      answers: answers(questions, { context_relation: "DIFFERENT_CONTEXT", claim_relation: "CONTRADICTS" }),
+    }));
+    expect(requests.length, "the real client must actually be called").toBeGreaterThan(0);
+    expect(judged.length, "a pinned model must produce accepted judgments").toBeGreaterThan(0);
+    for (const j of judged) expect(str(j, "jevModel")).toBe(JEV_MODEL);
+  });
+
+  // The SAME valid answers the pinned positive uses. Returning empty answers
+  // here would give a second, independent reason for no classification, and a
+  // weakened identity boundary could hide behind malformed-answer rejection.
+  const validAnswers = (questions: Record<string, unknown>) =>
+    answers(questions, { context_relation: "DIFFERENT_CONTEXT", claim_relation: "CONTRADICTS" });
+
+  for (const [label, respond] of [
+    ["absent", ({ questions }) => ({ answers: validAnswers(questions) })],
+    ["null", ({ questions }) => ({ model: null, answers: validAnswers(questions) })],
+    ["unexpected", ({ questions }) => ({ model: "jev-0.0.1-not-the-pin", answers: validAnswers(questions) })],
+  ] as Array<[string, JevResponder]>) {
+    it(`a ${label} returned model is rejected: zero accepted classifications`, async () => {
+      const { requests, judged, result } = await runOnce(
+        respond as JevResponder as (r: { state: any; questions: Record<string, unknown> }) => Record<string, unknown>,
+      );
+      // The client must actually have been called and rejected. Without this the
+      // control could pass simply by never reaching the boundary.
+      expect(requests.length, `${label}: the real client must actually be called`).toBeGreaterThan(0);
+      expect(judged.length, `${label} model must not yield a model-labelled judgment`).toBe(0);
+      // With no usable judgment nothing can be asserted about the claim, so the
+      // run must not reach a conflict verdict on model evidence.
+      expect(str(result, "status")).not.toBe("CONTEXT_CONFLICT");
+    });
+  }
+
+  it("the client itself rejects an unpinned model, with valid answers present", async () => {
+    // Direct boundary control: the rejection happens in the real client, so a
+    // weakened identity check cannot be masked by the orchestrator.
+    for (const [label, model] of [["absent", undefined], ["null", null], ["unexpected", "jev-0.0.1"]] as const) {
+      const { client, requests } = realJevClient(({ questions }) => ({
+        ...(model === undefined ? {} : { model }),
+        answers: answers(questions, { context_relation: "DIFFERENT_CONTEXT" }),
+      }));
+      // The real question map and a real candidate state, so the negative stays
+      // faithful to the public typed request boundary rather than a hand-rolled
+      // shape that could fail for an unrelated reason.
+      const realQuestions: Record<string, JevQuestion> =
+        evidenceQuestions({ claimMode: true, claimHasLocation: false });
+      const realState = candidateState(
+        {
+          id: "ev-controlled-alpha",
+          title: "A8 conflict alpha",
+          snippet: "controlled snippet",
+          registrableDomain: "conflict-alpha.test",
+          publishedAt: "2019-03-03",
+          retrievalKind: "lens_exact",
+          mediaRelationship: "EXACT_MATCH",
+        } as never,
+        "A controlled claim for the identity boundary.",
+        null,
+      );
+      await expect(
+        client.ask(realState, realQuestions),
+        `${label} model must be rejected by the client`,
+      ).rejects.toThrow();
+      expect(requests.length, `${label}: the client must have issued the request`).toBe(1);
+    }
+  });
+
+  it("Claim mode also reaches eight dated core via organic search and via news", async () => {
+    // The cross-mode date claim must be durable in BOTH modes, not only on the
+    // committed About/Trace fixture. Same eleven exact occurrences; the date
+    // comes from a text surface instead, and identity is still the exact one.
+    for (const [label, organic, about, news] of [
+      ["organic", true, false, false],
+      ["news", false, false, true],
+    ] as const) {
+      const { client } = realJevClient(({ state, questions }) => ({
+        model: JEV_MODEL,
+        answers: answers(questions, { context_relation: "SAME_CONTEXT" }, 0.9),
+      }));
+      const events: unknown[] = [];
+      await runInvestigation(
+        {
+          media: new Uint8Array([1, 2, 3]),
+          claim: "A controlled claim for the cross-mode date path.",
+          timezone: "UTC",
+          locale: "en",
+        },
+        (e) => events.push(e),
+        {
+          serpapi: buildSerpapi(STATE_OVER_EIGHT, organic, about, news),
+          jev: client,
+          fetchPage: buildFetch(STATE_OVER_EIGHT),
+        },
+      );
+      const result = (events[events.length - 1] as { result: any }).result;
+      const cc = result["comparisonCoverage"] ?? {};
+      expect(asArray(result["timeline"]).length, `${label}: dated core`).toBe(8);
+      expect(cc["eligible"], `${label}: eligible`).toBe(8);
+      expect(cc["selected"], `${label}: selected`).toBe(8);
+      expect(cc["comparedPairs"], `${label}: compared`).toBe(7);
+      // Dates do not DEPEND ON page reads to exist. The run may still spend its
+      // five page reads for text, origin and refinement; that is not implied
+      // away by the presence of merged dates.
+      expect(strs(result["limitations"])).not.toContain("insufficient_dated_occurrences");
+    }
+  });
+
+  it("answers derived from the serialized state reach the raw request body", async () => {
+    const { requests } = await runOnce(({ state, questions }) => {
+      // Prove the plan is reading the REAL serialized state, not a fixture-local
+      // copy: the title below is taken from the request the client actually sent.
+      const title = (state as { result?: { title?: string } })?.result?.title ?? "";
+      return {
+        model: JEV_MODEL,
+        answers: answers(questions, { context_relation: title.includes("alpha") ? "DIFFERENT_CONTEXT" : "SAME_CONTEXT" }),
+      };
+    });
+    expect(requests.length).toBeGreaterThan(0);
+    const titles = requests.map((r) => (r.state as { result?: { title?: string } })?.result?.title ?? "");
+    expect(titles.some((t) => t.includes("alpha")), `serialized titles seen: ${titles.join(",")}`).toBe(true);
+    // The questions the client actually asked must be the ones answered.
+    for (const r of requests) {
+      expect(Object.keys(r.questions).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+/* ---------------------------------------------------------------------- *
  * Generator contract — runs on every `vitest run`, no GEN gate needed.
  * ---------------------------------------------------------------------- */
 
-type JevResponse = {
-  answers: Record<string, unknown>;
-  model: string;
-  identity: { requested: string; reported: string; status: string; pinned: boolean };
-};
+/** The production client's own result type, not a hand-rolled stand-in. */
+type JevResponse = JevAskResult;
 
-const jevAsk = (
-  jev as unknown as { ask: (claim: unknown, qs: Record<string, unknown>) => Promise<JevResponse> }
-).ask;
+/** Called as a real method so `this` survives — destructuring `.ask` off the
+ *  client only worked while `jev` was a plain literal with no receiver. Typed
+ *  with the production signature so a signature drift is a type error here. */
+const jevAsk = (state: unknown, questions: Record<string, JevQuestion>): Promise<JevResponse> =>
+  jev.ask(state, questions);
 
 describe("generator contract", () => {
   it("the Jev client reports a truthful, pinned model identity", async () => {
-    const res = await jevAsk("controlled claim", {
-      relevance: {},
-      context_relation: {},
-      claim_relation: {},
-      page_role: {},
-    });
+    // The production question map, not a hand-rolled `{key: {}}` shape: typing
+    // jevAsk with the real JevQuestion surfaced this site, and the fix is the
+    // real builder rather than a cast.
+    const res = await jevAsk(
+      "controlled claim",
+      evidenceQuestions({ claimMode: true, claimHasLocation: false }),
+    );
     expect(res.identity.requested).toBe(res.identity.reported);
     expect(res.identity.status).toBe("verified");
     expect(res.identity.pinned).toBe(true);
@@ -1311,6 +2036,313 @@ describe("generator contract", () => {
         expect(probs[value.choice as string], `${key} choice must be the mode`).toBeCloseTo(top, 10);
         expect(Object.keys(probs).sort()).toEqual([...(CHOICE as Record<string, string[]>)[key]].sort());
       }
+    }
+  });
+});
+
+/* ======================================================================== *
+ * A8 — semantic state assertions.
+ *
+ * These assert the product's ACTUAL derived semantics per state — terminal
+ * status, support ids, origin separation, nulls, coverage, limitations and
+ * date precision — rather than snapshotting whole results. Every expectation
+ * here is about a value the orchestrator computed, never one a fixture wrote.
+ * ======================================================================== */
+
+describe("A8 current-source state semantics", () => {
+  const result = (name: string) => terminalResult(readEvents(name));
+  const all = (r: Record<string, unknown>, k: string) => asArray(r[k]) as Record<string, unknown>[];
+  const items = (r: Record<string, unknown>) => [
+    ...all(r, "timeline"), ...all(r, "undatedEvidence"),
+    ...all(r, "supportingEvidence"), ...all(r, "contextualEvidence"),
+  ];
+
+  it("CONTEXT_CONFLICT: two qualifiers, two domains, two evidenced groups", () => {
+    const r = result("controlled-conflict");
+    expect(str(r, "status")).toBe("CONTEXT_CONFLICT");
+    expect(str(r, "mode")).toBe("claim_check");
+    // The corroborating-pair gate is what upgrades POSSIBLE -> CONTEXT.
+    const gates = all(r, "policyReasons");
+    const pair = gates.find((g) => str(g, "gate") === "corroborating_pair");
+    expect(pair?.["passed"], "the corroborating-pair gate must be the one that fired").toBe(true);
+    const ids = strs(pair?.["supportIds"]);
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    const qg = gates.find((g) => str(g, "gate") === "qualifying_conflicts");
+    expect(strs(qg?.["supportIds"]).length).toBeGreaterThanOrEqual(2);
+    const cited = items(r).filter((x) => ids.includes(str(x, "evidenceId") as string));
+    expect(new Set(cited.map((x) => str(x, "registrableDomain"))).size).toBeGreaterThanOrEqual(2);
+    // Origin separation: the corroboration requires SEPARATELY EVIDENCED
+    // origins, not merely distinct domains.
+    for (const c of cited) {
+      expect(str(c, "reportingOriginStatus"), `origin of ${str(c, "evidenceId")}`).toBe("separate_origin_evidenced");
+    }
+    expect(new Set(cited.map((x) => str(x, "reportingOriginGroupId"))).size).toBeGreaterThanOrEqual(2);
+    expect(r["unresolvedOriginCount"]).toBe(0);
+  });
+
+  it("NO_CONFLICT_FOUND: every gate passes and the caveat is carried", () => {
+    const r = result("controlled-no-conflict");
+    expect(str(r, "status")).toBe("NO_CONFLICT_FOUND");
+    // The mandatory caveat. In this product the flag is set unconditionally by
+    // buildClaimResult for EVERY claim status, so it is not a NO_CONFLICT_FOUND
+    // special case; the contract still requires it here because this is the
+    // status that most reads as an all-clear.
+    expect(caveatPresent(r)).toBe(true);
+    expect(strs(r["statusBasis"]).length).toBeGreaterThan(0);
+    // Every gate NO_CONFLICT_FOUND requires must actually be present and pass.
+    // The qualifying_conflicts gate is deliberately the one that does NOT pass:
+    // this status is only reachable with zero qualifiers.
+    const gates = all(r, "policyReasons");
+    const byGate = new Map(gates.map((g) => [str(g, "gate") as string, g]));
+    expect(byGate.get("qualifying_conflicts")?.["passed"]).toBe(false);
+    expect(strs(byGate.get("qualifying_conflicts")?.["supportIds"]).length).toBe(0);
+    for (const g of ["relevant_core_coverage", "distinct_domains", "distinct_reporting_groups", "corroborating_pair", "strong_support"]) {
+      expect(byGate.get(g), `missing gate ${g}`).toBeTruthy();
+      expect(byGate.get(g)!["passed"], `gate ${g} must pass`).toBe(true);
+    }
+    expect(r["reportingGroupCount"]).toBeGreaterThanOrEqual(2);
+    expect(r["unresolvedOriginCount"]).toBe(0);
+    expect((r["sourceDomainCount"] as number) ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  /** The single caveat predicate, shared by the positive check and the
+   *  mutation control below so a mutation cannot pass by using a laxer test. */
+  const caveatPresent = (r: Record<string, unknown>) => r["doesNotProveClaimTrue"] === true;
+
+  it("NO_CONFLICT_FOUND caveat is load-bearing: mutating the fixture turns it red", () => {
+    // A real red, not an assign-false/assert-false tautology. The fixture's
+    // SERIALIZED TEXT is read, the caveat is removed from that string, the
+    // mutated string is re-parsed event-by-event, and the SAME predicate the
+    // positive assertion uses is evaluated on the re-parsed result. This is a
+    // serialized-bytes control, not a disk round-trip: no mutated file is ever
+    // written, and the committed bytes are never touched.
+    const src = path.join(OUT, "controlled-no-conflict.ndjson");
+    const original = fs.readFileSync(src, "utf8");
+    try {
+      const mutated = original.replace(
+        '"doesNotProveClaimTrue":true',
+        '"doesNotProveClaimTrue":false',
+      );
+      expect(mutated, "the mutation must actually apply to the fixture bytes").not.toBe(original);
+      const events = mutated.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as Json);
+      const mutatedResult = events[events.length - 1]["result"] as Record<string, unknown>;
+      // The same predicate the positive check uses now fails.
+      expect(caveatPresent(mutatedResult), "the caveat assertion must be red once the flag is removed").toBe(false);
+      // And the unmutated bytes still satisfy it, so the control is a true
+      // red -> green pair rather than a permanently red check.
+      expect(caveatPresent(result("controlled-no-conflict"))).toBe(true);
+    } finally {
+      // The committed bytes were never modified; restore defensively so a
+      // partially-applied mutation can never leak into the fixture set.
+      if (fs.readFileSync(src, "utf8") !== original) fs.writeFileSync(src, original);
+    }
+  });
+
+  it("strong trace: dated core across separate origins, one coherent segment", () => {
+    const r = result("controlled-trace-strong");
+    const tl = all(r, "timeline");
+    expect(tl.length).toBeGreaterThanOrEqual(3);
+    expect(r["contextSegmentCount"]).toBe(1);
+    expect(r["firstObservedContextDivergence"]).toBeFalsy();
+    expect(new Set(tl.map((x) => str(x, "reportingOriginGroupId"))).size).toBe(tl.length);
+    for (const x of tl) expect(str(x, "dateStatus")).toBe("usable");
+  });
+
+  it("every named trace fixture asserts its exact headline", () => {
+    // Named states must not be able to carry a headline nobody asserted.
+    const expected: Record<string, string> = {
+      "controlled-trace": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-strong": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-unresolved-origin": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-limited": "LIMITED_MEDIA_HISTORY_FOUND",
+      "controlled-trace-no-dated": "LIMITED_MEDIA_HISTORY_FOUND",
+      "controlled-trace-divergent": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-uncertain-transition": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-dated-core-ceiling": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-dated-core-merged": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-trace-coverage-gap": "MEDIA_HISTORY_RECONSTRUCTED",
+      "controlled-placement-disputed-vs-unknown": "LIMITED_MEDIA_HISTORY_FOUND",
+    };
+    for (const [name, headline] of Object.entries(expected)) {
+      expect(str(result(name), "headline"), `${name} headline`).toBe(headline);
+    }
+  });
+
+  it("limited trace: relevant evidence too undated to reconstruct a chronology", () => {
+    const r = result("controlled-trace-limited");
+    expect(str(r, "headline")).toBe("LIMITED_MEDIA_HISTORY_FOUND");
+    // The reason must be stated, not merely implied by the headline.
+    expect(strs(r["limitations"])).toContain("insufficient_dated_occurrences");
+    // Fewer than two dated core occurrences, while relevant core exists.
+    const tl = all(r, "timeline");
+    expect(tl.length).toBeGreaterThan(0);
+    expect(tl.length, "a limited chronology must not claim two dated core occurrences").toBeLessThan(2);
+    expect(all(r, "undatedEvidence").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("unresolved-origin chronology: an unresolved origin is reported, never promoted", () => {
+    const r = result("controlled-trace-unresolved-origin");
+    expect(str(r, "headline")).toBe("MEDIA_HISTORY_RECONSTRUCTED");
+    expect((r["unresolvedOriginCount"] as number) ?? 0).toBeGreaterThanOrEqual(1);
+    expect(strs(r["limitations"])).toContain("reporting_origins_unresolved");
+    // An unresolved origin must not be counted as an evidenced group.
+    const unres = items(r).filter((x) => str(x, "reportingOriginStatus") === "unresolved");
+    expect(unres.length).toBeGreaterThanOrEqual(1);
+    // An unresolved origin must not be dressed up as an evidenced group.
+    for (const x of unres) {
+      expect(String(str(x, "reportingOriginGroupId") ?? ""), "unresolved origin must not claim a group").toBe("");
+    }
+    const evidenced = items(r).filter((x) => str(x, "reportingOriginStatus") === "separate_origin_evidenced");
+    expect(evidenced.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("no-dated trace: nothing enters the dated timeline and the count is withheld", () => {
+    const r = result("controlled-trace-no-dated");
+    expect(all(r, "timeline").length).toBe(0);
+    expect(all(r, "undatedEvidence").length).toBeGreaterThanOrEqual(3);
+    // No dated run cannot claim an exact segment count.
+    expect(r["contextSegmentCount"]).toBeNull();
+    expect(strs(r["limitations"])).toContain("unknown_dates_present");
+    for (const x of all(r, "undatedEvidence")) {
+      expect(str(x, "publishedAt")).toBeNull();
+      expect(str(x, "dateStatus")).toBe("unknown");
+    }
+  });
+
+  it("divergent trace: a real later divergence with decisive support ids", () => {
+    const r = result("controlled-trace-divergent");
+    const d = r["firstObservedContextDivergence"] as Record<string, unknown> | null;
+    expect(d, "a verified divergence must exist").toBeTruthy();
+    const from = str(d!, "fromOccurrenceId");
+    const to = str(d!, "toOccurrenceId");
+    const shipped = new Set(items(r).map((x) => str(x, "evidenceId")));
+    expect(shipped.has(from as string), "divergence source must be a shipped occurrence").toBe(true);
+    expect(shipped.has(to as string), "divergence target must be a shipped occurrence").toBe(true);
+    // The edge must be ordered and the later occurrence must actually be later.
+    const byId = new Map(items(r).map((x) => [str(x, "evidenceId") as string, x]));
+    expect(String(str(byId.get(to as string)!, "observedAt")) > String(str(byId.get(from as string)!, "observedAt"))).toBe(true);
+    expect((r["contextSegmentCount"] as number) ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  it("placement: a disputed date and an unknown date are distinguished, not merged", () => {
+    const r = result("controlled-placement-disputed-vs-unknown");
+    const und = all(r, "undatedEvidence");
+    const byStatus = new Map(und.map((x) => [str(x, "dateStatus") as string, x]));
+    expect(byStatus.has("disputed"), "a disputed date must be present and kept").toBe(true);
+    expect(byStatus.has("unknown"), "an unknown date must be present and kept").toBe(true);
+    // Disputed is a real, recorded outcome: a null value AND a retained
+    // rejected-candidate ledger. It must never be silently filled in.
+    const disputed = byStatus.get("disputed")!;
+    expect(str(disputed, "publishedAt")).toBeNull();
+    expect(asArray((disputed["dateProvenance"] as Record<string, unknown>)?.["rejectedCandidates"]).length)
+      .toBeGreaterThan(0);
+    // Neither may enter the dated timeline.
+    expect(all(r, "timeline").some((x) => str(x, "dateStatus") === "disputed")).toBe(false);
+    expect(strs(r["limitations"])).toContain("disputed_dates_present");
+  });
+
+  it("dated-core ceiling: the reachable maximum, with the shortfall recorded", () => {
+    const r = result("controlled-trace-dated-core-ceiling");
+    const tl = all(r, "timeline");
+    const cc = r["comparisonCoverage"] as Record<string, unknown>;
+    // The ceiling is the deep-read page budget, not the selection cap.
+    expect(tl.length).toBe(5);
+    expect((cc["displayedDatedCore"] as number)).toBe(tl.length);
+    // Because the ceiling is below the cap, selection is never truncated and
+    // coverage is complete — which is precisely why the >8 state is
+    // unreachable, and why this fixture records that instead of faking it.
+    expect((cc["selected"] as number)).toBe((cc["eligible"] as number));
+    expect(r["contextSegmentCount"]).not.toBeNull();
+    expect(strs(r["limitations"])).not.toContain("comparison_coverage_incomplete");
+  });
+
+  it("dated-core ceiling is a DEEP-READ bound, not a global one", () => {
+    // Corrects an earlier, wrong claim. These are the same eleven exact
+    // occurrences with two different date surfaces, and they disagree:
+    //   exact-only  -> the deep-read page budget decides how many get a date
+    //   merged dates -> the same links dated through another surface, so the
+    //                   product's cross-retrieval date merge dates them all
+    // The earlier claim that five was a GLOBAL ceiling was false.
+    const exactOnly = result("controlled-trace-dated-core-ceiling") as Record<string, unknown>;
+    const merged = result("controlled-trace-dated-core-merged") as Record<string, unknown>;
+    const nExact = all(exactOnly, "timeline").length;
+    const nMerged = all(merged, "timeline").length;
+
+    // The deep-read budget is what bounds the exact-only case.
+    const lim = fs.readFileSync(path.resolve(OUT, "../../../../src/lib/investigation/limits.ts"), "utf8");
+    const deep = Number(/MAX_DEEP_READ_PAGES\s*=\s*(\d+)/.exec(lim)?.[1]);
+    expect(deep).toBeGreaterThan(0);
+    expect(nExact, "exact-only dating is bounded by the deep-read page budget").toBe(deep);
+
+    // And the merged case exceeds it, which is the disconfirmation.
+    expect(nMerged, "merged dates must exceed the deep-read budget").toBeGreaterThan(nExact);
+    expect(nMerged).toBeGreaterThanOrEqual(8);
+  });
+
+  it("the eight-selection cap is reachable; >8 retained exact core is not", () => {
+    const merged = result("controlled-trace-dated-core-merged") as Record<string, unknown>;
+    const cc = merged["comparisonCoverage"] as Record<string, unknown>;
+    // The selection cap is actually reached by these controls.
+    const lim = fs.readFileSync(path.resolve(OUT, "../../../../src/lib/investigation/limits.ts"), "utf8");
+    const selCap = Number(/MAX_DIVERGENCE_OCCURRENCES\s*=\s*(\d+)/.exec(lim)?.[1]);
+    expect(cc["eligible"]).toBe(selCap);
+    expect(cc["selected"]).toBe(selCap);
+    // The real bound is the exact-collection retention cap, reapplied after
+    // dedupe — not the page budget, and not a Trace/Claim difference.
+    const caps = /lens_exact:\s*(\d+)/.exec(lim)?.[1];
+    expect(caps, "RETENTION_CAPS.lens_exact must be declared").toBeTruthy();
+    expect(Number(caps)).toBe(selCap);
+    // Selecting more than eight retained exact occurrences is therefore not
+    // reachable in THIS shipped configuration (near-match verification is
+    // disabled, so core identity comes from exact collections only). A
+    // selection-truncation example is therefore NOT established, and the
+    // internal selection algorithm's own proof stays separately scoped.
+  });
+
+  it("a comparison-coverage gap is emitted when comparisons do not complete", () => {
+    // Disproves the earlier claim that this limitation "can never be emitted".
+    // Selection covers the whole run here, so the gap is not truncation: the
+    // adjacent comparisons were rejected at the client boundary.
+    const r = result("controlled-trace-coverage-gap") as Record<string, unknown>;
+    const cc = r["comparisonCoverage"] as Record<string, unknown>;
+    expect(cc["eligible"]).toBe(cc["selected"]);
+    expect(cc["comparedPairs"]).toBe(0);
+    expect(strs(r["limitations"])).toContain("comparison_coverage_incomplete");
+    // Without complete coverage no exact segment count may be claimed.
+    expect(r["contextSegmentCount"]).toBeNull();
+    // The classifications themselves stay verified: a failed comparison is not
+    // a failed classification.
+    const judged = [...all(r, "timeline"), ...all(r, "undatedEvidence")].filter((x) => str(x, "jevModel") !== null);
+    expect(judged.length).toBeGreaterThan(0);
+    for (const j of judged) expect(str(j, "jevModel")).toBe(JEV_MODEL);
+  });
+
+  it("uncertain earlier transition: an unorderable pair blocks an ordered edge", () => {
+    const r = result("controlled-trace-uncertain-transition");
+    const d = r["firstObservedContextDivergence"] as Record<string, unknown> | null;
+    // The equal-date pair before the verified divergence cannot manufacture an
+    // ordered transition, so no exact segment count may be claimed overall.
+    expect(r["contextSegmentCount"]).toBeNull();
+    // The later verified divergence is still recorded, with shipped ids.
+    expect(d, "the later verified divergence must survive").toBeTruthy();
+    const shipped = new Set(items(r).map((x) => str(x, "evidenceId")));
+    expect(shipped.has(str(d!, "fromOccurrenceId") as string)).toBe(true);
+    expect(shipped.has(str(d!, "toOccurrenceId") as string)).toBe(true);
+    // The unorderable adjacent pair is reported as unexamined, not as a
+    // decided transition.
+    const comps = all(r, "comparisons");
+    expect(comps.some((c) => str(c, "connector") === "unexamined")).toBe(true);
+  });
+
+  it("model identity is the pinned jev-1.13.0 through valid returned envelopes", () => {
+    for (const [name] of A8_STATES) {
+      const r = result(name);
+      const judged = items(r).filter((x) => str(x, "jevModel") !== null);
+      expect(judged.length, `${name}: some occurrence must carry a judgment`).toBeGreaterThan(0);
+      for (const x of judged) expect(str(x, "jevModel")).toBe("jev-1.13.0");
+      // A real final status is required for the claim states, and is derived.
+      if (CLAIM_FIXTURES.has(name)) expect(str(r, "status")).not.toBeNull();
+      else expect(str(r, "status")).toBeNull();
     }
   });
 });
