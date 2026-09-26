@@ -123,7 +123,7 @@ These are measured in the browser on every `drive accessibility` /
 | `a11y.focus-indicator-visible` | real Tab focus paints an indicator, compared with the same element unfocused | `--fault focus-ring-hidden` |
 | `a11y.reduced-motion-emulated` / `-content-settled` / `-primary-target-44px` | the reduced-motion preference is emulated, then settled visibility and a 44px primary target are required | — |
 | `result.long-values-no-horizontal-overflow` / `-wrap-not-truncate` | measured geometry on the long-value surfaces: nothing overflows horizontally, long values wrap instead of being cut, no `overflow:hidden` ancestor clips them. `--fault long-value-truncated` is red |
-| `result.reading-order-matches-dom` | **PROVISIONAL — control does not yet work.** Visual order is compared against DOM order by coordinate, but `--fault reading-order-reversed` (`column-reverse`) still passes, so this assertion is not counted as maintained and its control is owed |
+| ~~`result.reading-order-matches-dom`~~ | **WITHDRAWN — it is a false green.** On `reading-order-reversed` the measured layout holds 3 visual-order inversions and a DOM-index decrease under visual sort, yet the assertion recorded no divergence and the drive passed. Not a maintained gate until a detector is shown to fail on a genuinely reversed layout |
 | `result.tablist-keyboard-<key>-consistent` / `-roving-tabindex` | ArrowRight ×2, Home, End, ArrowLeft move focus, `aria-selected`, the roving tabindex and the matching visible panel together | `--fault tab-map-broken` |
 
 Measured, never read from a collector: the product has no `titleOverflow` or
