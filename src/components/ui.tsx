@@ -42,8 +42,8 @@ export function Badge({
 }) {
   const tones: Record<string, string> = {
     neutral: "bg-black/5 text-ink/80 ring-black/10",
-    /* `info` is for dark surfaces; `link` is the AA-safe tone for light ones. */
-    info: "bg-signal/10 text-signal ring-signal/25",
+    /* `info` is dark-surfaces only; pale foreground is AA on the progress card. */
+    info: "bg-signal/10 text-signal-pale ring-signal/25",
     link: "bg-signal-ink/10 text-signal-ink ring-signal-ink/25",
     /* Coral text stays AA-safe via coral-ink (U5); the icon may stay coral. */
     conflict: "bg-coral/10 text-coral-ink ring-coral/25",

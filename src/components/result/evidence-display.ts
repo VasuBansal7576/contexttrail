@@ -197,17 +197,37 @@ export function identityBasis(occurrence: JsonRecord): IdentityBasis | null {
   return null;
 }
 
-/** Search/news engines never carry visual identity; null identity there is contextual. */
-export function isSearchEngine(engine: string | null): boolean {
-  if (!engine) return false;
-  const name = engine.toLowerCase();
-  return name.includes("search") || name.includes("news") || name === "expansion";
+/**
+ * Retrieval kinds that never carry visual identity. Read from the actual
+ * contract: streamed candidates expose `retrievalKind`, final timeline rows
+ * expose `engine` holding the same kind values. About This Image retrieval
+ * is explicitly contextual per backend normalization.
+ */
+const CONTEXTUAL_KINDS = new Set(["google_search", "google_news", "lens_about_image"]);
+
+export function retrievalKindOf(occurrence: JsonRecord): string | null {
+  return str(occurrence, "retrievalKind") ?? str(occurrence, "engine");
+}
+
+export function isContextualKind(kind: string | null): boolean {
+  return kind !== null && CONTEXTUAL_KINDS.has(kind.toLowerCase());
 }
 
 /**
- * Arriving-evidence label for the investigation progress view (U6): null
- * identity on a search/news engine is a contextual result, never a visual
- * lead. Lens candidates without identity yet stay conservative leads.
+ * Inspector identity basis: streamed candidates nest it under
+ * `identityEvidence`, final rows flatten it as `identityBasis` (additive
+ * contract). `contextual` means never claimed as a media sighting.
+ */
+export function identityBasisOf(occurrence: JsonRecord): string | null {
+  return str(rec(occurrence, "identityEvidence"), "basis") ?? str(occurrence, "identityBasis");
+}
+
+/**
+ * Arriving-evidence label for the investigation progress view (U6/R2):
+ * contextual identity basis or a contextual retrieval kind is a contextual
+ * result, never a visual lead. Real streamed candidates carry
+ * `retrievalKind` and no `engine` — engine sniffing would miss them.
+ * Lens candidates without identity yet stay conservative leads.
  */
 export function progressRelationshipNote(evidence: JsonRecord): {
   label: string;
@@ -216,7 +236,10 @@ export function progressRelationshipNote(evidence: JsonRecord): {
   const rel = (str(evidence, "mediaRelationship") ?? str(evidence, "relationship") ?? "").toUpperCase();
   if (rel.includes("EXACT")) return { label: "Exact match · reported by Google Lens", tone: "info" };
   if (rel.includes("NEAR")) return { label: "Near match · locally verified", tone: "info" };
-  if (!rel && isSearchEngine(str(evidence, "engine"))) {
+  if (
+    !rel &&
+    (identityBasisOf(evidence) === "contextual" || isContextualKind(retrievalKindOf(evidence)))
+  ) {
     return { label: "Contextual result · not same-media evidence", tone: "neutral" };
   }
   return { label: "Visual lead · not verified", tone: "neutral" };
@@ -228,6 +251,13 @@ export function progressRelationshipNote(evidence: JsonRecord): {
  * otherwise a null identity on a search/news engine is contextual, and any
  * other unverified candidate stays a visual lead.
  */
+/**
+ * Core occurrences, visual leads and contextual results stay visibly apart,
+ * independent of chronological grouping (U6/R2). Identity basis wins, then
+ * the actual retrieval kind (`retrievalKind` on streamed shapes, `engine`
+ * on final timeline rows — same kind values), then the backend's explicit
+ * group. Any other unverified candidate stays a lead.
+ */
 export function occurrenceRole(
   occurrence: JsonRecord,
   group: "dated" | "supporting" | "contextual" | "unknown" | null = null,
@@ -236,7 +266,11 @@ export function occurrenceRole(
   if (rel.includes("EXACT") || rel.includes("NEAR")) return "Core occurrence";
   if (rel.includes("VISUAL_LEAD") || rel.includes("LEAD")) return "Visual lead";
   if (rel !== "") return "Contextual result";
-  if (group === "contextual" || isSearchEngine(str(occurrence, "engine"))) {
+  if (
+    identityBasisOf(occurrence) === "contextual" ||
+    isContextualKind(retrievalKindOf(occurrence)) ||
+    group === "contextual"
+  ) {
     return "Contextual result";
   }
   return "Visual lead";

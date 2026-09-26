@@ -7,6 +7,8 @@
   --color-signal: #4c7dff;
   /* AA-safe signal for small text on light surfaces (F14: ≥4.5 on paper/white). */
   --color-signal-ink: #2f4fd0;
+  /* AA-safe signal text on dark progress cards (R1: 7.45 on measured badge bg). */
+  --color-signal-pale: #9db9ff;
   --color-coral: #e45c52;
   /* AA-safe small text on light surfaces (U5: ≥4.5 on paper and cards). */
   --color-ink-soft: #4d545c;
