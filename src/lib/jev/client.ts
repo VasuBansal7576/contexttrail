@@ -29,18 +29,43 @@ export const JEV_MODEL = "jev-1.13.0";
 const JEV_MAX_BYTES = 1 * 1024 * 1024;
 
 /**
+ * Assumed number of decimal places retained in a provider probability.
+ *
+ * Honest scope: no documented provider precision or rounding guarantee was
+ * found, and no live response was observed. This is a local policy input, not a
+ * fact about TypeSafe. It is exported and single-sourced so a retained response
+ * can correct it in one place.
+ */
+export const JEV_PROBABILITY_RETAINED_DECIMALS = 3;
+
+/**
  * Absolute tolerance allowed between the sum of a Choice answer's declared
  * option probabilities and 1.
  *
- * Justification: a Choice answer is a probability *distribution*, and the
- * frozen §17 thresholds are compared directly against its components, so an
- * unnormalized map is not a distribution and its components are not
- * comparable. 1e-3 accepts provider output rounded to three decimal places
- * (the coarsest rounding a JSON double-precision distribution is normally
- * emitted with, e.g. 0.333 x 3 = 0.999) and still rejects any map that is
- * materially not a distribution.
+ * Rounding a value to {@link JEV_PROBABILITY_RETAINED_DECIMALS} decimals can
+ * move it by up to half a unit in the last retained place, so a distribution of
+ * N options can miss 1 by up to N times that. A fixed tolerance would have to
+ * either reject legitimate rounded output (six options at .167 sum to 1.002, a
+ * 0.002 miss) or admit genuinely broken maps, so the tolerance scales with the
+ * option count. With six options and three retained decimals it is 0.003; the
+ * clearly non-distributional cases are still refused (six at .9 = 5.4, six at
+ * .2 = 1.2, six at .25 = 1.5, three at .33 = 0.99).
+ *
+ * Values are **not** renormalized. The accepted components are the provider's
+ * own numbers, because the frozen §17 thresholds are compared against them
+ * directly and rescaling them here would change what those thresholds mean.
  */
-export const JEV_PROBABILITY_SUM_TOLERANCE = 1e-3;
+export function jevProbabilitySumTolerance(optionCount: number): number {
+  return optionCount * 0.5 * 10 ** -JEV_PROBABILITY_RETAINED_DECIMALS;
+}
+
+/**
+ * Absolute difference within which two option probabilities count as tied, so
+ * that either may be the declared winner. Two values that were equal before
+ * rounding can differ by up to one unit in the last retained place, so the
+ * bound is one full unit there rather than half.
+ */
+export const JEV_WINNER_TIE_TOLERANCE = 10 ** -JEV_PROBABILITY_RETAINED_DECIMALS;
 
 export interface JevClientOptions {
   apiKey: string;
@@ -55,8 +80,8 @@ interface JevAnswerNoul {
 
 interface JevAnswerChoice {
   type: "choice";
-  /** the provider's declared winner, verbatim; null when it declared none */
-  choice: string | null;
+  /** the provider's declared winner, verbatim; always a declared option */
+  choice: string;
   probabilities: Record<string, number>;
 }
 
@@ -74,13 +99,24 @@ function noulAnswer(v: unknown): JevAnswerNoul | null {
 }
 
 /**
- * §16 Choice answer validation at the boundary. Rejects — never repairs —
- * when: the shape is not a Choice; the option map is not an object; a
- * declared option is missing, non-finite, or outside 0..1; the map carries a
- * key that is not a declared option (an undeclared/duplicate option cannot be
- * distinguished from an injected one, so it is refused); the declared winner
- * is a non-string or names an option that was not offered; or the options do
- * not sum to 1 within {@link JEV_PROBABILITY_SUM_TOLERANCE}.
+ * §16 Choice answer validation at the boundary. Rejects — never repairs — when:
+ * the shape is not a Choice; the option map is not an object; a declared option
+ * is missing, non-finite, or outside 0..1; the map carries a key that is not a
+ * declared option; the options do not sum to 1 within
+ * {@link jevProbabilitySumTolerance} for the option count; or the declared winner
+ * is absent, not a string, names an option that was not offered, or is not among
+ * the tied maxima of the distribution it came with.
+ *
+ * On the undeclared-key rule: a repeated JSON key collapses during parsing and
+ * is undetectable here, so this is *not* duplicate-key detection. What it does
+ * refuse is an option the question never offered, which cannot be told apart
+ * from an injected one.
+ *
+ * On the winner: the documented Choice contract specifies a required
+ * highest-probability winner together with a distribution over the options. A
+ * winner is therefore mandatory, and it is checked against the distribution so a
+ * mismatched pair is refused rather than silently trusted. Ties are accepted —
+ * the contract's "highest-probability" is satisfied by any tied maximum.
  */
 function choiceAnswer(v: unknown, keys: string[]): JevAnswerChoice | null {
   if (!isRecord(v) || v.type !== "choice") return null;
@@ -97,11 +133,10 @@ function choiceAnswer(v: unknown, keys: string[]): JevAnswerChoice | null {
     out[k] = p;
     sum += p;
   }
-  if (Math.abs(sum - 1) > JEV_PROBABILITY_SUM_TOLERANCE) return null;
-  if (v.choice === undefined) {
-    return { type: "choice", choice: null, probabilities: out };
-  }
+  if (Math.abs(sum - 1) > jevProbabilitySumTolerance(keys.length)) return null;
   if (typeof v.choice !== "string" || !keys.includes(v.choice)) return null;
+  const max = Math.max(...keys.map((k) => out[k]));
+  if (out[v.choice] < max - JEV_WINNER_TIE_TOLERANCE) return null;
   return { type: "choice", choice: v.choice, probabilities: out };
 }
 
@@ -156,42 +191,62 @@ export function resolveModelIdentity(
 
 /**
  * The only condition under which an {@link EvidenceJudgment} may carry the
- * pinned model label: the provider verified as the model actually configured,
- * *and* that configured model is the pinned one. An explicit override to any
- * other model is reported as a mismatch rather than relabelled — §46 requires
- * provider model details to change only through an explicit revision of the
- * pinned constant and the §15.5 contract together.
+ * pinned model label: the identifiers themselves must show that the provider
+ * answered as the model that was actually requested, and that model must be the
+ * pinned one.
+ *
+ * The `status`/`pinned` fields on the supplied record are deliberately *not*
+ * trusted — they are derived data and a caller could hand-build a record whose
+ * flags say "verified" while its identifiers say otherwise. The identifiers are
+ * re-resolved here, so only `requested === reported === JEV_MODEL` qualifies. An
+ * explicit override to any other model is therefore reported, never relabelled —
+ * §46 requires provider model details to change only through an explicit
+ * revision of the pinned constant and the §15.5 contract together.
  */
 export function verifiedPinnedModel(
   identity: JevModelIdentity | null | undefined,
 ): typeof JEV_MODEL | null {
   if (identity === null || identity === undefined) return null;
-  if (identity.status !== "verified" || !identity.pinned) return null;
+  if (!isRecord(identity)) return null;
+  const requested = identity.requested;
+  const reported = identity.reported;
+  if (typeof requested !== "string" || typeof reported !== "string") return null;
+  const recheck = resolveModelIdentity(requested, reported);
+  if (recheck.status !== "verified" || !recheck.pinned) return null;
   return JEV_MODEL;
 }
 
 /**
  * Fail-closed model check for the provider boundary.
  *
- * Provenance policy is a *product* decision, not a claim about the Jev wire
- * format: §15.1 pins the production model, §15.5 fixes `model` to the literal
- * `"jev-1.13.0"`, and §34/§39 require the product to display and log that
- * version. A judgment therefore may only be published when the model that
- * answered is provably the pinned one. An unexpected identity and an absent
- * identity are both refused: relabelling either as `jev-1.13.0` would be
- * fabricating provenance, so the call is rejected and the caller stores
- * `judgment=null` per §29.
+ * Provenance policy, from the official contract and the PRD: the documented
+ * TypeSafe response envelope carries a `model` field identifying the evaluator
+ * that answered, the Models documentation states that responses identify the
+ * version that answered and that aliases resolve to versions, and §15.1 pins
+ * `jev-1.13.0` while §15.5 fixes `model` to that same literal. A response whose
+ * model is absent or different therefore does not identify the pinned model, and
+ * publishing a judgment labelled `jev-1.13.0` from it would fabricate the
+ * provenance §34 (technical details) and §39 (logs) require. Such a response is
+ * refused here and the caller stores `judgment=null` per §29.
  *
- * The message names only the two model identifiers — never the URL, the
- * bearer token, or the raw provider body.
+ * The message is a **static** string chosen from a fixed set. Nothing derived
+ * from the response body or from a configured override is interpolated: a
+ * `model` field is untrusted response content and could otherwise echo sensitive
+ * data or inject log lines. The allowlist of version identifiers that may be
+ * recorded anywhere is therefore exactly the verified pinned model, which is
+ * only ever attached to a successful result.
  */
 function assertVerifiedModel(identity: JevModelIdentity): void {
-  if (identity.status === "verified" && identity.pinned) return;
-  const reported = identity.reported === null ? "none" : identity.reported;
-  throw new ProviderError(
-    "malformed",
-    `jev model identity ${identity.status} (requested ${identity.requested}, reported ${reported})`,
-  );
+  if (verifiedPinnedModel(identity) !== null) return;
+  let reason: string;
+  if (identity.reported === null) {
+    reason = "jev model identity missing";
+  } else if (identity.reported !== identity.requested) {
+    reason = "jev model identity unexpected";
+  } else {
+    reason = "jev model is not the pinned model";
+  }
+  throw new ProviderError("malformed", reason);
 }
 
 export class JevClient {
@@ -261,22 +316,17 @@ export class JevClient {
  * (relevance, page role) missing or malformed => null (the caller stores
  * judgment=null per §29). Claim-check surfaces degrade to null when absent.
  *
- * `opts.provenance` is additive and optional. Supply it to make model
- * provenance part of the validation boundary: a non-verified identity makes
- * the whole judgment null, so an answer set that reached this function from
- * anywhere other than {@link JevClient.ask} still cannot be published under
- * the pinned model label. Omitting it keeps the pre-existing two-field call
- * shape working; `JevClient.ask` has already refused an unverified identity in
- * that path.
+ * `provenance` is **required**. There is deliberately no default: a judgment
+ * carries the literal `model: "jev-1.13.0"`, so constructing one without the
+ * provider identity that produced it would be exactly the relabelling this
+ * module exists to prevent. Pass the `identity` returned by
+ * {@link JevClient.ask}; a null, absent, or non-verified identity yields null.
  */
 export function judgmentFromAnswers(
   answers: Record<string, unknown>,
-  opts: { claimMode: boolean; provenance?: JevModelIdentity | null },
+  opts: { claimMode: boolean; provenance: JevModelIdentity | null },
 ): EvidenceJudgment | null {
-  const model =
-    opts.provenance === undefined
-      ? JEV_MODEL
-      : verifiedPinnedModel(opts.provenance);
+  const model = verifiedPinnedModel(opts.provenance);
   if (model === null) return null;
 
   const relevance = noulAnswer(answers.relevance);
@@ -359,16 +409,14 @@ export function judgmentFromAnswers(
 
 /**
  * Validate raw Jev answers into a §20.1 pairwise judgment, else null.
- * `provenance` is additive and optional, with the same semantics as in
- * {@link judgmentFromAnswers}.
+ * `provenance` is **required**, with the same semantics and the same refusal of
+ * a default as in {@link judgmentFromAnswers}.
  */
 export function pairwiseFromAnswers(
   answers: Record<string, unknown>,
-  provenance?: JevModelIdentity | null,
+  provenance: JevModelIdentity | null,
 ): PairwiseContextJudgment | null {
-  if (provenance !== undefined && verifiedPinnedModel(provenance) === null) {
-    return null;
-  }
+  if (verifiedPinnedModel(provenance) === null) return null;
   const p = choiceAnswer(answers.pairwise_context, [
     "SAME_CONTEXT",
     "DIFFERENT_CONTEXT",

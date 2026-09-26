@@ -4,11 +4,14 @@ import {
   JevClient,
   JEV_ENDPOINT,
   JEV_MODEL,
-  JEV_PROBABILITY_SUM_TOLERANCE,
+  JEV_PROBABILITY_RETAINED_DECIMALS,
+  JEV_WINNER_TIE_TOLERANCE,
+  jevProbabilitySumTolerance,
   judgmentFromAnswers,
   pairwiseFromAnswers,
   resolveModelIdentity,
   verifiedPinnedModel,
+  type JevModelIdentity,
 } from "./client";
 import {
   claimLocationEligibility,
@@ -25,6 +28,7 @@ const choice = (c: string, probs: Record<string, number>) => ({
   choice: c,
   probabilities: probs,
 });
+/** A Choice answer with no declared winner — malformed under the answer contract. */
 const choiceNoWinner = (probs: Record<string, number>) => ({
   type: "choice",
   probabilities: probs,
@@ -34,10 +38,26 @@ const PAGE_ROLE_KEYS = ["REPORTING", "FACT_CHECK", "SOCIAL_REPOST", "AGGREGATOR"
 const CONTEXT_KEYS = ["SAME_CONTEXT", "DIFFERENT_CONTEXT", "HISTORICAL_REFERENCE", "UNCLEAR"];
 const CLAIM_KEYS = ["SUPPORTS", "CONTRADICTS", "NEUTRAL", "INSUFFICIENT"];
 const PAIRWISE_KEYS = ["SAME_CONTEXT", "DIFFERENT_CONTEXT", "UNCLEAR"];
+const LOCATION_KEYS = ["SAME_LOCATION", "DIFFERENT_LOCATION", "LOCATION_NOT_STATED", "UNCLEAR"];
+
+/** A normalized distribution with `winner` on top and the rest split evenly. */
 const probs = (keys: string[], winner: string, p = 0.8) =>
   Object.fromEntries(keys.map((k) => [k, k === winner ? p : (1 - p) / (keys.length - 1)]));
-const even = (keys: string[], p = 0.25) =>
-  Object.fromEntries(keys.map((k) => [k, p]));
+
+const sumsToOne = (values: number[]): Record<string, number> =>
+  Object.fromEntries(PAGE_ROLE_KEYS.map((k, i) => [k, values[i]]));
+
+const jsonResponse = (body: unknown) =>
+  vi.fn().mockImplementation(async () =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+
+const verified = resolveModelIdentity(JEV_MODEL, JEV_MODEL);
+const unexpected = resolveModelIdentity(JEV_MODEL, "unexpected-model-v9");
+const missing = resolveModelIdentity(JEV_MODEL, undefined);
 
 const traceAnswers = {
   relevance: noul(0.9),
@@ -48,29 +68,12 @@ const claimAnswers = {
   ...traceAnswers,
   context_relation: choice("DIFFERENT_CONTEXT", probs(CONTEXT_KEYS, "DIFFERENT_CONTEXT")),
   claim_relation: choice("CONTRADICTS", probs(CLAIM_KEYS, "CONTRADICTS")),
-  location_relation: choice("SAME_LOCATION", {
-    SAME_LOCATION: 0.7,
-    DIFFERENT_LOCATION: 0.1,
-    LOCATION_NOT_STATED: 0.1,
-    UNCLEAR: 0.1,
-  }),
+  location_relation: choice("SAME_LOCATION", probs(LOCATION_KEYS, "SAME_LOCATION", 0.7)),
 };
 
-const jsonResponse = (body: unknown) =>
-  vi.fn().mockImplementation(async () =>
-    new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-
-/** A six-option distribution that sums to exactly 1. */
-const sumsToOne = (values: number[]): Record<string, number> =>
-  Object.fromEntries(PAGE_ROLE_KEYS.map((k, i) => [k, values[i]]));
-
-const verified = resolveModelIdentity(JEV_MODEL, JEV_MODEL);
-const unexpected = resolveModelIdentity(JEV_MODEL, "unexpected-model-v9");
-const missing = resolveModelIdentity(JEV_MODEL, undefined);
+const pairwiseAnswers = {
+  pairwise_context: choice("SAME_CONTEXT", probs(PAIRWISE_KEYS, "SAME_CONTEXT")),
+};
 
 describe("evidenceQuestions", () => {
   it("trace mode asks relevance + page_role only", () => {
@@ -98,7 +101,7 @@ describe("evidenceQuestions", () => {
 
 /* --------------------- §16.5 explicit-location gating --------------------- */
 
-describe("claimLocationEligibility — the reproduced Astra cases", () => {
+describe("claimLocationEligibility — the originally reproduced cases", () => {
   const cases: Array<[string, boolean]> = [
     ["London is where this image was taken.", true],
     ["This image was taken in london.", true],
@@ -109,71 +112,139 @@ describe("claimLocationEligibility — the reproduced Astra cases", () => {
   it.each(cases)("%s => %s", (claim, expected) => {
     expect(claimMayStateLocation(claim)).toBe(expected);
   });
+});
 
-  it("no-location negatives: person names, roles, media, platforms, times", () => {
-    const negatives = [
-      "This image shows Alice smiling.",
-      "This image shows a man in a suit.",
-      "This image shows a woman holding a phone.",
-      "This photo shows a smiling child.",
-      "This image was posted by Alice.",
-      "This image was taken by photographer John Smith.",
-      "The President addressed the crowd.",
-      "This image shows a flood today.",
-      "This image was shared on Twitter.",
-      "This image was published in the news.",
-      "The photo is in the picture.",
-      "This happened in 2019.",
-      "This happened on Tuesday.",
-      "This image shows the sky at night.",
-      "This image was taken in reverse.",
-      "This image was taken in black and white.",
-      "This image was taken in a suit.",
-      "This image shows a man named Mr President.",
-      "This image is in general detail.",
-      "This quote is from the minister.",
-      "This image shows a photo taken in front of the officer.",
-      "This image was taken at the reporter's desk.",
-      "This image was taken from Mr Smith.",
-      "This image shows a child in the crowd.",
-      "This image was taken at the conference.",
-      "This image shows smoke in the distance.",
-      "This picture is in the album.",
-      "This image is from a website.",
-      "This image was taken in focus.",
-    ];
-    for (const claim of negatives) {
-      expect(claimMayStateLocation(claim), claim).toBe(false);
-    }
+describe("claimLocationEligibility — positive place evidence only", () => {
+  /**
+   * A place is recognised only through a gazetteer entry, a place-type head
+   * noun, or street-address morphology. Capitalization is never consulted, so
+   * every case below turns on what the span *names*.
+   */
+  const mustAsk: Array<[string, string]> = [
+    ["This image was taken in London.", "gazetteer"],
+    ["This image was taken in london.", "gazetteer"],
+    ["London is where this image was taken.", "gazetteer"],
+    ["this photo is from Delhi today", "gazetteer"],
+    ["This photo shows flooding in Delhi today", "gazetteer"],
+    ["This image was taken in Bogota last night.", "gazetteer"],
+    ["The protest happened in Paris.", "gazetteer"],
+    ["This image is located in Gaza.", "gazetteer"],
+    ["This photograph was taken near the Ganges.", "gazetteer"],
+    ["This image was taken in front of the White House.", "gazetteer"],
+    ["This image was taken in Hong Kong.", "gazetteer"],
+    ["This image was taken in New Delhi.", "gazetteer"],
+    ["This image was taken in sheffield.", "gazetteer"],
+    ["This image was taken in são paulo.", "gazetteer"],
+    ["This image is located in northern France.", "gazetteer"],
+    ["This photo shows a protest in Tbilisi.", "gazetteer"],
+    ["Paris, France: this image shows the flooding.", "gazetteer"],
+    ["in Las Vegas", "gazetteer"],
+    ["This image was taken at the airport.", "place_type_noun"],
+    ["This image was taken at 10 Downing Street.", "street_address"],
+    ["This image was taken next to the river.", "place_type_noun"],
+    ["This image was filmed in the street.", "place_type_noun"],
+    ["The fire started in a warehouse.", "place_type_noun"],
+    ["This image was taken inside a subway station.", "place_type_noun"],
+    ["The President spoke in the Oval Office about the economy.", "gazetteer"],
+  ];
+
+  it.each(mustAsk)("asks for %s", (claim, evidence) => {
+    const r = claimLocationEligibility(claim);
+    expect(r.eligible, claim).toBe(true);
+    expect(r.outcome).toBe("eligible");
+    expect(r.evidence).toContain(evidence);
   });
 
-  it("location positives: named places, lowercase places, and explicit taken/located frames", () => {
-    const positives = [
-      "this photo is from Delhi today",
-      "This photo shows flooding in Delhi today",
-      "This image was taken in London.",
-      "This image was taken in london.",
-      "London is where this image was taken.",
-      "This image was taken in Bogota last night.",
-      "The protest happened in Paris.",
-      "This image was taken at the airport.",
-      "This image was filmed in the street.",
-      "The flood occurred in Chennai.",
-      "This image is located in Gaza.",
-      "The fire started in a warehouse.",
-      "This photograph was taken near the Ganges.",
-      "This image was taken inside a subway station.",
-      "This image shows protesters in the street.",
-      "This image shows people in the office.",
-      "This image was taken in front of the White House.",
-      "This image was taken in Hong Kong.",
-      "This image was taken in New Delhi.",
-      "This image was taken in the Old Delhi neighbourhood.",
-      "This image is located in northern France.",
-      "The President spoke in the Oval Office about the economy.",
-      "This photo shows a protest in Tbilisi.",
-    ];
-    for (const claim of positives) {
+  /**
+   * Beyond-frozen-list names that are nonetheless places, and the
+   * person / platform / software / language / authorship objects that are not.
+   */
+  const mustNotAsk: Array<[string, string]> = [
+    // person references, including names outside every list
+    ["This photograph is from Alice.", "unrecognised_name"],
+    ["This image was posted by Alice.", "no_locative_construction"],
+    ["This image was taken by photographer John Smith.", "no_locative_construction"],
+    ["We are looking at Alice.", "unrecognised_name"],
+    ['A photo focusing "on Jordan smiling".', "topic_reference"],
+    ["A photo focusing on Sarah laughing.", "topic_reference"],
+    ["An image from Bob Dylan.", "unrecognised_name"],
+    ["A portrait of Marie Curie.", "no_locative_construction"],
+    ["This image shows a man in a suit.", "unrecognised_name"],
+    ["This image shows a woman holding a phone.", "no_locative_construction"],
+    ["This image shows a man named Mr President.", "no_locative_construction"],
+    ["This image was taken at the reporter's desk.", "person_reference"],
+    ["This image was taken from Mr Smith.", "person_reference"],
+    ["This quote is from the minister.", "person_reference"],
+    // publishers and authorship, not geography
+    ["This photograph is from Reuters.", "non_place_reference"],
+    ["This photograph is from the Guardian.", "non_place_reference"],
+    ["This photograph is from the BBC.", "non_place_reference"],
+    // software and tools
+    ["This image was made in Photoshop.", "non_place_reference"],
+    ["This image was made in Gimp.", "non_place_reference"],
+    ["This image was made in Figma.", "non_place_reference"],
+    ["This image was edited in Lightroom.", "non_place_reference"],
+    // languages
+    ["The caption is written in French.", "non_place_reference"],
+    ["The caption is written in Tamil.", "non_place_reference"],
+    ["The text is in Arabic.", "non_place_reference"],
+    ["The sign is in Hebrew.", "non_place_reference"],
+    // platforms
+    ["This was posted on Bluesky.", "non_place_reference"],
+    ["This was posted on Mastodon.", "non_place_reference"],
+    ["This was posted on Pinterest.", "non_place_reference"],
+    ["This image was posted on Discord.", "non_place_reference"],
+    ["This image was shared on Twitter.", "non_place_reference"],
+    // media, time, position, weather
+    ["This image was published in the news.", "non_place_reference"],
+    ["The photo is in the picture.", "non_place_reference"],
+    ["This picture is in the album.", "non_place_reference"],
+    ["This image is from a website.", "non_place_reference"],
+    ["This happened in 2019.", "no_locative_construction"],
+    ["This happened on Tuesday.", "temporal_reference"],
+    ["This image shows the sky at night.", "temporal_reference"],
+    ["This image was taken in reverse.", "non_place_reference"],
+    ["This image was taken in black and white.", "non_place_reference"],
+    ["This image was taken in focus.", "non_place_reference"],
+    ["This image is in general detail.", "non_place_reference"],
+    ["This image shows a flood today.", "no_locative_construction"],
+    ["This image shows smoke in the distance.", "non_place_reference"],
+    ["This image shows a child in the crowd.", "unrecognised_name"],
+    ["This image was taken at the conference.", "unrecognised_name"],
+    ["The President addressed the crowd.", "no_locative_construction"],
+  ];
+
+  it.each(mustNotAsk)("does not ask for %s", (claim, rejection) => {
+    const r = claimLocationEligibility(claim);
+    expect(r.eligible, claim).toBe(false);
+    expect(r.rejectedBy, claim).toBe(rejection);
+  });
+
+  it("declines the question for an object in no script it can read, as unknown", () => {
+    const r = claimLocationEligibility("This image was taken in 東京.");
+    expect(r.eligible).toBe(false);
+    // unknown, not a claim that the object is not a place
+    expect(r.outcome).toBe("unknown");
+    expect(r.rejectedBy).toBeNull();
+  });
+
+  it("keeps complete claim-bound spans instead of truncating at the first token", () => {
+    expect(claimLocationEligibility("in Las Vegas").spans).toEqual(["Las Vegas"]);
+    expect(claimLocationEligibility("in northern France").spans).toEqual(["northern France"]);
+    expect(claimLocationEligibility("This image was taken in the Old Delhi neighbourhood").spans).toEqual([
+      "Old Delhi",
+    ]);
+    expect(claimLocationEligibility("This image was taken at 10 Downing Street.").spans).toEqual([
+      "10 Downing Street",
+    ]);
+  });
+
+  it("matches gazetteer names accent- and case-insensitively", () => {
+    for (const claim of [
+      "This image was taken in são paulo.",
+      "This image was taken in SAO PAULO.",
+      "This image was taken in Bogotá.",
+    ]) {
       expect(claimMayStateLocation(claim), claim).toBe(true);
     }
   });
@@ -185,48 +256,20 @@ describe("claimLocationEligibility — the reproduced Astra cases", () => {
     expect(r.eligible).toBe(true);
   });
 
-  it("records matched spans as inspectable evidence", () => {
-    const r = claimLocationEligibility("London is where this image was taken.");
-    expect(r.evidence.length).toBeGreaterThan(0);
-    expect(r.reasons).toContain("subject_locative_copula");
-    expect(r.reasons).toContain("named_place");
-    expect(r.evidence.join(" ")).toContain("London");
-  });
-
-  it("explains a refusal with a typed reason and the refused candidates", () => {
-    const person = claimLocationEligibility("This quote is from the minister.");
-    expect(person.eligible).toBe(false);
-    expect(person.rejectedBy).toBe("candidate_is_a_person");
-    expect(person.rejected).toContain("minister");
-
-    const nonPlace = claimLocationEligibility("This image was shared on Twitter.");
-    expect(nonPlace.eligible).toBe(false);
-    expect(nonPlace.rejectedBy).toBe("candidate_is_non_place");
-    expect(nonPlace.rejected).toContain("Twitter");
-
-    const noFrame = claimLocationEligibility("This image shows Alice smiling.");
-    expect(noFrame.eligible).toBe(false);
-    expect(noFrame.rejectedBy).toBe("no_locative_construction");
-
-    const unknown = claimLocationEligibility("This image was taken in the flurb.");
-    expect(unknown.eligible).toBe(false);
-    expect(unknown.rejectedBy).toBe("candidate_not_a_place");
-    // the determiner is not part of the name, so the refused span is the head
-    expect(unknown.rejected).toContain("flurb");
-  });
-
   it("derives no product verdict — the record carries no status/verdict field", () => {
     const r = claimLocationEligibility("This image was taken in London.");
     expect(Object.keys(r).sort()).toEqual([
       "claim",
       "eligible",
       "evidence",
+      "outcome",
       "reasons",
-      "rejected",
       "rejectedBy",
+      "spans",
+      "unresolved",
     ]);
     for (const k of Object.keys(r)) {
-      expect(k).not.toMatch(/verdict|status|result|outcome|confidence|decision/i);
+      expect(k).not.toMatch(/verdict|status|result|outcome_?final|confidence|decision/i);
     }
   });
 
@@ -240,6 +283,8 @@ describe("claimLocationEligibility — the reproduced Astra cases", () => {
       "This image was shared on Twitter.",
       "The protest happened in Paris.",
       "This happened in 2019.",
+      "This photograph is from Alice.",
+      "This image was taken at 10 Downing Street.",
       "",
       "   ",
     ];
@@ -260,6 +305,7 @@ describe("evidenceQuestionsWithProvenance — additive, backward compatible", ()
     );
     expect(r.questions.location_relation).toBeDefined();
     expect(r.locationEligibility!.claim).toBe(claim);
+    expect(r.locationEligibility!.outcome).toBe("eligible");
   });
 
   it("omits the location question and keeps the refusal rationale for no-location claims", () => {
@@ -270,24 +316,45 @@ describe("evidenceQuestionsWithProvenance — additive, backward compatible", ()
     expect(r.locationEligibility!.rejectedBy).toBe("no_locative_construction");
   });
 
+  it("treats an unknown object the same as a refusal when building the question map", () => {
+    const r = evidenceQuestionsWithProvenance({
+      claimMode: true,
+      claim: "This image was taken in 東京.",
+    });
+    expect(r.questions.location_relation).toBeUndefined();
+    expect(r.locationEligibility!.outcome).toBe("unknown");
+  });
+
   it("has no location record in trace mode", () => {
-    const r = evidenceQuestionsWithProvenance({ claimMode: false, claim: "This image was taken in London." });
+    const r = evidenceQuestionsWithProvenance({
+      claimMode: false,
+      claim: "This image was taken in London.",
+    });
     expect(r.locationEligibility).toBeNull();
-    expect(Object.keys(r.questions)).toEqual(Object.keys(RELEVANCE_QUESTION ? evidenceQuestions({ claimMode: false, claimHasLocation: false }) : {}));
+    expect(Object.keys(r.questions)).toEqual(
+      Object.keys(evidenceQuestions({ claimMode: false, claimHasLocation: false })),
+    );
   });
 
   it("tolerates a null claim in claim mode", () => {
     const r = evidenceQuestionsWithProvenance({ claimMode: true, claim: null });
     expect(r.locationEligibility).toBeNull();
-    expect(Object.keys(r.questions)).toEqual(["relevance", "page_role", "context_relation", "claim_relation"]);
+    expect(Object.keys(r.questions)).toEqual([
+      "relevance",
+      "page_role",
+      "context_relation",
+      "claim_relation",
+    ]);
   });
 });
 
 /* --------------------------- answer validation --------------------------- */
 
 describe("judgmentFromAnswers — typed answer validation at the boundary", () => {
+  const prov = { provenance: verified };
+
   it("parses a valid trace-mode answer set", () => {
-    const j = judgmentFromAnswers(traceAnswers, { claimMode: false });
+    const j = judgmentFromAnswers(traceAnswers, { claimMode: false, ...prov });
     expect(j).not.toBeNull();
     expect(j!.relevance).toBeCloseTo(0.9);
     expect(j!.pageRole.reporting).toBeCloseTo(0.8);
@@ -296,157 +363,142 @@ describe("judgmentFromAnswers — typed answer validation at the boundary", () =
   });
 
   it("parses claim-mode relations", () => {
-    const j = judgmentFromAnswers(claimAnswers, { claimMode: true });
+    const j = judgmentFromAnswers(claimAnswers, { claimMode: true, ...prov });
     expect(j!.contextRelation!.differentContext).toBeCloseTo(0.8);
     expect(j!.claimRelation!.contradicts).toBeCloseTo(0.8);
     expect(j!.locationRelation!.sameLocation).toBeCloseTo(0.7);
   });
 
   it("degrades absent optional claim surfaces to null without rejecting the judgment", () => {
-    const j = judgmentFromAnswers(claimAnswers, { claimMode: true });
-    expect(j!.locationRelation).not.toBeNull();
-    const noLocation = judgmentFromAnswers(
-      { relevance: noul(0.9), page_role: choice("REPORTING", probs(PAGE_ROLE_KEYS, "REPORTING")) },
-      { claimMode: true },
-    );
-    expect(noLocation).not.toBeNull();
-    expect(noLocation!.claimRelation).toBeNull();
-    expect(noLocation!.locationRelation).toBeNull();
+    const noOptional = {
+      relevance: noul(0.9),
+      page_role: choice("REPORTING", probs(PAGE_ROLE_KEYS, "REPORTING")),
+    };
+    const j = judgmentFromAnswers(noOptional, { claimMode: true, ...prov });
+    expect(j).not.toBeNull();
+    expect(j!.claimRelation).toBeNull();
+    expect(j!.locationRelation).toBeNull();
   });
 
   it("returns null on malformed required surfaces — no heuristic fallback", () => {
-    expect(judgmentFromAnswers({}, { claimMode: false })).toBeNull();
-    expect(judgmentFromAnswers({ relevance: noul(2) }, { claimMode: false })).toBeNull();
+    expect(judgmentFromAnswers({}, { claimMode: false, ...prov })).toBeNull();
+    expect(judgmentFromAnswers({ relevance: noul(2) }, { claimMode: false, ...prov })).toBeNull();
     expect(
-      judgmentFromAnswers({ ...traceAnswers, page_role: { type: "choice" } }, { claimMode: false }),
+      judgmentFromAnswers({ ...traceAnswers, page_role: { type: "choice" } }, { claimMode: false, ...prov }),
     ).toBeNull();
   });
 
   it("rejects a noul relevance that is not a finite 0..1 probability", () => {
-    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -0.01, 1.01, "0.9", null, undefined]) {
-      expect(judgmentFromAnswers({ ...traceAnswers, relevance: noul(bad as number) }, { claimMode: false })).toBeNull();
+    for (const bad of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -0.01,
+      1.01,
+      "0.9",
+      null,
+      undefined,
+    ]) {
+      expect(
+        judgmentFromAnswers({ ...traceAnswers, relevance: noul(bad as number) }, { claimMode: false, ...prov }),
+      ).toBeNull();
     }
   });
 
-  it("rejects a Choice answer whose options do not sum to 1", () => {
-    const flat = { ...traceAnswers, page_role: choice("REPORTING", even(PAGE_ROLE_KEYS, 0.9)) };
-    expect(judgmentFromAnswers(flat, { claimMode: false })).toBeNull();
-    const under = { ...traceAnswers, page_role: choice("REPORTING", even(PAGE_ROLE_KEYS, 0.1)) };
-    expect(judgmentFromAnswers(under, { claimMode: false })).toBeNull();
-    expect(judgmentFromAnswers({ relevance: noul(0.5) }, { claimMode: false })).toBeNull();
+  it("rejects a distribution that misses 1 by more than the option-count tolerance", () => {
+    for (const bad of [
+      even6(0.9), // 5.4
+      sumsToOne([0.2, 0.2, 0.2, 0.2, 0.2, 0.2]), // 1.2
+      even6(0.25), // 1.5
+      even6(0.1), // 0.6
+    ]) {
+      expect(
+        judgmentFromAnswers({ ...traceAnswers, page_role: choiceNoWinner(bad) }, { claimMode: false, ...prov }),
+        JSON.stringify(bad),
+      ).toBeNull();
+    }
+    expect(judgmentFromAnswers({}, { claimMode: false, ...prov })).toBeNull();
   });
 
-  it("accepts a distribution within the documented sum tolerance", () => {
-    // 0.333 x 3 = 0.999 — the coarsest rounding a distribution is emitted with.
-    const r = pairwiseFromAnswers({
-      pairwise_context: choice("SAME_CONTEXT", {
-        SAME_CONTEXT: 0.333,
-        DIFFERENT_CONTEXT: 0.333,
-        UNCLEAR: 0.333,
-      }),
-    });
+  it("accepts a distribution within the option-count tolerance, including per-option rounding", () => {
+    // six options at .167 sum to 1.002 — a three-decimal rounding artefact that
+    // a fixed 1e-3 tolerance would reject
+    expect(even6(0.167)).toBeDefined();
+    const j = judgmentFromAnswers(
+      {
+        ...traceAnswers,
+        page_role: choice("REPORTING", even6(0.167)),
+      },
+      { claimMode: false, ...prov },
+    );
+    expect(j).not.toBeNull();
+    expect(j!.pageRole.reporting).toBe(0.167);
+    // pairwise with three options: 0.333 x 3 = 0.999
+    const r = pairwiseFromAnswers(
+      {
+        pairwise_context: choice("SAME_CONTEXT", {
+          SAME_CONTEXT: 0.333,
+          DIFFERENT_CONTEXT: 0.333,
+          UNCLEAR: 0.333,
+        }),
+      },
+      verified,
+    );
     expect(r).not.toBeNull();
     expect(r!.sameContext).toBe(0.333);
-    expect(Math.abs(0.333 * 3 - 1)).toBeLessThanOrEqual(JEV_PROBABILITY_SUM_TOLERANCE);
-    // one step beyond the tolerance is refused
-    expect(
-      pairwiseFromAnswers({
-        pairwise_context: choice("SAME_CONTEXT", {
-          SAME_CONTEXT: 0.33,
-          DIFFERENT_CONTEXT: 0.33,
-          UNCLEAR: 0.33,
-        }),
-      }),
-    ).toBeNull();
   });
 
-  it("tolerance is a documented 1e-3, tight enough to reject a non-distribution", () => {
-    expect(JEV_PROBABILITY_SUM_TOLERANCE).toBe(1e-3);
-    // six options at 0.25 = 1.5 — outside tolerance, refused.
-    expect(
-      judgmentFromAnswers(
-        { ...traceAnswers, page_role: choiceNoWinner(even(PAGE_ROLE_KEYS, 0.25)) },
-        { claimMode: false },
-      ),
-    ).toBeNull();
-    // six options summing to exactly 1 — accepted.
-    expect(
-      judgmentFromAnswers(
-        {
-          ...traceAnswers,
-          page_role: choiceNoWinner(sumsToOne([0.25, 0.25, 0.2, 0.15, 0.1, 0.05])),
-        },
-        { claimMode: false },
-      ),
-    ).not.toBeNull();
-    // 0.2 x 6 = 1.2 — refused.
-    expect(
-      judgmentFromAnswers(
-        { ...traceAnswers, page_role: choiceNoWinner(sumsToOne([0.2, 0.2, 0.2, 0.2, 0.2, 0.2])) },
-        { claimMode: false },
-      ),
-    ).toBeNull();
+  it("scales the tolerance with the option count and states its assumption", () => {
+    expect(JEV_PROBABILITY_RETAINED_DECIMALS).toBe(3);
+    // N options, each rounded to 3 decimals, can miss 1 by up to N * 0.0005
+    expect(jevProbabilitySumTolerance(3)).toBeCloseTo(0.0015);
+    expect(jevProbabilitySumTolerance(6)).toBeCloseTo(0.003);
+    expect(jevProbabilitySumTolerance(4)).toBeCloseTo(0.002);
+    expect(jevProbabilitySumTolerance(6)).toBeGreaterThan(jevProbabilitySumTolerance(3));
+    // still refuses a materially non-distributional map
+    expect(Math.abs(even6(0.9).REPORTING * 6 - 1)).toBeGreaterThan(jevProbabilitySumTolerance(6));
   });
 
   it("rejects a missing declared option", () => {
     const partial: Record<string, number> = { ...probs(PAGE_ROLE_KEYS, "REPORTING") };
     delete partial.OTHER;
-    // the remaining five still sum inside tolerance, so only the missing
-    // declared option can be the reason for refusal
     expect(
-      judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", partial) }, { claimMode: false }),
+      judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", partial) }, { claimMode: false, ...prov }),
     ).toBeNull();
-    const nulled: Record<string, number> = { ...probs(PAGE_ROLE_KEYS, "REPORTING"), OTHER: null as never };
+    const nulled: Record<string, number> = {
+      ...probs(PAGE_ROLE_KEYS, "REPORTING"),
+      OTHER: null as never,
+    };
     expect(
-      judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", nulled) }, { claimMode: false }),
+      judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", nulled) }, { claimMode: false, ...prov }),
     ).toBeNull();
   });
 
-  it("rejects an undeclared/duplicate option key rather than dropping it", () => {
+  it("rejects an undeclared option key rather than dropping it", () => {
     const smuggled = { ...probs(PAGE_ROLE_KEYS, "REPORTING"), SMUGGLED_OPTION: 0 };
-    expect(judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", smuggled) }, { claimMode: false })).toBeNull();
+    expect(
+      judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", smuggled) }, { claimMode: false, ...prov }),
+    ).toBeNull();
     // the declared option replaced by a differently-cased alias
     const aliased: Record<string, number> = { ...probs(PAGE_ROLE_KEYS, "REPORTING") };
     aliased.reporting = aliased.REPORTING;
     delete aliased.REPORTING;
-    expect(judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", aliased) }, { claimMode: false })).toBeNull();
-  });
-
-  it("rejects a declared winner that names an option which was not offered", () => {
-    const j = judgmentFromAnswers(
-      { ...traceAnswers, page_role: choice("TOTALLY_MADE_UP_ROLE", probs(PAGE_ROLE_KEYS, "REPORTING")) },
-      { claimMode: false },
-    );
-    expect(j).toBeNull();
-  });
-
-  it("rejects a non-string declared winner instead of coercing it", () => {
-    for (const bad of [7, true, null, [], {}]) {
-      const j = judgmentFromAnswers(
-        {
-          ...traceAnswers,
-          page_role: { type: "choice", choice: bad, probabilities: probs(PAGE_ROLE_KEYS, "REPORTING") },
-        },
-        { claimMode: false },
-      );
-      expect(j).toBeNull();
-    }
-  });
-
-  it("accepts an answer with no declared winner and invents nothing", () => {
-    const j = judgmentFromAnswers(
-      { ...traceAnswers, page_role: choiceNoWinner(probs(PAGE_ROLE_KEYS, "FACT_CHECK")) },
-      { claimMode: false },
-    );
-    expect(j).not.toBeNull();
-    expect(j!.pageRole.factCheck).toBeCloseTo(0.8);
-    expect(j!.pageRole.reporting).toBeCloseTo(0.04);
+    expect(
+      judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", aliased) }, { claimMode: false, ...prov }),
+    ).toBeNull();
   });
 
   it("rejects out-of-range and non-finite option probabilities", () => {
-    // the range/finite check runs per option before the sum check, so each of
-    // these is refused on its own terms
-    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -0.1, 1.5, "0.05", null, undefined]) {
+    for (const bad of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      -0.1,
+      1.5,
+      "0.05",
+      null,
+      undefined,
+    ]) {
       const p: Record<string, number> = {
         REPORTING: 0.8,
         FACT_CHECK: bad as number,
@@ -456,27 +508,27 @@ describe("judgmentFromAnswers — typed answer validation at the boundary", () =
         OTHER: 0.025,
       };
       expect(
-        judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", p) }, { claimMode: false }),
+        judgmentFromAnswers({ ...traceAnswers, page_role: choice("REPORTING", p) }, { claimMode: false, ...prov }),
         String(bad),
       ).toBeNull();
     }
   });
 
   it("rejects a Choice slot filled with the wrong answer type", () => {
-    expect(
-      judgmentFromAnswers({ ...traceAnswers, page_role: noul(0.9) }, { claimMode: false }),
-    ).toBeNull();
-    expect(judgmentFromAnswers({ ...traceAnswers, page_role: 0.9 }, { claimMode: false })).toBeNull();
-    expect(judgmentFromAnswers({ ...traceAnswers, page_role: null }, { claimMode: false })).toBeNull();
-    expect(judgmentFromAnswers({ ...traceAnswers, page_role: [1, 2] }, { claimMode: false })).toBeNull();
+    for (const bad of [noul(0.9), 0.9, null, [1, 2], "REPORTING"]) {
+      expect(
+        judgmentFromAnswers({ ...traceAnswers, page_role: bad }, { claimMode: false, ...prov }),
+      ).toBeNull();
+    }
   });
 
   it("never produces a judgment from a partially valid answer set", () => {
-    const halfValid = {
-      relevance: noul(0.9),
-      page_role: choice("REPORTING", { REPORTING: 0.5 }),
-    };
-    expect(judgmentFromAnswers(halfValid, { claimMode: false })).toBeNull();
+    expect(
+      judgmentFromAnswers(
+        { relevance: noul(0.9), page_role: choice("REPORTING", { REPORTING: 0.5 }) },
+        { claimMode: false, ...prov },
+      ),
+    ).toBeNull();
   });
 
   it("validates optional claim surfaces with the same rules, degrading to null", () => {
@@ -486,9 +538,9 @@ describe("judgmentFromAnswers — typed answer validation at the boundary", () =
     // value is ever substituted.
     const badContext = {
       ...claimAnswers,
-      context_relation: choice("DIFFERENT_CONTEXT", even(CONTEXT_KEYS, 0.4)),
+      context_relation: choice("DIFFERENT_CONTEXT", Object.fromEntries(CONTEXT_KEYS.map((k) => [k, 0.4]))),
     };
-    const degraded = judgmentFromAnswers(badContext, { claimMode: true });
+    const degraded = judgmentFromAnswers(badContext, { claimMode: true, ...prov });
     expect(degraded).not.toBeNull();
     expect(degraded!.contextRelation).toBeNull();
     expect(degraded!.claimRelation!.contradicts).toBeCloseTo(0.8);
@@ -496,53 +548,150 @@ describe("judgmentFromAnswers — typed answer validation at the boundary", () =
     const badLocation = {
       ...claimAnswers,
       location_relation: choice("SAME_LOCATION", {
-        SAME_LOCATION: 0.7,
-        DIFFERENT_LOCATION: 0.1,
-        LOCATION_NOT_STATED: 0.1,
-        UNCLEAR: 0.1,
+        ...probs(LOCATION_KEYS, "SAME_LOCATION", 0.7),
         EXTRA: 0.5,
       }),
     };
-    const noLocation = judgmentFromAnswers(badLocation, { claimMode: true });
+    const noLocation = judgmentFromAnswers(badLocation, { claimMode: true, ...prov });
     expect(noLocation).not.toBeNull();
     expect(noLocation!.locationRelation).toBeNull();
     expect(noLocation!.contextRelation!.differentContext).toBeCloseTo(0.8);
   });
 
   it("a required-surface distribution violation rejects the whole judgment", () => {
-    const badRequired = {
-      relevance: noul(0.9),
-      page_role: choice("REPORTING", even(PAGE_ROLE_KEYS, 0.4)),
+    expect(
+      judgmentFromAnswers(
+        { relevance: noul(0.9), page_role: choice("REPORTING", even6(0.4)) },
+        { claimMode: false, ...prov },
+      ),
+    ).toBeNull();
+  });
+});
+
+/** Six equal option values — used to exercise the sum tolerance directly. */
+function even6(p: number): Record<string, number> {
+  return Object.fromEntries(PAGE_ROLE_KEYS.map((k) => [k, p]));
+}
+
+describe("choiceAnswer — the documented winner contract", () => {
+  const prov = { provenance: verified };
+  const pageRole = (v: unknown) =>
+    judgmentFromAnswers({ ...traceAnswers, page_role: v }, { claimMode: false, ...prov });
+
+  it("requires a declared winner", () => {
+    // absent
+    expect(pageRole(choiceNoWinner(probs(PAGE_ROLE_KEYS, "REPORTING")))).toBeNull();
+    // explicit null is malformed too — no consistent reading of "no winner"
+    expect(
+      pageRole({ type: "choice", choice: null, probabilities: probs(PAGE_ROLE_KEYS, "REPORTING") }),
+    ).toBeNull();
+  });
+
+  it("rejects a declared winner that is not among the tied maxima", () => {
+    // normalized, but the declared winner is not the highest-probability option
+    const notMax = {
+      REPORTING: 0.8,
+      FACT_CHECK: 0.025,
+      SOCIAL_REPOST: 0.05,
+      AGGREGATOR: 0.05,
+      COMMENTARY: 0.05,
+      OTHER: 0.025,
     };
-    expect(judgmentFromAnswers(badRequired, { claimMode: false })).toBeNull();
+    expect(pageRole(choice("OTHER", notMax))).toBeNull();
+    expect(pageRole(choice("FACT_CHECK", notMax))).toBeNull();
+    // the actual maximum is accepted
+    expect(pageRole(choice("REPORTING", notMax))).not.toBeNull();
+  });
+
+  it("accepts either of two tied maxima", () => {
+    const tied = {
+      REPORTING: 0.4,
+      FACT_CHECK: 0.4,
+      SOCIAL_REPOST: 0.05,
+      AGGREGATOR: 0.05,
+      COMMENTARY: 0.05,
+      OTHER: 0.05,
+    };
+    expect(pageRole(choice("REPORTING", tied))).not.toBeNull();
+    expect(pageRole(choice("FACT_CHECK", tied))).not.toBeNull();
+  });
+
+  it("treats maxima within one rounding unit as tied", () => {
+    expect(JEV_WINNER_TIE_TOLERANCE).toBe(10 ** -JEV_PROBABILITY_RETAINED_DECIMALS);
+    const nearTie = {
+      REPORTING: 0.4,
+      FACT_CHECK: 0.4 - JEV_WINNER_TIE_TOLERANCE / 2,
+      SOCIAL_REPOST: 0.05,
+      AGGREGATOR: 0.05,
+      COMMENTARY: 0.05,
+      OTHER: 0.05,
+    };
+    expect(pageRole(choice("FACT_CHECK", nearTie))).not.toBeNull();
+    // a full unit clear of the maximum is not a tie
+    const clearLoser = {
+      REPORTING: 0.4,
+      FACT_CHECK: 0.4 - JEV_WINNER_TIE_TOLERANCE * 2,
+      SOCIAL_REPOST: 0.05,
+      AGGREGATOR: 0.05,
+      COMMENTARY: 0.05,
+      OTHER: 0.05,
+    };
+    expect(pageRole(choice("FACT_CHECK", clearLoser))).toBeNull();
+  });
+
+  it("rejects a winner naming an option that was not offered, or a non-string winner", () => {
+    expect(pageRole(choice("TOTALLY_MADE_UP_ROLE", probs(PAGE_ROLE_KEYS, "REPORTING")))).toBeNull();
+    for (const bad of [7, true, [], {}]) {
+      expect(
+        pageRole({ type: "choice", choice: bad, probabilities: probs(PAGE_ROLE_KEYS, "REPORTING") }),
+      ).toBeNull();
+    }
+  });
+
+  it("applies the same winner contract to the pairwise surface", () => {
+    const p = (winner: unknown, probs_: Record<string, number>) => ({
+      pairwise_context: { type: "choice", choice: winner, probabilities: probs_ },
+    });
+    expect(pairwiseFromAnswers(p(undefined, probs(PAIRWISE_KEYS, "SAME_CONTEXT")), verified)).toBeNull();
+    expect(
+      pairwiseFromAnswers(
+        p("UNCLEAR", { SAME_CONTEXT: 0.8, DIFFERENT_CONTEXT: 0.15, UNCLEAR: 0.05 }),
+        verified,
+      ),
+    ).toBeNull();
+    expect(pairwiseFromAnswers(p("SAME_CONTEXT", probs(PAIRWISE_KEYS, "SAME_CONTEXT")), verified)).not.toBeNull();
   });
 });
 
 describe("pairwiseFromAnswers", () => {
   it("parses pairwise context choice", () => {
-    const r = pairwiseFromAnswers({
-      pairwise_context: choice("SAME_CONTEXT", probs(PAIRWISE_KEYS, "SAME_CONTEXT")),
-    });
+    const r = pairwiseFromAnswers(pairwiseAnswers, verified);
     expect(r!.sameContext).toBeCloseTo(0.8);
     expect(r!.differentContext).toBeLessThan(0.8);
   });
 
   it("returns null on malformed pairwise answers", () => {
-    expect(pairwiseFromAnswers({})).toBeNull();
-    expect(pairwiseFromAnswers({ pairwise_context: { type: "noul", noul: 1 } })).toBeNull();
+    expect(pairwiseFromAnswers({}, verified)).toBeNull();
+    expect(pairwiseFromAnswers({ pairwise_context: { type: "noul", noul: 1 } }, verified)).toBeNull();
   });
 
-  it("returns null on an unnormalized pairwise distribution", () => {
+  it("returns null on an unnormalized or incomplete pairwise distribution", () => {
     expect(
-      pairwiseFromAnswers({ pairwise_context: choice("SAME_CONTEXT", even(PAIRWISE_KEYS, 0.5)) }),
+      pairwiseFromAnswers(
+        { pairwise_context: choice("SAME_CONTEXT", Object.fromEntries(PAIRWISE_KEYS.map((k) => [k, 0.5]))) },
+        verified,
+      ),
     ).toBeNull();
-  });
-
-  it("returns null when the distribution is missing an option", () => {
     expect(
-      pairwiseFromAnswers({
-        pairwise_context: choice("SAME_CONTEXT", { SAME_CONTEXT: 0.7, DIFFERENT_CONTEXT: 0.3 }),
-      }),
+      pairwiseFromAnswers(
+        {
+          pairwise_context: choice("SAME_CONTEXT", {
+            SAME_CONTEXT: 0.7,
+            DIFFERENT_CONTEXT: 0.3,
+          }),
+        },
+        verified,
+      ),
     ).toBeNull();
   });
 });
@@ -551,8 +700,7 @@ describe("pairwiseFromAnswers", () => {
 
 describe("resolveModelIdentity", () => {
   it("verified only when the provider reported the configured model exactly", () => {
-    const id = resolveModelIdentity(JEV_MODEL, JEV_MODEL);
-    expect(id).toEqual({
+    expect(resolveModelIdentity(JEV_MODEL, JEV_MODEL)).toEqual({
       requested: JEV_MODEL,
       reported: JEV_MODEL,
       status: "verified",
@@ -578,15 +726,12 @@ describe("resolveModelIdentity", () => {
   });
 
   it("keeps an explicit override inspectable instead of rewriting it", () => {
-    const id = resolveModelIdentity("jev-1.14.0", "jev-1.14.0");
-    expect(id).toEqual({
+    expect(resolveModelIdentity("jev-1.14.0", "jev-1.14.0")).toEqual({
       requested: "jev-1.14.0",
       reported: "jev-1.14.0",
       status: "verified",
       pinned: false,
     });
-    expect(id.requested).toBe("jev-1.14.0");
-    expect(id.pinned).toBe(false);
   });
 
   it("a case-different identity is unexpected, not verified", () => {
@@ -595,7 +740,7 @@ describe("resolveModelIdentity", () => {
   });
 });
 
-describe("verifiedPinnedModel", () => {
+describe("verifiedPinnedModel — rechecked against the identifiers, not the flags", () => {
   it("yields the pinned model only for a verified pinned identity", () => {
     expect(verifiedPinnedModel(verified)).toBe(JEV_MODEL);
   });
@@ -606,6 +751,35 @@ describe("verifiedPinnedModel", () => {
     expect(verifiedPinnedModel(resolveModelIdentity("jev-1.14.0", "jev-1.14.0"))).toBeNull();
     expect(verifiedPinnedModel(null)).toBeNull();
     expect(verifiedPinnedModel(undefined)).toBeNull();
+    expect(verifiedPinnedModel({} as unknown as JevModelIdentity)).toBeNull();
+    expect(verifiedPinnedModel("jev-1.13.0" as unknown as JevModelIdentity)).toBeNull();
+  });
+
+  it("ignores forged status/pinned flags and re-derives them from the identifiers", () => {
+    const forgedVerified = {
+      requested: "other",
+      reported: "other",
+      status: "verified",
+      pinned: true,
+    } as unknown as JevModelIdentity;
+    expect(verifiedPinnedModel(forgedVerified)).toBeNull();
+
+    const forgedPinned = {
+      requested: JEV_MODEL,
+      reported: "jev-1.14.0",
+      status: "verified",
+      pinned: true,
+    } as unknown as JevModelIdentity;
+    expect(verifiedPinnedModel(forgedPinned)).toBeNull();
+
+    // flags that disagree with truthful identifiers do not revoke a real match
+    const understated = {
+      requested: JEV_MODEL,
+      reported: JEV_MODEL,
+      status: "missing",
+      pinned: false,
+    } as unknown as JevModelIdentity;
+    expect(verifiedPinnedModel(understated)).toBe(JEV_MODEL);
   });
 });
 
@@ -629,14 +803,16 @@ describe("JevClient.ask — provider-boundary model validation", () => {
   });
 
   it("REFUSES an unexpected model identity and never relabels it as jev-1.13.0", async () => {
-    const fetchImpl = jsonResponse({ model: "unexpected-model-v9", answers: traceAnswers });
-    const client = new JevClient({ apiKey: "k", fetchImpl: fetchImpl as never });
-    await expect(
-      client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION }),
-    ).rejects.toBeInstanceOf(ProviderError);
-    await expect(
-      client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION }),
-    ).rejects.toThrow(/model identity unexpected/);
+    const client = new JevClient({
+      apiKey: "k",
+      fetchImpl: jsonResponse({ model: "unexpected-model-v9", answers: traceAnswers }) as never,
+    });
+    const err = await client
+      .ask({ x: 1 }, { relevance: RELEVANCE_QUESTION })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect((err as ProviderError).kind).toBe("malformed");
+    expect((err as ProviderError).message).toBe("jev model identity unexpected");
   });
 
   it("REFUSES a response with no model identity at all", async () => {
@@ -647,34 +823,12 @@ describe("JevClient.ask — provider-boundary model validation", () => {
       { model: 7, answers: traceAnswers },
       { model: ["jev-1.13.0"], answers: traceAnswers },
     ]) {
-      const client = new JevClient({
-        apiKey: "k",
-        fetchImpl: jsonResponse(body) as never,
-      });
-      await expect(
-        client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION }),
-      ).rejects.toThrow(/model identity missing/);
+      const client = new JevClient({ apiKey: "k", fetchImpl: jsonResponse(body) as never });
+      const err = await client
+        .ask({ x: 1 }, { relevance: RELEVANCE_QUESTION })
+        .catch((e: unknown) => e);
+      expect((err as ProviderError).message, JSON.stringify(body)).toBe("jev model identity missing");
     }
-  });
-
-  it("sanitizes the refusal — no URL, token or provider body in the message", async () => {
-    const client = new JevClient({
-      apiKey: "super-secret-token",
-      fetchImpl: jsonResponse({
-        model: "unexpected-model-v9",
-        answers: traceAnswers,
-        secret: "do-not-log",
-      }) as never,
-    });
-    const err = await client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION }).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(ProviderError);
-    const msg = (err as ProviderError).message;
-    expect(msg).toContain("unexpected-model-v9");
-    expect(msg).toContain(JEV_MODEL);
-    expect(msg).not.toContain("super-secret-token");
-    expect(msg).not.toContain("do-not-log");
-    expect(msg).not.toContain("https://");
-    expect((err as ProviderError).kind).toBe("malformed");
   });
 
   it("REFUSES a verified but unpinned override rather than labelling it jev-1.13.0", async () => {
@@ -685,22 +839,23 @@ describe("JevClient.ask — provider-boundary model validation", () => {
       fetchImpl: fetchImpl as never,
     });
     expect(client.model).toBe("jev-1.14.0");
+    const err = await client
+      .ask({ x: 1 }, { relevance: RELEVANCE_QUESTION })
+      .catch((e: unknown) => e);
+    expect((err as ProviderError).message).toBe("jev model is not the pinned model");
     // the override is really sent on the wire, unmodified
-    await expect(
-      client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION }),
-    ).rejects.toBeInstanceOf(ProviderError);
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body)).model).toBe("jev-1.14.0");
-    // ...and the pinned label stays unclaimed
     expect(verifiedPinnedModel(resolveModelIdentity("jev-1.14.0", "jev-1.14.0"))).toBeNull();
   });
 
   it("rejects a non-object response body", async () => {
     for (const body of [null, 7, "ok", [1, 2]]) {
       const client = new JevClient({ apiKey: "k", fetchImpl: jsonResponse(body) as never });
-      await expect(
-        client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION }),
-      ).rejects.toThrow(/not a JSON object/);
+      const err = await client
+        .ask({ x: 1 }, { relevance: RELEVANCE_QUESTION })
+        .catch((e: unknown) => e);
+      expect((err as ProviderError).message).toBe("jev response was not a JSON object");
     }
   });
 
@@ -712,7 +867,19 @@ describe("JevClient.ask — provider-boundary model validation", () => {
     const res = await client.ask({ x: 1 }, { relevance: RELEVANCE_QUESTION });
     expect(res.answers).toEqual({});
     expect(res.identity.status).toBe("verified");
-    expect(judgmentFromAnswers(res.answers, { claimMode: false })).toBeNull();
+    expect(judgmentFromAnswers(res.answers, { claimMode: false, provenance: res.identity })).toBeNull();
+  });
+
+  it("yields a usable judgment end to end for a valid pinned-model response", async () => {
+    const client = new JevClient({
+      apiKey: "k",
+      fetchImpl: jsonResponse({ model: JEV_MODEL, answers: traceAnswers }) as never,
+    });
+    const res = await client.ask({}, { relevance: RELEVANCE_QUESTION });
+    const j = judgmentFromAnswers(res.answers, { claimMode: false, provenance: res.identity });
+    expect(j).not.toBeNull();
+    expect(j!.model).toBe(JEV_MODEL);
+    expect(j!.relevance).toBeCloseTo(0.9);
   });
 
   it("an unexpected model can reach no judgment through the real client path", async () => {
@@ -720,24 +887,98 @@ describe("JevClient.ask — provider-boundary model validation", () => {
       apiKey: "k",
       fetchImpl: jsonResponse({ model: "unexpected-model-v9", answers: traceAnswers }) as never,
     });
-    // exactly the Astra probe shape: ask() never yields answers, so
-    // judgmentFromAnswers is never reached with relabeled probabilities.
-    await expect(client.ask({}, { relevance: RELEVANCE_QUESTION })).rejects.toBeInstanceOf(
-      ProviderError,
-    );
+    await expect(client.ask({}, { relevance: RELEVANCE_QUESTION })).rejects.toBeInstanceOf(ProviderError);
   });
 });
 
-describe("model provenance as a validation-boundary input", () => {
-  it("rejects the judgment when the supplied identity is unexpected or missing", () => {
+describe("refusal errors cannot echo provider or configured content", () => {
+  const ask = (body: unknown) => {
+    const client = new JevClient({
+      apiKey: "super-secret-token",
+      model: "SYNTHETIC_REQUESTED\nSENTINEL",
+      fetchImpl: jsonResponse(body) as never,
+    });
+    return client
+      .ask({ x: 1 }, { relevance: RELEVANCE_QUESTION })
+      .then(
+        () => new ProviderError("network", "SYNTHETIC_unexpected_success") as ProviderError,
+        (e: unknown) => e as ProviderError,
+      );
+  };
+
+  it("never reproduces a malicious or oversized model field", async () => {
+    const secrets = [
+      "SYNTHETIC_ECHOED_SECRET",
+      "unexpected-model-v9\nprovider-body-SENTINEL\r\ninjected: log line",
+      "x".repeat(10_000),
+      `${"y".repeat(9_990)}SENTINEL`,
+    ];
+    for (const reported of secrets) {
+      const err = await ask({ model: reported, answers: traceAnswers, secret: "do-not-log" });
+      expect(err).toBeInstanceOf(ProviderError);
+      const msg = err.message;
+      // one of the fixed, enumerated reasons
+      expect(
+        [
+          "jev model identity unexpected",
+          "jev model identity missing",
+          "jev model is not the pinned model",
+        ],
+      ).toContain(msg);
+      // nothing from the response body, the override, or the credential
+      expect(msg).not.toContain("SYNTHETIC");
+      expect(msg).not.toContain("SENTINEL");
+      expect(msg).not.toContain("super-secret-token");
+      expect(msg).not.toContain("do-not-log");
+      expect(msg).not.toContain("https://");
+      expect(msg).not.toMatch(/[\r\n]/);
+      // bounded: a 10k model must not produce a 10k message
+      expect(msg.length).toBeLessThan(64);
+    }
+  });
+
+  it("uses one static message per reason, independent of content", async () => {
+    const a = await ask({ model: "unexpected-model-v9", answers: traceAnswers });
+    const b = await ask({ model: "a".repeat(5_000), answers: traceAnswers });
+    expect(a.message).toBe(b.message);
+  });
+
+  it("only a verified pinned model is ever attached to a successful result", async () => {
+    const ok = new JevClient({
+      apiKey: "k",
+      fetchImpl: jsonResponse({ model: JEV_MODEL, answers: traceAnswers }) as never,
+    });
+    const res = await ok.ask({}, { relevance: RELEVANCE_QUESTION });
+    // the only identifiers a caller can read are the allowlisted pinned model
+    expect(res.identity.requested).toBe(JEV_MODEL);
+    expect(res.identity.reported).toBe(JEV_MODEL);
+  });
+});
+
+describe("model provenance is required at both judgment constructors", () => {
+  it("rejects a judgment when the supplied identity is unexpected, missing or null", () => {
     expect(judgmentFromAnswers(traceAnswers, { claimMode: false, provenance: unexpected })).toBeNull();
     expect(judgmentFromAnswers(traceAnswers, { claimMode: false, provenance: missing })).toBeNull();
     expect(judgmentFromAnswers(traceAnswers, { claimMode: false, provenance: null })).toBeNull();
   });
 
   it("rejects an override identity even though it verified on the wire", () => {
-    const override = resolveModelIdentity("jev-1.14.0", "jev-1.14.0");
-    expect(judgmentFromAnswers(traceAnswers, { claimMode: false, provenance: override })).toBeNull();
+    expect(
+      judgmentFromAnswers(traceAnswers, {
+        claimMode: false,
+        provenance: resolveModelIdentity("jev-1.14.0", "jev-1.14.0"),
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a hand-built identity whose flags contradict its identifiers", () => {
+    const forged = {
+      requested: "other",
+      reported: "other",
+      status: "verified",
+      pinned: true,
+    } as unknown as JevModelIdentity;
+    expect(judgmentFromAnswers(traceAnswers, { claimMode: false, provenance: forged })).toBeNull();
   });
 
   it("accepts and labels the pinned model for a verified identity", () => {
@@ -746,22 +987,16 @@ describe("model provenance as a validation-boundary input", () => {
     expect(j!.model).toBe(JEV_MODEL);
   });
 
-  it("gates the pairwise judgment on the same identity", () => {
-    const answers = { pairwise_context: choice("SAME_CONTEXT", probs(PAIRWISE_KEYS, "SAME_CONTEXT")) };
-    expect(pairwiseFromAnswers(answers, unexpected)).toBeNull();
-    expect(pairwiseFromAnswers(answers, missing)).toBeNull();
-    expect(pairwiseFromAnswers(answers, verified)).not.toBeNull();
-    expect(pairwiseFromAnswers(answers)).not.toBeNull();
+  it("gates the pairwise judgment on the same required identity", () => {
+    expect(pairwiseFromAnswers(pairwiseAnswers, unexpected)).toBeNull();
+    expect(pairwiseFromAnswers(pairwiseAnswers, missing)).toBeNull();
+    expect(pairwiseFromAnswers(pairwiseAnswers, null)).toBeNull();
+    expect(pairwiseFromAnswers(pairwiseAnswers, verified)).not.toBeNull();
   });
 
-  it("keeps the pre-existing two-field call shape working", () => {
-    const j = judgmentFromAnswers(traceAnswers, { claimMode: false });
-    expect(j!.model).toBe(JEV_MODEL);
-  });
-
-  it("the judgment model is the constant, never a provider-supplied string", () => {
-    for (const claimed of [verified, unexpected, missing, null, undefined]) {
-      const j = judgmentFromAnswers(traceAnswers, { claimMode: false, provenance: claimed });
+  it("the judgment model is always the constant, never a provider-supplied string", () => {
+    for (const provenance of [verified, unexpected, missing, null]) {
+      const j = judgmentFromAnswers(traceAnswers, { claimMode: false, provenance });
       if (j !== null) expect(j.model).toBe(JEV_MODEL);
     }
   });
