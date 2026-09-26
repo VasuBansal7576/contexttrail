@@ -1851,13 +1851,20 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         if (m) { p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length); hit(); }
       });
     } else if (mode === "long-value-truncated") {
-      // The real defect: a long value clipped to a single line. Layout-only, so the
-      // text is still in the DOM and still "present" to a text scan.
+      // RO4: applied exactly ONCE, and only when it actually lands. The observer
+      // calls this on every mutation, so a fault that re-appended on each call would
+      // stack stylesheets; and an existing style means the effect is already in
+      // place, so re-applying it is not a new mutation and must not be counted.
+      if (document.getElementById("ct-long-value-truncated")) return;
       const st = document.createElement("style");
       st.id = "ct-long-value-truncated";
       st.textContent =
         "li,dd,p,span,a,td{max-height:1.4em;overflow:hidden;white-space:nowrap !important;text-overflow:clip !important;}";
-      if (document.head) { document.head.appendChild(st); hit(); }
+      if (!document.head) return;
+      document.head.appendChild(st);
+      window.__ctLayoutFault = true;
+      window.__ctLongValueTarget = { id: st.id, applied: true };
+      hit();
     } else if (mode === "reading-order-reversed" || mode === "reading-order-restored") {
       // The EXPLICIT target: the selected tab's own aria-controls panel, its
       // Sources section, its list, and the DIRECT visible li children. Guessing an
@@ -2802,7 +2809,15 @@ async function longValueLayout(page, { limit = 60, panelId = null } = {}) {
         break;
       }
     }
-    const inversions = outOfOrder ? 1 + visual.filter((v, k) => k > 0 && v.domIndex < visual[k - 1].domIndex).length : 0;
+    // RO3: the number of ADJACENT decreases in the visually sorted domIndex
+    // sequence — each position where the next element is an earlier element in the
+    // document. It is not a pairwise comparison count and is not a count of
+    // misordered items: one item jumping backwards contributes one, and no
+    // combinations of pairs are counted.
+    const inversions = visual.reduce(
+      (n, v, k) => (k > 0 && v.domIndex < visual[k - 1].domIndex ? n + 1 : n),
+      0,
+    );
     return {
       rows,
       visualDomSequence: visual.map((v) => v.domIndex),
@@ -3264,9 +3279,18 @@ async function selectTab(page, rec, name) {
   const count = await tab.count();
   rec.check(`result.tab-${name.toLowerCase()}-present`, count > 0, `count=${count}`);
   await tab.first().click();
-  await delay(250);
   const selected = (await tab.first().getAttribute("aria-selected")) === "true";
   rec.check(`result.tab-${name.toLowerCase()}-selected`, selected, `aria-selected=${selected}`);
+  // RO2: settle on CONFIRMED state, not a wall-clock guess. Two animation frames
+  // after the tab reports itself selected is enough for layout and style to be
+  // final, and unlike a fixed delay it cannot sample a mid-transition frame or
+  // wait longer than the work needs.
+  await page
+    .evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      undefined,
+    )
+    .catch(() => {});
 }
 
 /** Snapshot of document.activeElement, or null when focus is on <body>. */
@@ -4451,13 +4475,35 @@ const DRIVE_CASES = {
       `requested "${requestedView}", observed tab "${panelInfo.observedTab}", panel ${panelInfo.panelId} ` +
         `settled=${panelInfo.settled} (${panelInfo.rowsInPanel} candidate nodes inside that panel)`,
     );
+    // RO2: settle on a CONFIRMED state, not a fixed delay. For the restoration
+    // variant that means waiting until the injected stylesheet is actually gone
+    // before settling two frames — measuring first caught the reversal still in
+    // place, so "restored" was red for the wrong reason.
+    if (flags.fault === "reading-order-restored") {
+      await page
+        .waitForFunction(
+          () =>
+            !document.getElementById("ct-reading-order") &&
+            window.__ctReadingOrderTarget?.restored === true,
+          undefined,
+          { timeout: 15_000 },
+        )
+        .catch(() => {});
+    }
+    await page
+      .evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+      .catch(() => {});
     const faultTarget = await page.evaluate(() => window.__ctReadingOrderTarget ?? null);
     rec.note("result.reading-order-mutation-target", JSON.stringify(faultTarget));
+    // RO1: the requirement is conditioned on the fault ACTUALLY requested. With a
+    // reading fault asked for, the target must be found; with no fault, no
+    // sabotage target may exist at all and Sources must simply be accepted.
+    const readingFaultRequested = /^(reading-order-reversed|reading-order-restored)$/.test(flags.fault ?? "");
     rec.check(
       "result.reading-order-mutation-target-is-the-requested-list",
-      faultTarget === null
-        ? panelInfo.observedTab !== "Sources"
-        : faultTarget.panelId === panelInfo.panelId && faultTarget.directRows >= 2 && faultTarget.applied === true,
+      readingFaultRequested
+        ? faultTarget !== null && faultTarget.panelId === panelInfo.panelId && faultTarget.directRows >= 2 && faultTarget.applied === true
+        : faultTarget === null && panelInfo.observedTab === "Sources",
       faultTarget === null
         ? "no reading-order mutation applied (baseline)"
         : `reversed ${faultTarget.selector} (tab "${faultTarget.tab}", ${faultTarget.directRows} direct visible ` +
