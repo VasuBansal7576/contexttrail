@@ -452,6 +452,28 @@ const DETERMINERS = new Set([
 ]);
 
 /**
+ * Verbs of motion or impact whose **direct complement names a place**. A claim
+ * like "approaching the Gulf Coast" states a location exactly as plainly as
+ * "in the Gulf Coast" does, but its place is not governed by a preposition, so
+ * the preposition-only scan cannot see it.
+ *
+ * Deliberately narrow, and frozen: these verbs take a place object in ordinary
+ * usage and nothing else common. Capture verbs ("photographed", "filmed",
+ * "captured") are **excluded on purpose** - their place object is already
+ * reachable through "in"/"at"/"on", so admitting them would widen the surface
+ * without closing a demonstrated gap. A bare "hit"/"hits" is excluded because
+ * it is equally a noun and an object-taking verb.
+ *
+ * The complement must still pass the ordinary positive place tests, so
+ * capitalization proves nothing here and no region is inferred: the place text
+ * present in the claim is the only evidence.
+ */
+const MOTION_LOCATION_VERBS = new Set([
+  "approaching", "approached", "nearing", "neared", "heading", "headed",
+  "struck", "devastated", "ravaged", "battered", "submerged",
+]);
+
+/**
  * Prepositions that as often mark a topic or object of attention as a place
  * ("a photo focusing on Jordan", "an article about the minister").
  */
@@ -585,6 +607,7 @@ export type LocationRejection =
   | "temporal_reference"
   | "non_place_reference"
   | "topic_or_source_reference"
+  | "unparsed_relationship"
   | "unrecognised_name";
 
 /** Positive evidence that a span names a place. */
@@ -723,6 +746,13 @@ function matchAddress(tokens: Token[], i: number): number {
   return 0;
 }
 
+/** How many tokens the place signal at `i` consumes. */
+function signalLength(tokens: Token[], i: number, signal: PlaceEvidence): number {
+  if (signal === "gazetteer") return matchGazetteer(tokens, i);
+  if (signal === "street_address") return matchAddress(tokens, i);
+  return 1;
+}
+
 /** The positive place signal matching at `i`, or null when none does. */
 function placeSignalAt(tokens: Token[], i: number): PlaceEvidence | null {
   if (matchGazetteer(tokens, i) > 0) return "gazetteer";
@@ -744,6 +774,12 @@ interface Candidate {
   evidence: PlaceEvidence | null;
   /** true when a place signal was withdrawn because the frame is topical */
   topic: boolean;
+  /**
+   * How the preposition or verb governs this span. A motion complement has no
+   * preposition, so the discourse guard - which is keyed on a topical
+   * preposition - deliberately does not apply to it.
+   */
+  via: "preposition" | "motion_verb" | "unparsed_verb";
 }
 
 /**
@@ -774,7 +810,13 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
           DATELINE_MARK.test(tokens[j].raw) ||
           (tokens[j + 1] !== undefined && DATELINE_MARK.test(tokens[j + 1].raw));
         if (!marked) continue;
-        candidates.push({ from: 0, to: j, evidence: "gazetteer", topic: false });
+        candidates.push({
+          from: 0,
+          to: j,
+          evidence: "gazetteer",
+          topic: false,
+          via: "preposition",
+        });
         break;
       }
     }
@@ -787,8 +829,69 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       const signal = placeSignalAt(tokens, i);
       if (signal !== null) {
         const n = matchGazetteer(tokens, i) || matchPlaceNoun(tokens, i);
-        candidates.push({ from: i, to: i + n - 1, evidence: signal, topic: false });
+        candidates.push({
+          from: i,
+          to: i + n - 1,
+          evidence: signal,
+          topic: false,
+          via: "preposition",
+        });
       }
+    }
+
+    // §16.5 — the direct complement of a motion or impact verb. "approaching the
+    // Gulf Coast" states a place without any preposition, so the scan above
+    // never reaches it. A prepositional object is left to the preposition
+    // machinery, which already handles it.
+    if (MOTION_LOCATION_VERBS.has(t.lower)) {
+      let k = i + 1;
+      while (k < tokens.length && DETERMINERS.has(tokens[k].lower)) k += 1;
+      if (k >= tokens.length) {
+        // the verb has no complement at all: the relationship is present but
+        // unevaluated, which is not the same as the claim stating no location
+        candidates.push({ from: i, to: i, evidence: null, topic: false, via: "unparsed_verb" });
+        continue;
+      }
+      if (PHRASE_BREAK.has(tokens[k].lower)) continue;
+      // A directional or size modifier in front of the name is part of it, the
+      // same way "northern France" is on the preposition path.
+      let mFrom = k;
+      let complement = placeSignalAt(tokens, mFrom);
+      while (
+        complement === null &&
+        mFrom + 1 < tokens.length &&
+        PLACE_MODIFIERS.has(tokens[mFrom].lower)
+      ) {
+        mFrom += 1;
+        complement = placeSignalAt(tokens, mFrom);
+      }
+      let mTo = complement === null ? mFrom : mFrom + signalLength(tokens, mFrom, complement) - 1;
+      if (complement !== null) {
+        // keep the whole noun phrase, so "Gulf Coast" is not reported as "Gulf".
+        // A sentence-ending mark must not truncate it either.
+        while (
+          mTo + 1 < tokens.length &&
+          !isStop(tokens[mTo + 1]) &&
+          PLACE_NOUNS.has(tokens[mTo + 1].lower) &&
+          !PLACE_NAMES.has(tokens[mTo + 1].lower)
+        ) {
+          mTo += 1;
+        }
+      } else {
+        // a sentence-ending mark must not truncate a place noun
+        while (mTo + 1 < tokens.length && !isStop(tokens[mTo + 1])) {
+          mTo += 1;
+        }
+      }
+      // The span starts at the determiner-skipping position `k`, so a modifier
+      // that had to be stepped over stays inside the recorded span.
+      candidates.push({
+        from: k,
+        to: mTo,
+        evidence: complement,
+        topic: isSourceOwnershipFrame(tokens, k, mTo),
+      via: "motion_verb",
+    });
     }
 
     if (!LOCATIVE_PREPOSITIONS.has(t.lower)) continue;
@@ -814,6 +917,7 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
           to,
           evidence: "street_address",
           topic: isTopicFrame(tokens, i, to, "street_address"),
+          via: "preposition",
         });
         continue;
       }
@@ -824,7 +928,13 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
         obj.lower.length === 0 &&
         obj.raw.replace(/[^\p{L}\p{N}]/gu, "").length > 0
       ) {
-        candidates.push({ from: j, to: j, evidence: null, topic: false });
+        candidates.push({
+          from: j,
+          to: j,
+          evidence: null,
+          topic: false,
+          via: "preposition",
+        });
       }
       continue;
     }
@@ -838,6 +948,7 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
           to,
           evidence: "street_address",
           topic: isTopicFrame(tokens, i, to, "street_address"),
+          via: "preposition",
         });
       }
       continue;
@@ -857,7 +968,9 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       let to = from + n - 1;
       // Extend over a following place-type head noun so the whole noun phrase
       // is kept ("Delhi neighbourhood", "Downtown street").
-      while (to + 1 < tokens.length && !isStop(tokens[to + 1]) && !tokens[to + 1].terminal) {
+      // A sentence-ending mark must not truncate a place noun: "the Gulf Coast."
+      // is one place, and the claim-bound span is "Gulf Coast".
+      while (to + 1 < tokens.length && !isStop(tokens[to + 1])) {
         if (PLACE_NOUNS.has(tokens[to + 1].lower) && !PLACE_NAMES.has(tokens[to + 1].lower)) {
           to += 1;
           continue;
@@ -881,7 +994,7 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       const topic = isTopicFrame(tokens, i, to, signal);
       const owned =
         signal === "street_address" ? false : isSourceOwnershipFrame(tokens, from, to);
-      candidates.push({ from, to, evidence: signal, topic: topic || owned });
+      candidates.push({ from, to, evidence: signal, topic: topic || owned, via: "preposition" });
     } else {
       // Unresolvable object inside a locative frame: recorded, never guessed.
       // Extend over the rest of the noun phrase. A sentence-ending mark stops
@@ -898,8 +1011,10 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
         evidence: null,
         topic:
           isTopicFrame(tokens, i, j, null) || isSourceOwnershipFrame(tokens, j, j),
+        via: "preposition",
       });
     }
+
   }
   return { tokens, candidates };
 }
@@ -1043,6 +1158,7 @@ function isSourceOwnershipFrame(tokens: Token[], from: number, to: number): bool
 }
 
 function classifyUnresolved(tokens: Token[], c: Candidate): LocationRejection {
+  if (c.via === "unparsed_verb") return "unparsed_relationship";
   if (c.topic) return "topic_or_source_reference";
   for (let i = c.from; i <= c.to; i++) {
     const w = tokens[i]?.lower ?? "";
@@ -1084,12 +1200,14 @@ export function claimLocationEligibility(claim: string): LocationEligibility {
   }
 
   let firstRejection: LocationRejection | null = null;
+  let motionComplement = false;
   for (const c of candidates) {
     const text = spanText(tokens, c.from, c.to);
     if (text.length === 0) continue;
     if (c.evidence !== null && !c.topic) {
       if (!spans.includes(text)) spans.push(text);
       addEvidence(c.evidence);
+      if (c.via === "motion_verb") motionComplement = true;
       continue;
     }
     if (!unresolved.includes(text)) unresolved.push(text);
@@ -1098,6 +1216,7 @@ export function claimLocationEligibility(claim: string): LocationEligibility {
 
   if (spans.length > 0) {
     addReason("explicit_locative_construction");
+    if (motionComplement) addReason("motion_relationship_complement");
     if (evidence.includes("gazetteer")) addReason("named_place");
     if (evidence.includes("place_type_noun")) addReason("geographic_noun");
     if (evidence.includes("street_address")) addReason("street_address");
