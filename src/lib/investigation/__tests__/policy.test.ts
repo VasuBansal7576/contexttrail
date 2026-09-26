@@ -119,6 +119,8 @@ describe("result assembly (§21.4, §22, §38.3)", () => {
   const base = {
     candidates: [] as ReturnType<typeof makeCandidate>[],
     timeline: [],
+    supportingEvidence: [],
+    contextualEvidence: [],
     undatedEvidence: [],
     coverage: { eligible: 0, selected: 0, comparedPairs: 0 },
     firstObservedContextDivergence: null,

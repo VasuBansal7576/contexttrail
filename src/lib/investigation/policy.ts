@@ -226,11 +226,23 @@ export function deriveTakeaways(input: {
     });
   }
 
+  // A historical-reuse takeaway asserts the media circulated before the
+  // claim — it needs a core occurrence (real media identity) AND temporal
+  // support (a usable date that predates the claim). An undated or
+  // contextual lead cannot assert media history.
   const historical = input.candidates.filter(
     (c) =>
+      isCoreOccurrence(c) &&
       isRelevant(c) &&
       (c.judgment?.contextRelation?.historicalReference ?? 0) >=
-        STRONG_RELATION_THRESHOLD,
+        STRONG_RELATION_THRESHOLD &&
+      predatesClaim(
+        c.publishedAt,
+        c.datePrecision,
+        c.dateStatus,
+        input.claimDate,
+        input.claimDatePrecision ?? "day",
+      ),
   );
   if (historical.length > 0) {
     out.push({
@@ -254,6 +266,8 @@ export function deriveTakeaways(input: {
 export interface ResultAssemblyInput {
   candidates: readonly EvidenceCandidate[];
   timeline: TimelineItem[];
+  supportingEvidence: TimelineItem[];
+  contextualEvidence: TimelineItem[];
   undatedEvidence: TimelineItem[];
   coverage: ComparisonCoverage;
   firstObservedContextDivergence: Divergence | null;
@@ -287,6 +301,8 @@ export function sharedMetrics(input: ResultAssemblyInput) {
     comparisonCoverage: input.coverage,
     limitations: input.limitations,
     undatedEvidence: input.undatedEvidence,
+    supportingEvidence: input.supportingEvidence,
+    contextualEvidence: input.contextualEvidence,
     timeline: input.timeline,
   };
 }

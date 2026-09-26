@@ -22,18 +22,49 @@ export interface PageExtraction {
   timeDates: string[];
 }
 
-function collectJsonLdDates(node: unknown, out: string[]): void {
+/**
+ * Entity-bound JSON-LD publication dates (§19.2). A publication date must
+ * come from the entity being published — an article/posting node — never
+ * from an arbitrary nested container such as a wrapping WebPage's
+ * dateCreated or a BreadcrumbList. When no article-bound date exists, a
+ * root-level node's explicit `datePublished` is the only fallback;
+ * container `dateCreated`/`datePosted` never stand in for publication.
+ */
+const JSONLD_DATE_KEYS = ["datePublished", "dateCreated", "datePosted"] as const;
+
+function isPublicationEntity(node: Record<string, unknown>): boolean {
+  const t = node["@type"];
+  const types = Array.isArray(t) ? t : [t];
+  return types.some(
+    (x) => typeof x === "string" && /(article|posting|report)/i.test(x),
+  );
+}
+
+function directDateFields(node: Record<string, unknown>, out: string[]): void {
+  for (const key of JSONLD_DATE_KEYS) {
+    const v = node[key];
+    if (typeof v === "string" && v.trim() !== "") out.push(v.trim());
+  }
+}
+
+function collectEntityDates(node: unknown, out: string[]): void {
   if (typeof node !== "object" || node === null) return;
   if (Array.isArray(node)) {
-    for (const n of node) collectJsonLdDates(n, out);
+    for (const n of node) collectEntityDates(n, out);
     return;
   }
   const o = node as Record<string, unknown>;
-  for (const key of ["datePublished", "dateCreated", "datePosted"]) {
-    const v = o[key];
+  if (isPublicationEntity(o)) directDateFields(o, out);
+  for (const v of Object.values(o)) collectEntityDates(v, out);
+}
+
+function rootPublicationDate(node: unknown, out: string[]): void {
+  const roots = Array.isArray(node) ? node : [node];
+  for (const r of roots) {
+    if (typeof r !== "object" || r === null) continue;
+    const v = (r as Record<string, unknown>).datePublished;
     if (typeof v === "string" && v.trim() !== "") out.push(v.trim());
   }
-  for (const v of Object.values(o)) collectJsonLdDates(v, out);
 }
 
 const META_DATE_KEYS = new Set([
@@ -53,13 +84,18 @@ export function extractPage(html: string): PageExtraction {
   const dom = new JSDOM(html, { contentType: "text/html" });
   const doc = dom.window.document;
 
-  const jsonLdDates: string[] = [];
+  const parsedLd: unknown[] = [];
   for (const el of doc.querySelectorAll('script[type="application/ld+json"]')) {
     try {
-      collectJsonLdDates(JSON.parse(el.textContent ?? ""), jsonLdDates);
+      parsedLd.push(JSON.parse(el.textContent ?? ""));
     } catch {
       // malformed JSON-LD is skipped, not fatal
     }
+  }
+  const jsonLdDates: string[] = [];
+  for (const p of parsedLd) collectEntityDates(p, jsonLdDates);
+  if (jsonLdDates.length === 0) {
+    for (const p of parsedLd) rootPublicationDate(p, jsonLdDates);
   }
 
   const metaDates: string[] = [];

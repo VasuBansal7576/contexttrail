@@ -26,7 +26,9 @@ export type MediaRelationship = "EXACT_MATCH" | "NEAR_MATCH" | "VISUAL_LEAD";
 export type IdentityBasis =
   | "lens_exact_collection"
   | "local_spatial_verification"
-  | "unverified";
+  | "unverified"
+  /** Contextual web/news evidence — never claimed as a media sighting. */
+  | "contextual";
 
 export type VerificationStatus =
   | "provider_reported"

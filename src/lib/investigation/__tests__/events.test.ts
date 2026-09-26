@@ -37,6 +37,8 @@ describe("NDJSON stream contract (§24)", () => {
           comparisonCoverage: { eligible: 0, selected: 0, comparedPairs: 0 },
           limitations: ["semantic_classification_unavailable"],
           undatedEvidence: [],
+          supportingEvidence: [],
+          contextualEvidence: [],
           timeline: [],
         },
       },

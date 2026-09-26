@@ -152,8 +152,12 @@ export function buildContextSegments(
   let segmentIdx = 0;
   let comparedPairs = 0;
   let firstDivergence: Divergence | null = null;
-  let earlierUnresolved = false;
-  let allDecisive = selected.length > 0;
+  // A sampled sequence skips eligible occurrences — the skipped adjacent
+  // transitions are unexamined, so earlier transitions stay unresolved and
+  // no exact segment count may be claimed (§20.2).
+  const fullCoverage = selected.length === eligible.length;
+  let earlierUnresolved = !fullCoverage;
+  let allDecisive = selected.length > 0 && fullCoverage;
 
   if (selected.length === 0) {
     return {
