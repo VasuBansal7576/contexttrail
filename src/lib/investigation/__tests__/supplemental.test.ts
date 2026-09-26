@@ -13,6 +13,7 @@ import {
   type InvestigationSnapshot,
 } from "../../stream/useInvestigation";
 import { runInvestigation } from "../run";
+import { getLimitations } from "../../stream/result-view";
 import { buildProvenanceGraph } from "../provenance-graph";
 import { buildTimeline } from "../timeline";
 import { buildTraceResult } from "../policy";
@@ -211,6 +212,102 @@ describe("S4 — the 55s deadline gates new semantic work", () => {
     // finalizes with the evidence it already has.
     expect(jevCalls).toBe(0);
     expect(events.some((e) => e.type === "investigation.completed")).toBe(true);
+  });
+});
+
+/* ------------------------------- A9-1 ---------------------------------- */
+
+describe("A9-1 — a completed result states when the app's own 55s cutoff fired", () => {
+  const jevOk = {
+    ask: async () => ({
+      answers: GOOD_ANSWERS,
+      model: "jev-1.13.0",
+      identity: VERIFIED_JEV,
+    }),
+  } as never;
+  const okPage = async (url: string): Promise<FetchedPage> => ({
+    url,
+    html: `<html><body><article><p>${"Body. ".repeat(20)}</p></article></body></html>`,
+  });
+  const searches = (onExact?: () => void) =>
+    ({
+      uploadImage: async () => "controlled",
+      search: async (p: { engine?: string; type?: string }) => {
+        const r =
+          p.type === "exact_matches"
+            ? { exact_matches: [{ title: "exact", link: "https://unique.example.org/item" }] }
+            : p.type === "about_this_image"
+              ? { about_this_image: { sections: [] } }
+              : p.engine === "google_lens"
+                ? { visual_matches: [{ title: "visual", link: "https://visual.example.org/a" }] }
+                : p.engine === "google_news"
+                  ? { news_results: [] }
+                  : { organic_results: [] };
+        if (p.type === "exact_matches") onExact?.();
+        return r;
+      },
+    }) as never;
+  const completedResult = async (deps: Record<string, unknown>) => {
+    const events: Array<{ type: string; result?: { limitations?: string[] } }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: null, timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      deps as never,
+    );
+    return events.find((e) => e.type === "investigation.completed")?.result ?? null;
+  };
+
+  it("crossing the deadline mid-run marks the finalized result", async () => {
+    let clock = 0;
+    const result = await completedResult({
+      serpapi: searches(() => {
+        clock = 56_000;
+      }),
+      jev: jevOk,
+      fetchPage: okPage,
+      now: () => clock,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.limitations).toContain("analysis_time_limit_reached");
+  });
+
+  it("the reason renders as plain copy through the existing limitations path", async () => {
+    let clock = 0;
+    const result = await completedResult({
+      serpapi: searches(() => {
+        clock = 56_000;
+      }),
+      jev: jevOk,
+      fetchPage: okPage,
+      now: () => clock,
+    });
+    expect(getLimitations(result as never)).toContain(
+      "Analysis stopped at the investigation's time limit; findings use the evidence retained before the cutoff.",
+    );
+  });
+
+  it("a fast successful completion never carries the reason", async () => {
+    const result = await completedResult({
+      serpapi: searches(),
+      jev: jevOk,
+      fetchPage: okPage,
+      now: () => 0,
+    });
+    expect(result).not.toBeNull();
+    expect(result?.limitations ?? []).not.toContain("analysis_time_limit_reached");
+  });
+
+  it("ordinary page-fetch failure is not mislabeled as the overall cutoff", async () => {
+    const result = await completedResult({
+      serpapi: searches(),
+      jev: jevOk,
+      fetchPage: async () => {
+        throw new Error("page timeout");
+      },
+      now: () => 0,
+    });
+    expect(result?.limitations).toContain("page_fetch_partial_failure");
+    expect(result?.limitations).not.toContain("analysis_time_limit_reached");
   });
 });
 

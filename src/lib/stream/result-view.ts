@@ -153,6 +153,7 @@ export const LIMITATION_COPY: Record<string, string> = {
   unverified_visual_leads_present: "Unverified visual leads are shown as leads only.",
   near_match_verifier_disabled: "Near-match verification is disabled; hash-only matches stay visual leads.",
   page_fetch_partial_failure: "Some source pages could not be fetched.",
+  analysis_time_limit_reached: "Analysis stopped at the investigation's time limit; findings use the evidence retained before the cutoff.",
   insufficient_dated_occurrences: "Fewer than two dated core occurrences were found.",
   comparison_coverage_incomplete: "Context comparison coverage was incomplete.",
   claim_date_unresolved: "No usable date was found in the claim.",

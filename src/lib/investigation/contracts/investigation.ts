@@ -212,6 +212,7 @@ export type LimitationCode =
   | "unverified_visual_leads_present"
   | "near_match_verifier_disabled"
   | "page_fetch_partial_failure"
+  | "analysis_time_limit_reached"
   | "insufficient_dated_occurrences"
   | "comparison_coverage_incomplete"
   | "claim_date_unresolved"

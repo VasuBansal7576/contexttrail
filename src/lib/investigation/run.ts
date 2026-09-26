@@ -1087,6 +1087,14 @@ export async function runInvestigation(
             hasCurrentNewsResults,
           })
         : [];
+    // §28 — when the investigation's own shared deadline fired during this
+    // run, work was stopped and this result is finalized from retained
+    // evidence. Say so distinctly from ordinary per-page fetch failures;
+    // a caller abort is not the app's cutoff, and a fast finish never
+    // reaches the deadline.
+    if (deadlineHit() && !callerAborted()) {
+      limitations.add("analysis_time_limit_reached");
+    }
     const result: InvestigationResult =
       mode === "claim_check"
         ? buildClaimResult({
