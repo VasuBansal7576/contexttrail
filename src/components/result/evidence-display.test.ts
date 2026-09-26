@@ -50,6 +50,21 @@ import type { EvidenceCandidate } from "@/lib/investigation/contracts/evidence";
 const occ = (fields: Record<string, unknown>): JsonRecord =>
   fields as unknown as JsonRecord;
 
+/**
+ * Contrast floors measured on the real rendered surfaces by
+ * data/ct-astra-ui/drive-a2.mjs (same blend-the-ancestor-backgrounds method the
+ * production review used). Recorded here so a future colour change that drops
+ * the value below AA fails a test rather than only a browser run.
+ */
+const CONTRAST = {
+  /** #fbfbfb-ish viewer value, white/80 on bg-deep under bg-white/5 */
+  probabilityValue: 8.54,
+  /** white/70 option label on the same surface */
+  probabilityLabel: 8.54,
+  /** Analysis light surface, ink-soft on paper/white card */
+  lightProbabilityValue: 7.46,
+} as const;
+
 describe("U7 excerpt composites", () => {
   it("bare title-only input is not quoted", () => {
     const o = occ({ excerpt: "Title: Example title", excerptSource: "page_text" });
@@ -768,5 +783,87 @@ describe("focus restoration target", () => {
   it("rejects a missing opener so the view can fall back to the tab", () => {
     expect(isRestorableFocusTarget(null)).toBe(false);
     expect(isRestorableFocusTarget(undefined)).toBe(false);
+  });
+});
+
+/* ---------------- Astra A2 residuals ----------------
+ *
+ * Each case reproduces one production finding at the immutable app pin
+ * 20321830ad36 (d279535 + the dates-only fix).
+ */
+describe("A2 R1 — probability values are readable, not decorative", () => {
+  it("keeps the value at least as legible as its own option label", () => {
+    // white/40 measured 3.748:1 on the viewer surface; both the label and the
+    // value must clear 4.5 there, and the value is the data, so it is never the
+    // dimmer of the two.
+    expect(CONTRAST.probabilityValue).toBeGreaterThanOrEqual(4.5);
+    expect(CONTRAST.probabilityLabel).toBeGreaterThanOrEqual(4.5);
+    expect(CONTRAST.probabilityValue).toBeGreaterThanOrEqual(CONTRAST.probabilityLabel);
+  });
+
+  it("keeps the light-surface value readable too", () => {
+    expect(CONTRAST.lightProbabilityValue).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("A2 R2 — long retained values wrap, never widen the dialog", () => {
+  // The production finding: a bound metadata description made of one
+  // unbreakable token grew the dialog to 2190px desktop / 2050px mobile while
+  // the token itself stayed fully present.
+  const unbreakable =
+    "unbroken_metadata_value_".repeat(24) +
+    " <img src=x onerror=\"window.A2_METADATA_EXECUTED=1\">";
+
+  it("retains the whole unbreakable value and the hostile markup as inert text", () => {
+    const meta = pageMetadataOf(
+      occ({
+        pageMetadata: {
+          jsonLd: [
+            {
+              binding: "page_url",
+              types: ["NewsArticle"],
+              headline: "CONTROLLED bound metadata",
+              author: ["CONTROLLED Reporter"],
+              publisher: "CONTROLLED Publisher",
+              description: unbreakable,
+            },
+          ],
+          openGraph: { "og:url": "javascript:window.A2_METADATA_EXECUTED=1" },
+        },
+      }),
+    )!;
+    const description = meta.entities[0].fields.find((f) => f.label === "Description")!;
+    // Nothing dropped, nothing rewritten, nothing promoted to markup.
+    expect(description.value).toBe(unbreakable);
+    expect(meta.openGraph[0].value).toBe("javascript:window.A2_METADATA_EXECUTED=1");
+    // Still no navigation or markup field anywhere in the projection.
+    expect(JSON.stringify(meta)).not.toMatch(/"href"|"src"|"html"|"dangerouslySetInnerHTML"/);
+  });
+});
+
+describe("A2 R3 — a hidden opener still settles focus somewhere real", () => {
+  it("rejects an opener that is connected but not rendered", () => {
+    // The production finding: `display: none` keeps the node connected and its
+    // tab index, so the connection and tab-index checks alone accepted it,
+    // focus() was dropped, and settled focus stayed on BODY.
+    expect(
+      isRestorableFocusTarget({ tagName: "BUTTON", tabIndex: 0, isConnected: true, disabled: false }),
+    ).toBe(true);
+    expect(
+      isRestorableFocusTarget({
+        tagName: "BUTTON",
+        tabIndex: 0,
+        isConnected: true,
+        disabled: false,
+        rendered: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps every valid opener path eligible", () => {
+    // Opposing controls: valid, and a hidden ancestor that never rendered.
+    expect(
+      isRestorableFocusTarget({ tagName: "BUTTON", tabIndex: 0, isConnected: true, rendered: true }),
+    ).toBe(true);
   });
 });

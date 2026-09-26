@@ -1044,6 +1044,14 @@ export interface FocusTargetState {
   tabIndex: number;
   isConnected: boolean;
   disabled?: boolean | null;
+  /**
+   * False when the element is not rendered — `display: none`, `visibility:
+   * hidden`, or detached by a containing block. A hidden opener stays
+   * connected and keeps its tab index, so connection and tab-index checks
+   * alone accept it, and focus() on it is silently dropped, which is what
+   * strands a keyboard user on <body> after closing the viewer.
+   */
+  rendered?: boolean;
 }
 
 export function isRestorableFocusTarget(el: FocusTargetState | null | undefined): boolean {
@@ -1055,10 +1063,25 @@ export function isRestorableFocusTarget(el: FocusTargetState | null | undefined)
   // A re-render, a tab switch or a restored result can remove the opener
   // between opening and closing the viewer.
   if (!el.isConnected) return false;
+  // An opener hidden by CSS is not a place focus can return to.
+  if (el.rendered === false) return false;
   // A disabled control cannot receive focus; browsers ignore the call.
   if (el.disabled === true) return false;
   // Programmatically excluded from the tab order.
   return el.tabIndex >= 0;
+}
+
+/** DOM snapshot of the restore decision, taken by the component that owns it. */
+export function focusTargetState(el: HTMLElement | null): FocusTargetState | null {
+  if (!el) return null;
+  const style = el.ownerDocument.defaultView?.getComputedStyle(el);
+  return {
+    tagName: el.tagName,
+    tabIndex: el.tabIndex,
+    isConnected: el.isConnected,
+    disabled: (el as HTMLButtonElement).disabled ?? null,
+    rendered: el.getClientRects().length > 0 && style?.visibility !== "hidden",
+  };
 }
 
 /* ---------------- provenance relationships (§23) -------------------------
