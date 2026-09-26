@@ -7,10 +7,23 @@ import { describe, expect, it } from "vitest";
 import {
   attributableSpan,
   comparisonCoverageText,
+  comparisonSelected,
   connectorInfo,
+  dateProvenanceOf,
+  displayAttributionOf,
+  getPolicyReasons,
+  getReportingGroups,
+  getRequestLog,
+  getStatusBasis,
+  getUnresolvedCandidateIds,
+  humanizeCode,
+  identityBasisDetailOf,
   identityBasisOf,
+  identityMethodLabel,
   isContextualKind,
   occurrenceRole,
+  originStatusLabel,
+  originSupportOf,
   progressRelationshipNote,
   retrievalKindOf,
   splitCompositeExcerpt,
@@ -218,5 +231,108 @@ describe("U6/R2 contextual roles from the actual contract", () => {
     expect(isContextualKind("lens_exact")).toBe(false);
     expect(isContextualKind("lens_visual")).toBe(false);
     expect(isContextualKind(null)).toBe(false);
+  });
+});
+
+describe("R4 typed inspection contract", () => {
+  const result = occ({
+    requestLog: [
+      { engine: "lens_exact_matches", attempted: 1, returned: 2, retained: 2 },
+      { engine: "google_search_claim", attempted: 1, returned: 0, retained: 0 },
+    ],
+    policyReasons: [
+      {
+        gate: "distinct_domains",
+        passed: true,
+        detail: "2 registrable domain(s) among relevant core; >=2 required",
+        supportIds: ["ev-1", "ev-2"],
+      },
+      { gate: "qualifying_conflicts", passed: false, detail: null, supportIds: [] },
+    ],
+    statusBasis: ["insufficient_qualifying_evidence"],
+    reportingGroups: [
+      { groupId: "dup:ev-1", memberIds: ["ev-1", "ev-2"], reason: ["article_text_duplication"] },
+    ],
+    unresolvedCandidateIds: ["ev-3"],
+  });
+
+  const item = occ({
+    identityBasis: "lens_exact_collection",
+    identityBasisDetail: { method: "lens_exact_collection", supportId: null },
+    dateProvenance: {
+      value: "2019-01-01",
+      precision: "day",
+      source: "page_json_ld",
+      entityBinding: "page_url",
+      rejectedCandidates: [{ value: "1999-01-01", reason: "unrelated nested article" }],
+    },
+    originSupport: {
+      status: "shared_origin",
+      groupId: "dup:ev-1",
+      attributionSpans: [{ text: "Released by Reuters.", relation: "common provider" }],
+      groupingReason: ["article_text_duplication"],
+    },
+    displayAttribution: "Extracted page excerpt",
+    comparisonSelection: { selected: true, comparedPairIds: ["ev-1|ev-2"] },
+  });
+
+  it("reads the request log with honest counts", () => {
+    const log = getRequestLog(result)!;
+    expect(log).toHaveLength(2);
+    expect(log[0]).toEqual({ engine: "lens_exact_matches", attempted: 1, returned: 2, retained: 2 });
+    expect(getRequestLog(occ({}))).toBeNull();
+  });
+
+  it("reads policy gates with humanized labels and support IDs", () => {
+    const reasons = getPolicyReasons(result);
+    expect(reasons).toHaveLength(2);
+    expect(reasons[0].gateLabel).toBe("Distinct domains");
+    expect(reasons[0].passed).toBe(true);
+    expect(reasons[0].supportIds).toEqual(["ev-1", "ev-2"]);
+    expect(getStatusBasis(result)).toEqual(["Insufficient qualifying evidence"]);
+  });
+
+  it("reads reporting groups and unresolved IDs", () => {
+    const groups = getReportingGroups(result);
+    expect(groups[0].memberCount).toBe(2);
+    expect(groups[0].reasons).toEqual(["Article text duplication"]);
+    expect(getUnresolvedCandidateIds(result)).toEqual(["ev-3"]);
+  });
+
+  it("reads identity basis detail with method copy", () => {
+    expect(identityMethodLabel("lens_exact_collection")).toBe("Reported by Google Lens");
+    expect(identityBasisDetailOf(item)).toEqual({
+      methodLabel: "Reported by Google Lens",
+      supportId: null,
+    });
+    expect(identityBasisDetailOf(occ({}))).toBeNull();
+  });
+
+  it("reads date provenance with binding and rejections", () => {
+    const d = dateProvenanceOf(item)!;
+    expect(d.value).toBe("2019-01-01");
+    expect(d.entityBinding).toBe("Bound to the fetched page URL");
+    expect(d.rejected).toEqual([{ value: "1999-01-01", reason: "unrelated nested article" }]);
+    expect(dateProvenanceOf(occ({}))).toBeNull();
+  });
+
+  it("reads origin support spans and reasons", () => {
+    const o = originSupportOf(item)!;
+    expect(originStatusLabel(o.status)).toBe("Shared reporting origin.");
+    expect(o.spans).toHaveLength(1);
+    expect(o.reasons).toEqual(["Article text duplication"]);
+    expect(originSupportOf(occ({}))).toBeNull();
+  });
+
+  it("prefers backend display attribution and comparison selection", () => {
+    expect(displayAttributionOf(item)).toBe("Extracted page excerpt");
+    expect(displayAttributionOf(occ({}))).toBeNull();
+    expect(comparisonSelected(item)).toBe(true);
+    expect(comparisonSelected(occ({ comparisonSelection: { selected: false } }))).toBe(false);
+    expect(comparisonSelected(occ({}))).toBeNull();
+  });
+
+  it("humanizes deterministic codes without inventing meaning", () => {
+    expect(humanizeCode("article_text_duplication")).toBe("Article text duplication");
   });
 });

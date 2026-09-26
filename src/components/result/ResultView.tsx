@@ -36,6 +36,11 @@ import {
   comparisonCoverageText,
   dateSourceLabel,
   divergenceEndpoints,
+  getPolicyReasons,
+  getReportingGroups,
+  getRequestLog,
+  getStatusBasis,
+  getUnresolvedCandidateIds,
   identityBasis,
   occurrenceRole,
   reportingCounts,
@@ -96,6 +101,11 @@ export default function ResultView({
   const coverageText = comparisonCoverageText(result);
   const endpoints = divergenceEndpoints(result);
   const origins = reportingCounts(result);
+  const requestLog = getRequestLog(result);
+  const policyReasons = getPolicyReasons(result);
+  const statusBasis = getStatusBasis(result);
+  const reportingGroups = getReportingGroups(result);
+  const unresolvedCandidateIds = getUnresolvedCandidateIds(result);
 
   const groups: TimelineGroups = useMemo(() => {
     const supportingRaw =
@@ -132,6 +142,18 @@ export default function ResultView({
     });
     return map;
   }, [viewerItems, viewerIdList]);
+
+  /** Reporting-group membership counts for Sources rows (R4). */
+  const groupSizes = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const g of reportingGroups) map.set(g.groupId, g.memberCount);
+    return map;
+  }, [reportingGroups]);
+
+  /** Genuine evidence links only: support IDs that resolve to viewer items. */
+  const openSupportId = (id: string) => {
+    if (viewerIdList.includes(id)) openEvidenceById(id);
+  };
 
   const divergence: DivergenceLink | null = useMemo(() => {
     if (!endpoints) return null;
@@ -456,6 +478,8 @@ export default function ResultView({
                       str(o, "publicationDateSource") ??
                       str(o, "publishedAtSource");
                     const dateSrc = dateSourceLabel(dateKey);
+                    const groupId = str(o, "reportingOriginGroupId");
+                    const groupSize = groupId ? (groupSizes.get(groupId) ?? null) : null;
                     return (
                       <li key={id} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
                         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -477,6 +501,7 @@ export default function ResultView({
                             <p className="mt-2 text-xs text-ink-soft">
                               {identity ? `Match basis: ${identity.basis}. ` : "Match basis not reported. "}
                               {reportingOriginLabel(o)}
+                              {groupSize !== null && groupSize > 1 ? ` Group of ${groupSize} occurrences.` : ""}
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-3">
@@ -519,9 +544,27 @@ export default function ResultView({
               </p>
 
               <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
-                Retrieval via SerpApi
+                Retrieval accounting
               </h3>
-              {searchCounts.length === 0 ? (
+              {requestLog ? (
+                <>
+                  <ul className="mt-2 space-y-1 text-[15px]">
+                    {requestLog.map((c) => (
+                      <li key={c.engine} className="text-ink/75">
+                        <Badge tone="link">{c.engine}</Badge>{" "}
+                        <span>
+                          attempted {c.attempted ?? "—"} · returned {c.returned ?? "—"} ·
+                          retained {c.retained ?? "—"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-ink-soft">
+                    Per-operation accounting from this investigation: what each retrieval
+                    attempted, what it returned, and what survived into the evidence pool.
+                  </p>
+                </>
+              ) : searchCounts.length === 0 ? (
                 <p className="mt-2 text-sm text-ink-soft">
                   No retrieval counts were preserved with this result.
                 </p>
@@ -566,6 +609,114 @@ export default function ResultView({
                   stronger corroboration finding.
                 </p>
               )}
+
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
+                Why this result
+              </h3>
+              {policyReasons.length === 0 && statusBasis.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-soft">
+                  Deterministic policy reasons were not included in this result.
+                </p>
+              ) : (
+                <>
+                  {statusBasis.length > 0 ? (
+                    <p className="mt-2 text-[15px] text-ink/75">
+                      Status basis: {statusBasis.join("; ")}.
+                    </p>
+                  ) : null}
+                  <ul className="mt-2 space-y-2">
+                    {policyReasons.map((p) => {
+                      const linked = p.supportIds.filter((id) => viewerIdList.includes(id));
+                      return (
+                        <li key={p.gate} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
+                          <p className="text-[15px] font-medium">
+                            <span aria-hidden="true">{p.passed ? "✓ " : "✗ "}</span>
+                            {p.gateLabel}: {p.passed ? "passed" : "not passed"}
+                          </p>
+                          {p.detail ? (
+                            <p className="mt-1 text-sm text-ink/75">{p.detail}</p>
+                          ) : null}
+                          {linked.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-3">
+                              {linked.map((id) => (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={() => openSupportId(id)}
+                                  className="inline-flex min-h-[44px] items-center text-sm font-medium text-signal-ink underline underline-offset-2"
+                                >
+                                  View supporting evidence →
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
+                Reporting groups
+              </h3>
+              {reportingGroups.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-soft">
+                  No resolved reporting groups were reported{unresolvedCandidateIds.length > 0 ? `; ${unresolvedCandidateIds.length} unresolved ${unresolvedCandidateIds.length === 1 ? "candidate" : "candidates"} listed below` : ""}.
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-2">
+                  {reportingGroups.map((g) => {
+                    const present = g.memberIds.filter((id) => viewerIdList.includes(id));
+                    return (
+                      <li key={g.groupId} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
+                        <p className="text-[15px] font-medium">
+                          Shared group of {g.memberCount} {g.memberCount === 1 ? "occurrence" : "occurrences"}
+                          {g.reasons.length > 0 ? ` · ${g.reasons.join("; ")}` : ""}
+                        </p>
+                        {present.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-3">
+                            {present.map((id) => (
+                              <button
+                                key={id}
+                                type="button"
+                                onClick={() => openSupportId(id)}
+                                className="inline-flex min-h-[44px] items-center text-sm font-medium text-signal-ink underline underline-offset-2"
+                              >
+                                {idToTitle.get(id) ?? id} →
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {unresolvedCandidateIds.length > 0 ? (
+                <p className="mt-2 text-[15px] text-ink/75">
+                  {unresolvedCandidateIds.length} unresolved{" "}
+                  {unresolvedCandidateIds.length === 1 ? "candidate" : "candidates"}:{" "}
+                  {unresolvedCandidateIds
+                    .filter((id) => viewerIdList.includes(id))
+                    .map((id, i, all) => (
+                      <span key={id}>
+                        <button
+                          type="button"
+                          onClick={() => openSupportId(id)}
+                          className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                        >
+                          {idToTitle.get(id) ?? id}
+                        </button>
+                        {i < all.length - 1 ? ", " : ""}
+                      </span>
+                    ))}
+                  {unresolvedCandidateIds.some((id) => !viewerIdList.includes(id))
+                    ? " (some IDs have no rendered occurrence in this view)"
+                    : ""}
+                  .
+                </p>
+              ) : null}
 
               <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                 Pipeline stages
