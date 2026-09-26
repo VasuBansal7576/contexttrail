@@ -17,7 +17,15 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runInvestigation, type SearchProvider } from "../../../../src/lib/investigation/run";
 import { JEV_MODEL, JevClient } from "../../../../src/lib/jev/client";
-import type { JevQuestion, JevAskResult } from "../../../../src/lib/jev/client";
+import type { JevAskResult } from "../../../../src/lib/jev/client";
+// JevQuestion is DECLARED in jev/questions (jev/client only imports it), so the
+// type must come from its defining module. The question and state builders are
+// used directly so the direct client control speaks the real typed request.
+import {
+  evidenceQuestions,
+  candidateState,
+  type JevQuestion,
+} from "../../../../src/lib/jev/questions";
 import type { SerpapiParams } from "../../../../src/lib/serpapi/client";
 import type { FetchedPage } from "../../../../src/lib/pages/fetch";
 
@@ -1883,8 +1891,26 @@ describe("A8 model identity is resolved by the real client", () => {
         ...(model === undefined ? {} : { model }),
         answers: answers(questions, { context_relation: "DIFFERENT_CONTEXT" }),
       }));
+      // The real question map and a real candidate state, so the negative stays
+      // faithful to the public typed request boundary rather than a hand-rolled
+      // shape that could fail for an unrelated reason.
+      const realQuestions: Record<string, JevQuestion> =
+        evidenceQuestions({ claimMode: true, claimHasLocation: false });
+      const realState = candidateState(
+        {
+          id: "ev-controlled-alpha",
+          title: "A8 conflict alpha",
+          snippet: "controlled snippet",
+          registrableDomain: "conflict-alpha.test",
+          publishedAt: "2019-03-03",
+          retrievalKind: "lens_exact",
+          mediaRelationship: "EXACT_MATCH",
+        } as never,
+        "A controlled claim for the identity boundary.",
+        null,
+      );
       await expect(
-        client.ask({ result: { title: "A8 conflict alpha" } }, { relevance: {}, context_relation: {} }),
+        client.ask(realState, realQuestions),
         `${label} model must be rejected by the client`,
       ).rejects.toThrow();
       expect(requests.length, `${label}: the client must have issued the request`).toBe(1);
@@ -1966,12 +1992,13 @@ const jevAsk = (state: unknown, questions: Record<string, JevQuestion>): Promise
 
 describe("generator contract", () => {
   it("the Jev client reports a truthful, pinned model identity", async () => {
-    const res = await jevAsk("controlled claim", {
-      relevance: {},
-      context_relation: {},
-      claim_relation: {},
-      page_role: {},
-    });
+    // The production question map, not a hand-rolled `{key: {}}` shape: typing
+    // jevAsk with the real JevQuestion surfaced this site, and the fix is the
+    // real builder rather than a cast.
+    const res = await jevAsk(
+      "controlled claim",
+      evidenceQuestions({ claimMode: true, claimHasLocation: false }),
+    );
     expect(res.identity.requested).toBe(res.identity.reported);
     expect(res.identity.status).toBe("verified");
     expect(res.identity.pinned).toBe(true);
