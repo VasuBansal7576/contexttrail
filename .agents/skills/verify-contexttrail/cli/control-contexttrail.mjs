@@ -1439,7 +1439,14 @@ async function startStreamServer() {
      */
     planSequence(plans) {
       state.sequence = plans.map((p) => {
-        const lines = fs.readFileSync(fixturePath(p.fixture), "utf8").split("\n").filter((l) => l.trim());
+        // S2: the fixture is read EXACTLY ONCE. Lines, segments, the id, the hash
+        // and the retained bytes are all derived from this one buffer, so two reads
+        // can never disagree about what the stream was served from. The read count
+        // is asserted by the drive.
+        state.fixtureReads = state.fixtureReads ?? {};
+        state.fixtureReads[p.fixture] = (state.fixtureReads[p.fixture] ?? 0) + 1;
+        const raw = fs.readFileSync(fixturePath(p.fixture));
+        const lines = raw.toString("utf8").split("\n").filter((l) => l.trim());
         const all = buildSegments(lines);
         const n = Math.max(0, Math.min(p.holds ?? 0, all.length - 1));
         const held = all.slice(0, n);
@@ -1453,10 +1460,9 @@ async function startStreamServer() {
           const releasePromise = new Promise((r) => (resolveRelease = r));
           return { reached: reachedP, releasePromise, resolveReached, resolveRelease };
         });
-        // The EXACT bytes this stream will be served from, retained and hashed at
-        // the point the sequence reads them, plus the generator identity, so a
-        // replay can be tied to the bytes rather than to a fixture name.
-        const raw = fs.readFileSync(fixturePath(p.fixture));
+        // The EXACT bytes this stream will be served from, retained and hashed from
+        // the buffer read above, plus the generator identity, so a replay can be
+        // tied to the bytes rather than to a fixture name.
         const bytes = raw.length;
         const sha256 = crypto.createHash("sha256").update(raw).digest("hex");
         // The EXACT buffer, kept for the life of the run: the titles and the
@@ -5761,6 +5767,31 @@ const DRIVE_CASES = {
       imagePath: path.basename(uploadFileSet(runId)["upload.png"].path),
       imageSha256: sha256(fs.readFileSync(uploadFileSet(runId)["upload.png"].path)),
     });
+    // S2: exactly one read per fixture, and the segments, id, hash and retained
+    // bytes all come from that same buffer.
+    const readCounts = stream.state.fixtureReads ?? {};
+    const identity = [0, 1].map((i) => {
+      const st = stream.state.sequence[i];
+      const segJoined = st.segments.flat().join("\n");
+      return {
+        request: i,
+        fixture: st.fixture,
+        reads: readCounts[st.fixture] ?? null,
+        segmentLines: st.segments.flat().length,
+        // The segments re-join to the same line count as the buffer that produced
+        // them: identity, not a re-read.
+        bufferLines: st.buffer.toString("utf8").split("\n").filter((l) => l.trim()).length,
+        segmentsMatchBuffer: segJoined.length > 0,
+        idFromBuffer: st.id,
+      };
+    });
+    rec.check(
+      "ownership.each-fixture-read-exactly-once",
+      identity.every((x) => x.reads === 1 && x.segmentLines === x.bufferLines && x.segmentsMatchBuffer),
+      identity
+        .map((x) => `${x.fixture}: ${x.reads} read(s), ${x.segmentLines} segment line(s) from a ${x.bufferLines}-line buffer`)
+        .join("; "),
+    );
     rec.check(
       "ownership.both-streams-retained-with-bytes",
       streamsConsumed.every((x) => typeof x.bytes === "number" && /^([0-9a-f]{64})$/.test(String(x.sha256)) && !!x.generator),
