@@ -119,11 +119,16 @@ export default function ResultView({
     }
   };
 
+  const backendHeadline = str(result, "headline");
   const headline =
     mode === "trace"
-      ? viewerItems.length > 0
-        ? TRACE_HEADLINE
-        : TRACE_HEADLINE_WEAK
+      ? backendHeadline === "LIMITED_MEDIA_HISTORY_FOUND"
+        ? TRACE_HEADLINE_WEAK
+        : backendHeadline === "MEDIA_HISTORY_RECONSTRUCTED"
+          ? TRACE_HEADLINE
+          : viewerItems.length > 0
+            ? TRACE_HEADLINE
+            : TRACE_HEADLINE_WEAK
       : (copy?.headline ?? "Result");
 
   const panelTone =
