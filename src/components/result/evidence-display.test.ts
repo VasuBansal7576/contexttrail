@@ -8,13 +8,18 @@ import {
   attributableSpan,
   comparisonCoverageText,
   connectorInfo,
-  isSearchEngine,
+  identityBasisOf,
+  isContextualKind,
   occurrenceRole,
   progressRelationshipNote,
+  retrievalKindOf,
   splitCompositeExcerpt,
   viewerEntryFor,
 } from "./evidence-display";
 import type { JsonRecord } from "@/lib/stream/result-view";
+import { makeCandidate } from "@/lib/investigation/__tests__/testkit";
+import { toPublicCandidate } from "@/lib/investigation/contracts/investigation";
+import type { EvidenceCandidate } from "@/lib/investigation/contracts/evidence";
 
 const occ = (fields: Record<string, unknown>): JsonRecord =>
   fields as unknown as JsonRecord;
@@ -140,28 +145,61 @@ describe("U3 viewer pair derivation", () => {
   });
 });
 
-describe("U6 contextual roles independent of grouping", () => {
-  it("null identity on search/news engines is contextual in any group", () => {
-    for (const group of ["dated", "supporting", "contextual", "unknown"] as const) {
-      expect(
-        occurrenceRole(occ({ mediaRelationship: null, engine: "google_search" }), group),
-      ).toBe("Contextual result");
-      expect(
-        occurrenceRole(occ({ mediaRelationship: null, engine: "google_news" }), group),
-      ).toBe("Contextual result");
+describe("U6/R2 contextual roles from the actual contract", () => {
+  /** Real public shapes: toPublicCandidate emits retrievalKind, never engine. */
+  const publicContextual = (kind: EvidenceCandidate["retrievalKind"]) =>
+    toPublicCandidate(
+      makeCandidate({
+        retrievalKind: kind,
+        mediaRelationship: null,
+        identityEvidence: {
+          basis: "contextual",
+          hashDistance: null,
+          verifierVersion: null,
+          verifierConfigId: null,
+          verificationStatus: "unavailable",
+          comparisonMetrics: null,
+        },
+      }),
+      null,
+    ) as unknown as JsonRecord;
+
+  it("reads retrievalKind, not engine, on streamed shapes", () => {
+    const news = publicContextual("google_news");
+    expect(news).not.toHaveProperty("engine");
+    expect(retrievalKindOf(news)).toBe("google_news");
+    expect(identityBasisOf(news)).toBe("contextual");
+  });
+
+  it("labels arriving null-identity search/news candidates as contextual (repro A)", () => {
+    for (const kind of ["google_search", "google_news"] as const) {
+      const c = publicContextual(kind);
+      expect(progressRelationshipNote(c).label).toBe(
+        "Contextual result · not same-media evidence",
+      );
+      for (const group of ["dated", "supporting", "contextual", "unknown"] as const) {
+        expect(occurrenceRole(c, group)).toBe("Contextual result");
+      }
     }
   });
 
-  it("explicit backend contextual grouping wins regardless of engine", () => {
-    expect(occurrenceRole(occ({ mediaRelationship: null }), "contextual")).toBe(
-      "Contextual result",
+  it("preserves contextual identity for undated lens_about_image (repro B)", () => {
+    // Final-row shape: TimelineItem carries engine with the same kind values.
+    const about = occ({ engine: "lens_about_image", mediaRelationship: null });
+    expect(occurrenceRole(about, "unknown")).toBe("Contextual result");
+    expect(progressRelationshipNote(publicContextual("lens_about_image")).label).toBe(
+      "Contextual result · not same-media evidence",
     );
   });
 
   it("lens candidates without identity stay visual leads", () => {
-    expect(occurrenceRole(occ({ mediaRelationship: null, engine: "lens_exact" }), "unknown")).toBe(
-      "Visual lead",
+    const lead = toPublicCandidate(makeCandidate({ mediaRelationship: null }), null);
+    expect(progressRelationshipNote(lead as unknown as JsonRecord).label).toBe(
+      "Visual lead · not verified",
     );
+    expect(
+      occurrenceRole(lead as unknown as JsonRecord, "unknown"),
+    ).toBe("Visual lead");
   });
 
   it("exact and lead relationships keep their roles", () => {
@@ -173,19 +211,12 @@ describe("U6 contextual roles independent of grouping", () => {
     );
   });
 
-  it("identifies search/news engines", () => {
-    expect(isSearchEngine("google_search")).toBe(true);
-    expect(isSearchEngine("google_news")).toBe(true);
-    expect(isSearchEngine("google_lens")).toBe(false);
-    expect(isSearchEngine(null)).toBe(false);
-  });
-
-  it("labels arriving null-identity search evidence as contextual, not a lead", () => {
-    expect(
-      progressRelationshipNote(occ({ mediaRelationship: null, engine: "google_news" })).label,
-    ).toBe("Contextual result · not same-media evidence");
-    expect(
-      progressRelationshipNote(occ({ mediaRelationship: null, engine: "lens_exact" })).label,
-    ).toBe("Visual lead · not verified");
+  it("recognizes contextual retrieval kinds", () => {
+    expect(isContextualKind("google_search")).toBe(true);
+    expect(isContextualKind("google_news")).toBe(true);
+    expect(isContextualKind("lens_about_image")).toBe(true);
+    expect(isContextualKind("lens_exact")).toBe(false);
+    expect(isContextualKind("lens_visual")).toBe(false);
+    expect(isContextualKind(null)).toBe(false);
   });
 });
