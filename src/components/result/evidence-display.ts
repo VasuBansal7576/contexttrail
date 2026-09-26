@@ -545,6 +545,16 @@ export function getUnresolvedCandidateIds(result: JsonRecord | null): string[] {
   return raw.filter((id): id is string => typeof id === "string");
 }
 
+/**
+ * Neutral group headline (R4 residual): backend reporting groups include
+ * every resolved origin — shared and separately evidenced alike — so the
+ * view must not hardcode "Shared". The grouping reason and member links
+ * carry the specific meaning.
+ */
+export function reportingGroupHeadline(group: ReportingGroupView): string {
+  return `Reporting group of ${group.memberCount} ${group.memberCount === 1 ? "occurrence" : "occurrences"}`;
+}
+
 const IDENTITY_METHOD_COPY: Record<string, string> = {
   lens_exact_collection: "Reported by Google Lens",
   local_spatial_verification: "Locally verified",

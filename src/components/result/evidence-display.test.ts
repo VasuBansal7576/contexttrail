@@ -25,6 +25,7 @@ import {
   originStatusLabel,
   originSupportOf,
   progressRelationshipNote,
+  reportingGroupHeadline,
   retrievalKindOf,
   splitCompositeExcerpt,
   viewerEntryFor,
@@ -334,5 +335,34 @@ describe("R4 typed inspection contract", () => {
 
   it("humanizes deterministic codes without inventing meaning", () => {
     expect(humanizeCode("article_text_duplication")).toBe("Article text duplication");
+  });
+});
+
+describe("R4 residual: neutral reporting-group labels", () => {
+  it("labels a genuinely shared group without claiming more", () => {
+    const groups = getReportingGroups(
+      occ({
+        reportingGroups: [
+          { groupId: "dup:ev-1", memberIds: ["ev-1", "ev-2"], reason: ["article_text_duplication"] },
+        ],
+      }),
+    );
+    expect(reportingGroupHeadline(groups[0])).toBe("Reporting group of 2 occurrences");
+    expect(groups[0].reasons).toEqual(["Article text duplication"]);
+    expect(groups[0].memberIds).toEqual(["ev-1", "ev-2"]);
+  });
+
+  it("labels a separately-evidenced group identically neutrally", () => {
+    // No backend-emitted separately-evidenced group fixture exists yet;
+    // this shape mirrors the actual ReportingGroupSummary contract.
+    const groups = getReportingGroups(
+      occ({
+        reportingGroups: [
+          { groupId: "sep:ev-9", memberIds: ["ev-9"], reason: ["separate_reporting_evidence"] },
+        ],
+      }),
+    );
+    expect(reportingGroupHeadline(groups[0])).toBe("Reporting group of 1 occurrence");
+    expect(groups[0].reasons).toEqual(["Separate reporting evidence"]);
   });
 });
