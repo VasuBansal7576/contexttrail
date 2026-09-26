@@ -129,10 +129,16 @@ lists its own; the standing set is:
   `pair-endpoint-wrong` (viewer pair — renders a wrong evidence id),
   `pair-note-wrong` (viewer pair — rewrites the pair note into a same-context
   claim), `focus-return-broken` (viewer — drops focus to `<body>` on close).
-- 3 schema rejections for inert faults: `drive landing --fault bad-selection`,
-  `drive viewer --case image-load --fault pair-note-wrong` and `drive result
-  --view timeline --fault group-mislabel` each exit 2 naming the scope the fault
-  needs.
+- 3 schema rejections for an out-of-scope fault: `drive landing --fault
+  bad-selection`, `drive viewer --case image-load --fault pair-note-wrong` and
+  `drive result --view timeline --fault group-mislabel` each exit 2 naming the
+  scope the fault needs.
+- 2 schema rejections for a fault with an empty target: `drive result --case
+  controlled-insufficient --view timeline --fault drop-timeline-item` and the
+  same case with `--view analysis --fault group-mislabel` exit 2, because that
+  fixture has no timeline occurrence and no reporting group to alter. An inert
+  fault can therefore never be reported green — and if one is accepted anyway,
+  the page's own mutation count turns the drive red (`fault.sabotage-reported`).
 - 8 live-readiness controls (exit 0/1, zero provider calls): valid claim and
   valid trace manifests pass 11 rules; wrong image hash, a loopback
   `imageSource`, a provider URL carrying a key, a claim that disagrees with the
@@ -142,7 +148,14 @@ lists its own; the standing set is:
   production `result` handler and the production `viewer` handler — once against
   a declared result with no occurrences, once against one with evidence — each
   assert zero provider attempts, a redirected submission and an honest tier, and
-  never compare against a controlled fixture.
+  never compare against a controlled fixture. They run through the **real**
+  `parseDriveOptions`, so the live option allow-list, entry/view defaults and
+  input contract under test are the ones a `drive --live` invocation meets.
+- 4 live invocation controls on the actual `drive` command (zero provider calls):
+  `drive result --live` with **no** `--case` passes the parser and the readiness
+  boundary and stops only at the run-state gate; the same invocation with an
+  explicit `--case`, without the credit gate, and with a manifest that fails its
+  hash rule are each still rejected at their own boundary.
 
 PLANNED / NOT IMPLEMENTED: `rich-context-gaps` / `mixed-evidence` /
 `delayed-provider-fixture` fixture names (delay is a `--delay-ms` modifier

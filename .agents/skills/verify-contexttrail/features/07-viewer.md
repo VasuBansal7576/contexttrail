@@ -146,6 +146,14 @@ compared, and a response with nothing to inspect is explained
 explicit `--case` is refused with `--live`. `live-handler --feature viewer` runs
 this production path with the API intercepted and a locally declared result.
 
+## Interruption
+
+A viewer drive that is interrupted (Ctrl-C, SIGTERM) closes its browser, keeps
+the partial recording inside its own evidence, and is written as INCOMPLETE with
+`interruptedBy` and no pass verdict. The recording is real bytes, not a claim:
+`verify12` preserves a 289 041-byte interrupted recording that re-hashes
+byte-for-byte after cleanup.
+
 ## Gotchas
 
 - The image-mode group is `lg:hidden`, so `count()` is the wrong instrument —

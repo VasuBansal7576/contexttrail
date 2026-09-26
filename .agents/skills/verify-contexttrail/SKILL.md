@@ -155,6 +155,17 @@ not enough — `drop-timeline-item` fires against the Timeline panel and
 on the wrong `--view`, and the pair faults have no pair note to rewrite outside
 `--case pair`.
 
+Beyond scope, two more guards keep a fault from ever being green by accident:
+
+- **knowable empty target** — refused before any side effect. A timeline fault
+  needs a fixture with timeline occurrences, a group-label fault needs reporting
+  groups, the pair faults need a real paired divergence.
+- **self-report** — every fault branch counts the mutations it actually
+  performed. The drive reads that count before the browser closes, records
+  `fault.sabotage-reported`, and turns the run red if it is zero. The verdict is
+  persisted as `faultFired` in `drive.json` and in the seal, so an inert fault is
+  distinguishable from a firing one in the evidence itself.
+
 | fault | applies to |
 | --- | --- |
 | `a11y-false-green`, `focus-removed` | `accessibility` |
@@ -206,7 +217,12 @@ Provenance is per drive, not per run:
   in plain words that it is not completed proof. It is hashed like every other
   artifact and survives cleanup.
 - A drive writes an `outcome: "INCOMPLETE"` record the moment its directory
-  exists, and finalizes it on completion. `evidence` lists unfinished attempts
+  exists, and finalizes it on completion. `SIGINT`/`SIGTERM` are handled rather
+  than ignored: the browser is closed (which flushes the recording encoder), the
+  partial recording is collected into the drive's own evidence, the record is
+  written as INCOMPLETE with `interruptedBy` and **no pass verdict**, and the
+  run exits 1. An interrupted attempt therefore hands back real bytes and claims
+  nothing it did not finish. `evidence` lists unfinished attempts
   (`incompleteDrives`) and any recording that belongs to no finalized drive
   (`unclaimedRecordings`) instead of counting only what succeeded.
 
@@ -232,7 +248,11 @@ harness controls — that the submitted claim is what selected the mode, and tha
 the report carries no credential material or provider query URL; the observed
 status is recorded as an observation, never compared with a fixture.
 
-`--delay-ms`, `--fault` and the fixture options are refused with `--live`.
+`--delay-ms`, `--fault` and an **explicitly supplied** `--case` are refused with
+`--live`. A case the caller did not supply is not a case: the parser injects
+fixture defaults for controlled runs, and `drive result --live` with no `--case`
+is a legitimate live invocation that must pass the parser and the readiness
+boundary on its way to the run-state gate.
 
 **Proving the live handler, not just the helper.** A manifest that validates
 says nothing about whether the live *handler* works — that is what the C2
