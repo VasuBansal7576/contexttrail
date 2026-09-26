@@ -22,11 +22,19 @@ import type {
   ContextRelation,
 } from "./contracts/judgment";
 import type {
+  ComparisonCoverage,
+  ComparisonRecord,
+  Divergence,
   ProvenanceProjection,
   ReportingGroupSummary,
+  TimelineConnector,
 } from "./contracts/investigation";
-import type { SegmentResult } from "./divergence";
-import { chronoCompare } from "./divergence";
+import {
+  buildContextSegments,
+  chronoCompare,
+  selectDatedCoreOccurrences,
+} from "./divergence";
+import type { PairwiseContextJudgment } from "./contracts/judgment";
 import { isCoreOccurrence } from "./identity";
 import { countSourceDomains } from "./domain";
 import {
@@ -168,6 +176,27 @@ export interface ProvenanceGraph {
   claimContext: ProvenanceClaimContext | null;
   /** The shared canonical partition. */
   partition: OccurrencePartition;
+
+  /* ------ canonical relation state — the graph OWNS these (§23) ------ */
+  /** O → K raw membership: occurrenceId → segment index, null when
+   *  continuity was unresolved. */
+  segmentOf: ReadonlyMap<string, number | null>;
+  /** Connector arriving at each selected occurrence. */
+  connectorOf: ReadonlyMap<string, TimelineConnector>;
+  /** occurrenceId → pair ids it was an endpoint of where a pairwise
+   *  comparison was actually performed. */
+  comparedPairsFor: ReadonlyMap<string, string[]>;
+  /** §20.2 first observed divergence — null when none was observed. */
+  firstObservedDivergence: Divergence | null;
+  /** Segment count only when the displayed run is fully decisive. */
+  contextSegmentCount: number | null;
+  /** Authoritative comparison coverage — including unresolved/unexamined
+   *  relations and `displayedDatedCore` from the owned partition. */
+  coverage: ComparisonCoverage;
+  /** Every evaluated adjacent pair with its actual distribution (null
+   *  when unexamined). */
+  comparisons: ComparisonRecord[];
+
   /** Result-summary metrics derived from this graph's relations. */
   metrics: ProvenanceGraphMetrics;
 }
@@ -201,16 +230,40 @@ function isDatedUsable(c: EvidenceCandidate): boolean {
  * §23 — build the typed internal provenance graph for one investigation.
  * Both the timeline projection and the result summary read from this
  * structure, so the relations they present are the same relations.
+ *
+ * The graph OWNS the canonical occurrence relationships: the eligible
+ * dated core, the deterministic ≤8 selection, segment membership,
+ * connectors, coverage, comparisons (including unresolved/unexamined
+ * relations), and the first observed divergence are all derived here —
+ * from the graph's own partition plus the pairwise judgments that are
+ * the raw relation evidence. Callers supply evidence and judgments only;
+ * no separately assembled chronology/coverage structure is accepted.
  */
 export function buildProvenanceGraph(input: {
   candidates: readonly EvidenceCandidate[];
-  segments: SegmentResult | null;
+  /** Pairwise context judgments keyed `pairKey(from,to)` for the
+   *  orderable adjacent pairs of the selected dated core — the raw
+   *  relation evidence the graph segments on. `null` when the
+   *  divergence stage never ran (partial projection): no segment,
+   *  connector, or coverage state is asserted. */
+  pairwiseJudgments: ReadonlyMap<string, PairwiseContextJudgment | null> | null;
   claim: string | null;
   claimDate: string | null;
   claimDatePrecision?: DatePrecision;
 }): ProvenanceGraph {
-  const { candidates, segments } = input;
+  const { candidates, pairwiseJudgments } = input;
   const partition = partitionOccurrences(candidates);
+  // Canonical selection and segment walk — owned here so the timeline
+  // and summary can never disagree about which occurrences were
+  // selected or which relations were examined.
+  const segments =
+    pairwiseJudgments === null
+      ? null
+      : buildContextSegments(
+          partition.datedCore,
+          selectDatedCoreOccurrences(partition.datedCore),
+          pairwiseJudgments,
+        );
 
   // O → S edges and domain nodes.
   const domains = new Map<string, ProvenanceSourceDomain>();
@@ -316,6 +369,26 @@ export function buildProvenanceGraph(input: {
     };
   }
 
+  // Owned canonical relation state. `displayedDatedCore` is owned here:
+  // it equals the partition's dated core, which is exactly what the
+  // timeline projects — no caller may patch a conflicting value in.
+  const emptySegmentOf: ReadonlyMap<string, number | null> = new Map();
+  const emptyConnectorOf: ReadonlyMap<string, TimelineConnector> = new Map();
+  const emptyPairsFor: ReadonlyMap<string, string[]> = new Map();
+  const coverage: ComparisonCoverage =
+    segments === null
+      ? {
+          eligible: 0,
+          selected: 0,
+          comparedPairs: 0,
+          displayedDatedCore: partition.datedCore.length,
+          comparedPairIds: [],
+        }
+      : {
+          ...segments.coverage,
+          displayedDatedCore: partition.datedCore.length,
+        };
+
   return {
     media: { id: "media" },
     occurrences,
@@ -324,6 +397,13 @@ export function buildProvenanceGraph(input: {
     divergenceEdges,
     claimContext,
     partition,
+    segmentOf: segments?.segmentOf ?? emptySegmentOf,
+    connectorOf: segments?.connectorOf ?? emptyConnectorOf,
+    comparedPairsFor: segments?.comparedPairsFor ?? emptyPairsFor,
+    firstObservedDivergence: segments?.firstObservedContextDivergence ?? null,
+    contextSegmentCount: segments?.contextSegmentCount ?? null,
+    coverage,
+    comparisons: segments?.comparisons.map((c) => ({ ...c })) ?? [],
     metrics: computeProvenanceMetrics(candidates),
   };
 }

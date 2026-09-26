@@ -19,6 +19,7 @@ import {
   selectDatedCoreOccurrences,
 } from "../divergence";
 import { buildTimeline } from "../timeline";
+import { buildProvenanceGraph } from "../provenance-graph";
 import type { EvidenceCandidate } from "../contracts/evidence";
 import type { FetchedPage } from "../../pages/fetch";
 
@@ -190,7 +191,15 @@ describe("F05 adversarial — displayed chronology coverage", () => {
     // edge may be produced, and no exact count claimed.
     expect(seg.firstObservedContextDivergence).toBeNull();
     expect(seg.contextSegmentCount).toBeNull();
-    const tl = buildTimeline(cs, seg);
+    const tl = buildTimeline(
+      cs,
+      buildProvenanceGraph({
+        candidates: cs,
+        pairwiseJudgments: judgments,
+        claim: null,
+        claimDate: null,
+      }),
+    );
     expect(tl.timeline.find((t) => t.isFirstObservedDivergencePoint)).toBeUndefined();
   });
 });

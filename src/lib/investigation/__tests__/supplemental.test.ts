@@ -13,6 +13,12 @@ import {
   type InvestigationSnapshot,
 } from "../../stream/useInvestigation";
 import { runInvestigation } from "../run";
+import { buildProvenanceGraph } from "../provenance-graph";
+import { buildTimeline } from "../timeline";
+import { buildTraceResult } from "../policy";
+import { buildContextSegments, pairKey } from "../divergence";
+import type { PairwiseContextJudgment } from "../contracts/judgment";
+import { makeExact } from "./testkit";
 
 const VERIFIED_JEV = {
   requested: "jev-1.13.0",
@@ -791,5 +797,163 @@ describe("23 — G1/G2: claim-context semantics and divergence edge preservation
     } | null;
     expect(first?.toOccurrenceId).toBe(e?.toOccurrenceId);
     expect(first?.earlierTransitionsUnresolved).toBe(true);
+  });
+});
+
+/* ------------------------- 23 — graph-as-source ------------------------- */
+
+describe("23 — graph-as-source: projections cannot consume conflicting parallel inputs", () => {
+  const dated = (id: string, publishedAt: string) =>
+    makeExact({ id, publishedAt, dateStatus: "usable", datePrecision: "day" });
+
+  const sameContext: PairwiseContextJudgment = {
+    sameContext: 0.9,
+    differentContext: 0.05,
+    unclear: 0.05,
+  };
+  const differentContext: PairwiseContextJudgment = {
+    sameContext: 0.01,
+    differentContext: 0.98,
+    unclear: 0.01,
+  };
+
+  it("the graph derives selection, membership, coverage and divergence from judgments alone", () => {
+    // a→b unexamined (call failed: null judgment), b→c decisive
+    // different_context — the same shape as the G2 control, owned here.
+    const a = dated("gs-a", "2020-01-02");
+    const b = dated("gs-b", "2021-03-04");
+    const c = dated("gs-c", "2022-05-06");
+    const graph = buildProvenanceGraph({
+      candidates: [a, b, c],
+      pairwiseJudgments: new Map([
+        [pairKey("gs-a", "gs-b"), null],
+        [pairKey("gs-b", "gs-c"), differentContext],
+      ]),
+      claim: null,
+      claimDate: null,
+    });
+
+    expect(graph.partition.datedCore.map((o) => o.id)).toEqual([
+      "gs-a",
+      "gs-b",
+      "gs-c",
+    ]);
+    expect(graph.segmentOf.get("gs-a")).toBe(0);
+    expect(graph.segmentOf.get("gs-b")).toBeNull();
+    expect(graph.segmentOf.get("gs-c")).toBe(1);
+    expect(graph.connectorOf.get("gs-b")?.kind).toBe("unexamined");
+    expect(graph.connectorOf.get("gs-c")?.kind).toBe("different_context");
+    // Unresolved/unexamined relations stay in the owned coverage and
+    // comparison records — both adjacent pairs, one unperformed.
+    expect(graph.comparisons).toHaveLength(2);
+    expect(graph.comparisons[0].connector).toBe("unexamined");
+    expect(graph.comparisons[0].distribution).toBeNull();
+    expect(graph.comparisons[1].connector).toBe("different_context");
+    expect(graph.comparisons[1].distribution).not.toBeNull();
+    expect(graph.coverage.comparedPairs).toBe(1);
+    expect(graph.coverage.displayedDatedCore).toBe(3);
+    expect(graph.contextSegmentCount).toBeNull();
+    expect(graph.firstObservedDivergence?.toOccurrenceId).toBe("gs-c");
+    expect(graph.firstObservedDivergence?.earlierTransitionsUnresolved).toBe(true);
+    expect(graph.divergenceEdges).toHaveLength(1);
+    expect(graph.divergenceEdges[0].fromSegmentId).toBeNull();
+    expect(graph.divergenceEdges[0].toSegmentId).toBe("segment:1");
+  });
+
+  it("result assembly ignores smuggled chronology/coverage/comparison fields", () => {
+    const a = dated("sm-a", "2024-01-02");
+    const b = dated("sm-b", "2024-02-03");
+    const graph = buildProvenanceGraph({
+      candidates: [a, b],
+      pairwiseJudgments: new Map([[pairKey("sm-a", "sm-b"), sameContext]]),
+      claim: null,
+      claimDate: null,
+    });
+    const built = buildTimeline([a, b], graph);
+    const smuggled = {
+      coverage: {
+        eligible: 99,
+        selected: 99,
+        comparedPairs: 99,
+        displayedDatedCore: 99,
+        comparedPairIds: ["fake-a|fake-b"],
+      },
+      firstObservedContextDivergence: {
+        fromOccurrenceId: "fake-a",
+        toOccurrenceId: "fake-b",
+        observedAt: "2030-01-01",
+        earlierTransitionsUnresolved: false,
+      },
+      contextSegmentCount: 42,
+      comparisons: [
+        {
+          pairId: "fake-a|fake-b",
+          fromOccurrenceId: "fake-a",
+          toOccurrenceId: "fake-b",
+          connector: "different_context",
+          distribution: null,
+        },
+      ],
+    };
+    const result = buildTraceResult({
+      candidates: [a, b],
+      timeline: built.timeline,
+      supportingEvidence: built.supportingEvidence,
+      contextualEvidence: built.contextualEvidence,
+      undatedEvidence: built.undatedEvidence,
+      limitations: [],
+      requestLog: [],
+      graph,
+      // Conflicting parallel relation inputs must be dead — the graph
+      // is the only source the projection reads.
+      ...smuggled,
+    } as unknown as Parameters<typeof buildTraceResult>[0]);
+
+    expect(result.comparisonCoverage).toEqual(graph.coverage);
+    expect(result.comparisonCoverage.comparedPairs).toBe(1);
+    expect(result.comparisonCoverage.comparedPairIds).toEqual(["sm-a|sm-b"]);
+    expect(result.contextSegmentCount).toBe(1);
+    expect(result.firstObservedContextDivergence).toBeNull();
+    expect(result.comparisons).toEqual(graph.comparisons);
+    expect(result.comparisons).toHaveLength(1);
+    expect(result.comparisons[0].pairId).toBe("sm-a|sm-b");
+  });
+
+  it("the timeline projection reads only graph-owned relation state", () => {
+    const a = dated("tl-a", "2024-01-02");
+    const b = dated("tl-b", "2024-02-03");
+    // Identical candidates; different judgments → different connectors.
+    // Relation state exists only on the graph — there is nowhere else to
+    // put it.
+    const graphFor = (j: PairwiseContextJudgment) =>
+      buildProvenanceGraph({
+        candidates: [a, b],
+        pairwiseJudgments: new Map([[pairKey("tl-a", "tl-b"), j]]),
+        claim: null,
+        claimDate: null,
+      });
+    const same = buildTimeline([a, b], graphFor(sameContext));
+    const diff = buildTimeline([a, b], graphFor(differentContext));
+    expect(same.timeline[1].incomingConnector).toEqual({
+      kind: "same_context",
+      fromOccurrenceId: "tl-a",
+    });
+    expect(diff.timeline[1].incomingConnector).toEqual({
+      kind: "different_context",
+      fromOccurrenceId: "tl-a",
+    });
+    expect(diff.timeline[1].isFirstObservedDivergencePoint).toBe(true);
+    expect(same.timeline[1].isFirstObservedDivergencePoint).toBe(false);
+
+    // A stale SegmentResult-shaped object is not a ProvenanceGraph — it
+    // carries no partition and cannot silently drive the projection.
+    const stale = buildContextSegments(
+      [a, b],
+      [a, b],
+      new Map([[pairKey("tl-a", "tl-b"), differentContext]]),
+    );
+    expect(() =>
+      buildTimeline([a, b], stale as never),
+    ).toThrow();
   });
 });

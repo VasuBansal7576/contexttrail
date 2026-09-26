@@ -16,9 +16,6 @@ import {
 import type {
   ClaimStatus,
   ClaimStatusBasis,
-  ComparisonCoverage,
-  ComparisonRecord,
-  Divergence,
   InvestigationResult,
   LimitationCode,
   PolicyReason,
@@ -27,7 +24,6 @@ import type {
   TimelineItem,
 } from "./contracts/investigation";
 import {
-  buildProvenanceGraph,
   toProvenanceProjection,
   type ProvenanceGraph,
 } from "./provenance-graph";
@@ -345,32 +341,21 @@ export interface ResultAssemblyInput {
   supportingEvidence: TimelineItem[];
   contextualEvidence: TimelineItem[];
   undatedEvidence: TimelineItem[];
-  coverage: ComparisonCoverage;
-  firstObservedContextDivergence: Divergence | null;
-  contextSegmentCount: number | null;
   limitations: LimitationCode[];
   /** Per-operation retrieval accounting (§34). */
   requestLog: RequestLogEntry[];
-  /** §23 — the provenance graph this result derives from. When absent
-   *  (direct assembly), a graph is built from `candidates` alone so the
-   *  public projection is never absent. */
-  graph?: ProvenanceGraph;
-  /** §34 — the evaluated pairwise comparisons behind the segments. */
-  comparisons?: ComparisonRecord[];
+  /** §23 — the authoritative provenance graph this result derives from.
+   *  It owns segment membership, coverage, comparisons, the first
+   *  observed divergence and context-segment count; the summary
+   *  projection reads those owned fields, never parallel inputs. */
+  graph: ProvenanceGraph;
 }
 
 /** Assemble the shared metrics both result modes carry. All
- *  graph-derived fields come from the provenance graph's metrics — the
- *  graph is the shared source, not a parallel derivation (§23). */
+ *  chronology/coverage/relation fields come from the owned provenance
+ *  graph — no caller-supplied parallel derivation is accepted (§23). */
 export function sharedMetrics(input: ResultAssemblyInput) {
-  const graph =
-    input.graph ??
-    buildProvenanceGraph({
-      candidates: input.candidates,
-      segments: null,
-      claim: null,
-      claimDate: null,
-    });
+  const graph = input.graph;
   const m = graph.metrics;
 
   return {
@@ -378,13 +363,13 @@ export function sharedMetrics(input: ResultAssemblyInput) {
     sourceDomainCount: m.sourceDomainCount,
     reportingGroupCount: m.reportingGroupCount,
     unresolvedOriginCount: m.unresolvedOriginCount,
-    contextSegmentCount: input.contextSegmentCount,
-    firstObservedContextDivergence: input.firstObservedContextDivergence,
-    comparisonCoverage: input.coverage,
+    contextSegmentCount: graph.contextSegmentCount,
+    firstObservedContextDivergence: graph.firstObservedDivergence,
+    comparisonCoverage: graph.coverage,
     requestLog: input.requestLog,
     reportingGroups: m.reportingGroups,
     unresolvedCandidateIds: m.unresolvedCandidateIds,
-    comparisons: input.comparisons ?? [],
+    comparisons: graph.comparisons,
     provenance: toProvenanceProjection(graph),
     limitations: input.limitations,
     undatedEvidence: input.undatedEvidence,
@@ -409,7 +394,7 @@ export function buildTraceResult(input: ResultAssemblyInput): InvestigationResul
   return {
     mode: "trace",
     headline:
-      relevantCore.length >= 2 && input.coverage.displayedDatedCore >= 2
+      relevantCore.length >= 2 && input.graph.coverage.displayedDatedCore >= 2
         ? "MEDIA_HISTORY_RECONSTRUCTED"
         : "LIMITED_MEDIA_HISTORY_FOUND",
     ...sharedMetrics(input),

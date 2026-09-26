@@ -1,12 +1,31 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildContextSegments,
-  pairKey,
-  selectDatedCoreOccurrences,
-  datedCoreOccurrences,
-} from "../divergence";
+import { pairKey } from "../divergence";
 import { buildTimeline } from "../timeline";
+import { buildProvenanceGraph } from "../provenance-graph";
+import type { EvidenceCandidate } from "../contracts/evidence";
+import type { PairwiseContextJudgment } from "../contracts/judgment";
 import { makeCandidate, makeExact } from "./testkit";
+
+/** A graph asserting no segment/relation state (divergence stage absent). */
+const partitionOnlyGraph = (candidates: EvidenceCandidate[]) =>
+  buildProvenanceGraph({
+    candidates,
+    pairwiseJudgments: null,
+    claim: null,
+    claimDate: null,
+  });
+
+/** A graph owning segments derived from the given pairwise judgments. */
+const segmentedGraph = (
+  candidates: EvidenceCandidate[],
+  pairwiseJudgments: ReadonlyMap<string, PairwiseContextJudgment | null>,
+) =>
+  buildProvenanceGraph({
+    candidates,
+    pairwiseJudgments,
+    claim: null,
+    claimDate: null,
+  });
 
 describe("buildTimeline (§20.2, §38.3)", () => {
   it("unknown dates never enter the dated timeline", () => {
@@ -21,7 +40,10 @@ describe("buildTimeline (§20.2, §38.3)", () => {
       datePrecision: "day",
       dateStatus: "disputed",
     });
-    const r = buildTimeline([dated, unknown, disputed], null);
+    const r = buildTimeline(
+      [dated, unknown, disputed],
+      partitionOnlyGraph([dated, unknown, disputed]),
+    );
     expect(r.timeline.map((t) => t.evidenceId)).toEqual([dated.id]);
     expect(r.undatedEvidence.map((t) => t.evidenceId).sort()).toEqual(
       [unknown.id, disputed.id].sort(),
@@ -44,19 +66,18 @@ describe("buildTimeline (§20.2, §38.3)", () => {
       datePrecision: "day",
       dateStatus: "usable",
     }); // visual lead: dated but not core
-    const eligible = datedCoreOccurrences([a, b, extra]);
-    const selected = selectDatedCoreOccurrences(eligible);
-    const seg = buildContextSegments(
-      eligible,
-      selected,
-      new Map([
-        [
-          pairKey(a.id, b.id),
-          { sameContext: 0.9, differentContext: 0.05, unclear: 0.05 },
-        ],
-      ]),
+    const r = buildTimeline(
+      [a, b, extra],
+      segmentedGraph(
+        [a, b, extra],
+        new Map([
+          [
+            pairKey(a.id, b.id),
+            { sameContext: 0.9, differentContext: 0.05, unclear: 0.05 },
+          ],
+        ]),
+      ),
     );
-    const r = buildTimeline([a, b, extra], seg);
     // A dated visual lead is supporting evidence, not a timeline occurrence:
     // it keeps its observed date but carries no continuity connector.
     expect(r.timeline.map((t) => t.evidenceId)).not.toContain(extra.id);

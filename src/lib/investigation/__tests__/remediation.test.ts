@@ -18,6 +18,7 @@ import { parseClaimDate, parseDateValue } from "../dates";
 import { extractPage } from "../../pages/extract";
 import { normalizeSearchResponse } from "../../serpapi/normalize";
 import { buildTimeline } from "../timeline";
+import { buildProvenanceGraph } from "../provenance-graph";
 import { selectDeepReadCandidates, runInvestigation } from "../run";
 import type { EvidenceCandidate } from "../contracts/evidence";
 import type { TimelineItem } from "../contracts/investigation";
@@ -163,7 +164,15 @@ describe("F02 — contextual search/news never enters the core media timeline", 
       dateStatus: "usable",
       datePrecision: "day",
     });
-    const built = buildTimeline([ctx, lead], null);
+    const built = buildTimeline(
+      [ctx, lead],
+      buildProvenanceGraph({
+        candidates: [ctx, lead],
+        pairwiseJudgments: null,
+        claim: null,
+        claimDate: null,
+      }),
+    );
     expect(built.timeline.map((t) => t.occurrenceId)).toContain("core-1");
     expect(built.timeline.map((t) => t.occurrenceId)).not.toContain(ctx.id);
     const extended = built as typeof built & {

@@ -10,8 +10,7 @@
 import type { EvidenceCandidate, JevDistributions } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
 import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
-import { type SegmentResult } from "./divergence";
-import { partitionOccurrences, type OccurrencePartition } from "./provenance-graph";
+import type { ProvenanceGraph } from "./provenance-graph";
 
 /** Strong context-relationship label from a Jev judgment, else null. */
 function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
@@ -150,39 +149,43 @@ export interface BuiltTimeline {
  */
 export function buildTimeline(
   candidates: readonly EvidenceCandidate[],
-  segments: SegmentResult | null,
+  /** §23 — the authoritative provenance graph owning the canonical
+   *  partition, segment membership, connectors, compared pairs and first
+   *  observed divergence. The projection reads that owned state only;
+   *  a `pairwiseJudgments: null` graph (partial stream) asserts no
+   *  relation state and projects partition buckets alone. */
+  graph: ProvenanceGraph,
   excerpts?: ReadonlyMap<string, string>,
   /** Model-input composites keyed by candidate id — surfaced separately
    *  as `classificationContext`, never as the displayed quote. */
   modelExcerpts?: ReadonlyMap<string, string>,
-  /** §23 — the provenance graph's canonical partition when one was built;
-   *  the timeline projects it, it does not re-derive it. */
-  partition?: OccurrencePartition,
 ): BuiltTimeline {
   const { datedCore: dated, datedLead, datedContextual, undated } =
-    partition ?? partitionOccurrences(candidates);
+    graph.partition;
 
   const divergenceId =
-    segments?.firstObservedContextDivergence?.toOccurrenceId ?? null;
-  const firstSelectedId =
-    segments !== null && segments.segmentOf.size > 0
-      ? (() => {
-          for (const c of dated) if (segments.segmentOf.has(c.id)) return c.id;
-          return null;
-        })()
-      : null;
+    graph.firstObservedDivergence?.toOccurrenceId ?? null;
+  // True when the graph asserts segment state — a null-judgments graph
+  // (the divergence stage never ran) leaves every map empty.
+  const hasSegments = graph.segmentOf.size > 0;
+  const firstSelectedId = hasSegments
+    ? (() => {
+        for (const c of dated) if (graph.segmentOf.has(c.id)) return c.id;
+        return null;
+      })()
+    : null;
 
   const timeline = dated.map((c) => {
-    let connector = segments?.connectorOf.get(c.id) ?? null;
+    let connector = graph.connectorOf.get(c.id) ?? null;
     if (connector === null) {
-      if (c.id === firstSelectedId || (segments === null && c === dated[0])) {
+      if (c.id === firstSelectedId || (!hasSegments && c === dated[0])) {
         connector = { kind: "start", fromOccurrenceId: null };
-      } else if (segments !== null || dated.length > 1) {
+      } else if (hasSegments || dated.length > 1) {
         // Dated evidence outside the compared run: comparison not performed.
         connector = { kind: "unexamined", fromOccurrenceId: null };
       }
     }
-    const segmentIndex = segments?.segmentOf.get(c.id);
+    const segmentIndex = graph.segmentOf.get(c.id);
     return toTimelineItem(c, {
       observedAt: c.publishedAt,
       segmentIndex: segmentIndex === undefined ? null : segmentIndex,
@@ -191,10 +194,8 @@ export function buildTimeline(
       excerpt: excerpts?.get(c.id) ?? null,
       classificationContext: modelExcerpts?.get(c.id) ?? null,
       comparisonSelection: {
-        selected:
-          segments !== null &&
-          (segments.segmentOf.has(c.id) || segments.connectorOf.has(c.id)),
-        comparedPairIds: segments?.comparedPairsFor.get(c.id) ?? [],
+        selected: graph.segmentOf.has(c.id) || graph.connectorOf.has(c.id),
+        comparedPairIds: graph.comparedPairsFor.get(c.id) ?? [],
       },
     });
   });

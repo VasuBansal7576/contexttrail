@@ -31,7 +31,6 @@ import { SearchBudget, type BaseSearchSlot, type SearchTicket } from "./budget";
 import { dedupeByCanonicalUrl, applyRetentionCaps, selectForClassification } from "./candidates";
 import { parseClaimDate, resolveEvidenceDate, type EvidenceDateSources } from "./dates";
 import {
-  buildContextSegments,
   datedCoreOccurrences,
   pairKey,
   selectDatedCoreOccurrences,
@@ -739,7 +738,20 @@ export async function runInvestigation(
       const preliminary = evaluateClaimPolicy(pool);
       emit({ type: "verdict.preliminary", verdict: preliminary.status });
     }
-    const partial = buildTimeline(pool, null, displayExcerpts);
+    // Partial-stream projection: the divergence stage has not run, so a
+    // null-judgments graph asserts no segment/relation state — the
+    // timeline still projects the graph's canonical partition alone.
+    const partial = buildTimeline(
+      pool,
+      buildProvenanceGraph({
+        candidates: pool,
+        pairwiseJudgments: null,
+        claim,
+        claimDate,
+        claimDatePrecision,
+      }),
+      displayExcerpts,
+    );
     emit({ type: "provenance.partial", timeline: partial.timeline });
     stage("PRELIMINARY", "completed");
 
@@ -947,13 +959,25 @@ export async function runInvestigation(
         }),
       );
     }
-    const segments = buildContextSegments(datedCore, selected, judgments);
-    if (segments.firstObservedContextDivergence !== null) {
-      emit({ type: "divergence.detected", divergence: segments.firstObservedContextDivergence });
+    // §23 — the provenance graph is the authoritative relation
+    // structure: it owns the canonical partition, the deterministic
+    // selection, segment membership, connectors, coverage and every
+    // evaluated comparison, derived from the investigated candidates and
+    // the pairwise judgments above. The divergence event, the coverage
+    // limitation, and both downstream projections consume it.
+    const graph = buildProvenanceGraph({
+      candidates: pool,
+      pairwiseJudgments: judgments,
+      claim,
+      claimDate,
+      claimDatePrecision,
+    });
+    if (graph.firstObservedDivergence !== null) {
+      emit({ type: "divergence.detected", divergence: graph.firstObservedDivergence });
     }
     if (
-      segments.coverage.selected < segments.coverage.eligible ||
-      segments.coverage.comparedPairs < orderablePairs.length
+      graph.coverage.selected < graph.coverage.eligible ||
+      graph.coverage.comparedPairs < orderablePairs.length
     ) {
       limitations.add("comparison_coverage_incomplete");
     }
@@ -961,25 +985,7 @@ export async function runInvestigation(
 
     /* ----------------------------- FINAL_POLICY -------------------------- */
     stage("FINAL_POLICY", "started");
-    // §23/G2 — the provenance graph is the authoritative relation
-    // structure: it is built BEFORE the timeline/summary projections, and
-    // the timeline projects its canonical partition rather than
-    // re-deriving one.
-    const graph = buildProvenanceGraph({
-      candidates: pool,
-      segments,
-      claim,
-      claimDate,
-      claimDatePrecision,
-    });
-    const built = buildTimeline(
-      pool,
-      segments,
-      displayExcerpts,
-      excerpts,
-      graph.partition,
-    );
-    const coverage = { ...segments.coverage, displayedDatedCore: built.timeline.length };
+    const built = buildTimeline(pool, graph, displayExcerpts, excerpts);
     // §34 request/operation log — one row per actual attempt. `retained`
     // counts the candidates from *that* attempt whose canonical URL
     // survived deduplication into the investigated pool, not every pool
@@ -1016,9 +1022,6 @@ export async function runInvestigation(
             supportingEvidence: built.supportingEvidence,
             contextualEvidence: built.contextualEvidence,
             undatedEvidence: built.undatedEvidence,
-            coverage,
-            firstObservedContextDivergence: segments.firstObservedContextDivergence,
-            contextSegmentCount: segments.contextSegmentCount,
             limitations: [...limitations],
             claim: claim!,
             claimDate,
@@ -1026,7 +1029,6 @@ export async function runInvestigation(
             takeaways,
             requestLog,
             graph,
-            comparisons: segments.comparisons,
           })
         : buildTraceResult({
             candidates: pool,
@@ -1034,13 +1036,9 @@ export async function runInvestigation(
             supportingEvidence: built.supportingEvidence,
             contextualEvidence: built.contextualEvidence,
             undatedEvidence: built.undatedEvidence,
-            coverage,
-            firstObservedContextDivergence: segments.firstObservedContextDivergence,
-            contextSegmentCount: segments.contextSegmentCount,
             limitations: [...limitations],
             requestLog,
             graph,
-            comparisons: segments.comparisons,
           });
     // Stage completion precedes the terminal event — a client that stops
     // reading at investigation.completed still sees a finished stage list.

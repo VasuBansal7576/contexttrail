@@ -5,6 +5,8 @@ import {
   deriveTakeaways,
   evaluateClaimPolicy,
 } from "../policy";
+import { buildProvenanceGraph } from "../provenance-graph";
+import type { EvidenceCandidate } from "../contracts/evidence";
 import { makeCandidate, makeExact, makeJudgment, separateOrigin } from "./testkit";
 
 function conflictCandidate(domain: string, group: string) {
@@ -116,23 +118,19 @@ describe("evaluateClaimPolicy (§21)", () => {
 });
 
 describe("result assembly (§21.4, §22, §38.3)", () => {
+  // §23 — assembly consumes the authoritative graph; build it from the
+  // candidates each case supplies rather than passing parallel inputs.
+  const graphFor = (candidates: EvidenceCandidate[], claim: string | null = null, claimDate: string | null = null) =>
+    buildProvenanceGraph({ candidates, pairwiseJudgments: null, claim, claimDate });
   const base = {
     candidates: [] as ReturnType<typeof makeCandidate>[],
     timeline: [],
     supportingEvidence: [],
     contextualEvidence: [],
     undatedEvidence: [],
-    coverage: {
-      eligible: 0,
-      selected: 0,
-      comparedPairs: 0,
-      displayedDatedCore: 0,
-      comparedPairIds: [],
-    },
-    firstObservedContextDivergence: null,
-    contextSegmentCount: null,
     limitations: [] as const,
     requestLog: [],
+    graph: graphFor([]),
   };
 
   it("trace result carries no claim status", () => {
@@ -148,6 +146,7 @@ describe("result assembly (§21.4, §22, §38.3)", () => {
     const r = buildClaimResult({
       ...base,
       candidates: [a, b, c],
+      graph: graphFor([a, b, c], "photo taken today", "2026-09-25"),
       claim: "photo taken today",
       claimDate: "2026-09-25",
       webContextAvailable: true,
