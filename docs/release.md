@@ -50,7 +50,7 @@ Three different things get called "tests pass". Keep them apart:
 | Tier | What ran | Result | What it does **not** cover |
 | --- | --- | --- | --- |
 | **Baseline checks** — the audited baseline this documentation was drafted against | `npm test`, `npm run typecheck`, `npm run build` | **143 tests / 20 files**, typecheck clean, build succeeds (independently re-run) | browser behavior, live providers, any release gate |
-| **Backend repair head** — reported by the backend lane and independently re-run here | the same three commands plus the Phase 0 regression gates | **161 passed + 2 skipped / 22 files (163 collected)**, typecheck clean | browser behavior, live providers; backend full-suite validation still in progress |
+| **Backend repair head** — reported by the backend lane and independently re-run here | the same three commands plus the Phase 0 regression gates | **161 passed + 2 skipped / 22 files (163 collected)**, typecheck clean, build succeeds | browser behavior, live providers; backend full-suite validation still in progress |
 | **Integrated browser + gated live acceptance** | the project harness driving a built app in a real browser, then gated live runs against real providers | **not run** | — |
 
 Only the third tier could ever support a release claim, and it has not happened.
