@@ -60,9 +60,9 @@ What does pass today — **unit and contract checks only**:
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Unit / contract tests | `npm test` | Green and fully offline — no external API calls. Independently re-run: **baseline 143 passed / 20 files**; **current backend head 161 passed + 2 skipped / 22 files (163 collected)**. |
+| Unit / contract tests | `npm test` | Green and fully offline — no external API calls. Independently re-run: **baseline 143 passed / 20 files**; **backend repair head 161 passed + 2 skipped / 22 files (163 collected)**. |
 | Types | `npm run typecheck` | clean (`tsc --noEmit`) at both heads |
-| Production build | `npm run build` | succeeds |
+| Production build | `npm run build` | succeeds at both heads |
 
 Those numbers are *not* acceptance. They do not include integrated browser verification, and
 they do not include any gated live run. Those are separate gates, listed in
