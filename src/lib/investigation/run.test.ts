@@ -173,7 +173,15 @@ describe("runInvestigation — happy path", () => {
     await promise;
 
     expect(events[0].type).toBe("investigation.started");
-    expect(last(events).type).toBe("stage.completed");
+    // Terminal event is last; the COMPLETE stage is finished beforehand so a
+    // client that stops reading at investigation.completed loses nothing.
+    expect(last(events).type).toBe("investigation.completed");
+    const completeIdx = events.findIndex(
+      (e) => e.type === "stage.completed" && (e as { stage: string }).stage === "COMPLETE",
+    );
+    const doneIdx = events.findIndex((e) => e.type === "investigation.completed");
+    expect(completeIdx).toBeGreaterThanOrEqual(0);
+    expect(completeIdx).toBeLessThan(doneIdx);
     const done = events.find((e) => e.type === "investigation.completed");
     expect(done).toBeDefined();
     const result = (done as unknown as { result: JsonRecord }).result;
@@ -225,6 +233,27 @@ describe("runInvestigation — happy path", () => {
     expect(getMetrics(result).sourceDomains).not.toBeNull();
     getTakeaways(result);
     getLimitations(result).forEach((l) => expect(typeof l).toBe("string"));
+  });
+  it("emits each evidence.discovered id at most once across adaptive expansion", async () => {
+    // Regression: candidates without a snippet were re-emitted after the
+    // adaptive search because "already emitted" was proxied by the excerpts
+    // map (only populated when snippet !== null) → duplicate client keys.
+    const calls: SerpapiParams[] = [];
+    const { events, promise } = run(traceInput, {
+      serpapi: makeSerpapi(calls),
+      jev: makeJev().client,
+      fetchPage: async () => PAGE,
+    });
+    await promise;
+
+    // The trace adaptive slot actually fired on the related_content query.
+    expect(calls.some((c) => c.engine === "google" && c.q === "yamuna flood 2019")).toBe(true);
+
+    const ids = events
+      .filter((e) => e.type === "evidence.discovered")
+      .map((e) => (e as unknown as { evidence: { id: string } }).evidence.id);
+    expect(ids.length).toBeGreaterThan(0);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 
