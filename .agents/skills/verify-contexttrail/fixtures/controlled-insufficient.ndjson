@@ -1,4 +1,4 @@
-{"type":"investigation.started","investigationId":"650f6ac0-373d-4223-b95c-753a850e0bbb"}
+{"type":"investigation.started","investigationId":"33819795-e048-4cd1-a527-aedc4d3d4e29"}
 {"type":"stage.started","stage":"INITIAL_RETRIEVAL"}
 {"type":"search.batch","engine":"google_search","count":0}
 {"type":"search.batch","engine":"google_news","count":0}

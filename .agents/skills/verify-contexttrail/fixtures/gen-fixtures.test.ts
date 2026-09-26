@@ -17,8 +17,8 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runInvestigation, type SearchProvider } from "../../../../src/lib/investigation/run";
 import { JEV_MODEL, JevClient } from "../../../../src/lib/jev/client";
+import type { JevQuestion, JevAskResult } from "../../../../src/lib/jev/client";
 import type { SerpapiParams } from "../../../../src/lib/serpapi/client";
-import type { JevClient } from "../../../../src/lib/jev/client";
 import type { FetchedPage } from "../../../../src/lib/pages/fetch";
 
 const GEN = process.env.CONTEXTTRAIL_GEN_FIXTURES === "1";
@@ -621,7 +621,12 @@ const pageHtml = (url: string, o: Occ) => {
  * the product's own cross-retrieval date merge supply a date without a page
  * fetch, which is the only way to reach more than five dated core occurrences.
  */
-const buildSerpapi = (occs: Occ[], mirrorOrganicDates = false, mirrorAboutDates = false): SearchProvider => ({
+const buildSerpapi = (
+  occs: Occ[],
+  mirrorOrganicDates = false,
+  mirrorAboutDates = false,
+  mirrorNewsDates = false,
+): SearchProvider => ({
   uploadImage: async () => "fixture-upload-id",
   search: async (p: SerpapiParams) => {
     if (p.engine === "google_lens" && p.type === "exact_matches") {
@@ -668,6 +673,19 @@ const buildSerpapi = (occs: Occ[], mirrorOrganicDates = false, mirrorAboutDates 
       return { search_metadata: { id: "fixture-lens-all-a8", status: "Success" }, visual_matches: [], related_content: [] };
     }
     if (p.engine === "google_news") {
+      if (mirrorNewsDates) {
+        return {
+          search_metadata: { id: "fixture-news-a8", status: "Success" },
+          news_results: occs
+            .filter((o) => o.serpDate)
+            .map((o, i) => ({
+              position: i + 1,
+              title: o.title,
+              link: `https://${o.host}/controlled/${occs.indexOf(o) + 1}`,
+              date: o.serpDate,
+            })),
+        };
+      }
       return { search_metadata: { id: "fixture-news-a8", status: "Success" }, news_results: [] };
     }
     if (mirrorOrganicDates) {
@@ -816,26 +834,30 @@ const STATE_PLACEMENT: Occ[] = [
   { title: "A8 placed unknown", host: "placed-unknown.test", winners: SAME, relevance: 0.91 },
 ];
 
-/** 8. The REACHABLE dated-core ceiling.
+/** 8. Eleven exact occurrences, used by three fixtures that differ only in how
+ *  the dates arrive.
  *
- *  The original state list asked for "more than eight dated core occurrences
- *  with at most eight selected". That condition is NOT reachable at 9d404cb,
- *  and this fixture deliberately encodes the ceiling that IS reachable rather
- *  than faking an unreachable one:
+ *  SUPERSEDED — the previous version of this comment claimed a GLOBAL five-date
+ *  ceiling and that `comparison_coverage_incomplete` can never be emitted. BOTH
+ *  CLAIMS WERE FALSE and are withdrawn:
  *
- *   - core occurrences (EXACT_MATCH / NEAR_MATCH) arise only from a validated
- *     lens exact collection; contextual web/news/about-image surfaces are
- *     explicitly given `mediaRelationship: null` (normalize.ts);
- *   - `normalizeExactMatchesResponse` returns an EMPTY `dateTexts`, so the
- *     provider date on an exact match is dropped;
- *   - the only remaining date source is a fetched page, and deep reads are
- *     capped at MAX_DEEP_READ_PAGES (5).
+ *   - the lens exact-match normalizer does return an empty `dateTexts`, but dates
+ *     also merge across the same canonical URL while exact identity is retained,
+ *     so the same eleven occurrences reach EIGHT dated core when the same links
+ *     are dated through another surface;
+ *   - `comparison_coverage_incomplete` IS emitted when adjacent comparisons fail
+ *     to complete (see controlled-trace-coverage-gap).
  *
- *  So at most 5 dated core occurrences can exist, which makes
- *  MAX_DIVERGENCE_OCCURRENCES (8) structurally unreachable, selection is never
- *  truncated, and `comparison_coverage_incomplete` can never be emitted by a
- *  real investigation. See the structural ceiling check below, and the API-owner
- *  routing note in the handover. No product source was changed to work around it. */
+ *  What IS bounded is retention: `RETENTION_CAPS.lens_exact` is reapplied after
+ *  dedupe, so with near-match verification disabled more than eight RETAINED
+ *  exact core occurrences is unavailable in this configuration. The
+ *  eight-selection cap is reachable, so a selection-truncation example is NOT
+ *  established. No product limit was changed and no API fix is warranted.
+ *
+ *  The three consumers:
+ *    controlled-trace-dated-core-ceiling  exact-only; dates come from page reads
+ *    controlled-trace-dated-core-merged    same links also dated elsewhere -> 8
+ *    controlled-trace-coverage-gap        merged dates, pairwise rejected -> 0 compared */
 const ORDINAL_WORDS = ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven"];
 
 const STATE_OVER_EIGHT: Occ[] = ORDINAL_WORDS.map((word, i) => {
@@ -846,9 +868,10 @@ const STATE_OVER_EIGHT: Occ[] = ORDINAL_WORDS.map((word, i) => {
     // so "many-01" would collapse every outlet into one shared group.
     host: `many-${word.toLowerCase()}.test`,
     serpDate: day,
-    // Trace mode runs no text-search engine, so the provider date is never
-    // read; a fetched page is the only date source. Eleven occurrences against
-    // a five-page budget is what makes the ceiling observable.
+    // Trace mode runs no text-search engine, so with exact-only inputs a
+    // fetched page is the only date source. Eleven occurrences against a
+    // five-page budget is what makes the exact-only bound observable; the
+    // merged-date fixtures add the same links on a text/about surface instead.
     jsonLd: day,
     credit: `Many ${word}`,
     winners: SAME,
@@ -1827,10 +1850,16 @@ describe("A8 model identity is resolved by the real client", () => {
     for (const j of judged) expect(str(j, "jevModel")).toBe(JEV_MODEL);
   });
 
+  // The SAME valid answers the pinned positive uses. Returning empty answers
+  // here would give a second, independent reason for no classification, and a
+  // weakened identity boundary could hide behind malformed-answer rejection.
+  const validAnswers = (questions: Record<string, unknown>) =>
+    answers(questions, { context_relation: "DIFFERENT_CONTEXT", claim_relation: "CONTRADICTS" });
+
   for (const [label, respond] of [
-    ["absent", () => ({ answers: {} })],
-    ["null", () => ({ model: null, answers: {} })],
-    ["unexpected", () => ({ model: "jev-0.0.1-not-the-pin", answers: {} })],
+    ["absent", ({ questions }) => ({ answers: validAnswers(questions) })],
+    ["null", ({ questions }) => ({ model: null, answers: validAnswers(questions) })],
+    ["unexpected", ({ questions }) => ({ model: "jev-0.0.1-not-the-pin", answers: validAnswers(questions) })],
   ] as Array<[string, JevResponder]>) {
     it(`a ${label} returned model is rejected: zero accepted classifications`, async () => {
       const { requests, judged, result } = await runOnce(
@@ -1845,6 +1874,62 @@ describe("A8 model identity is resolved by the real client", () => {
       expect(str(result, "status")).not.toBe("CONTEXT_CONFLICT");
     });
   }
+
+  it("the client itself rejects an unpinned model, with valid answers present", async () => {
+    // Direct boundary control: the rejection happens in the real client, so a
+    // weakened identity check cannot be masked by the orchestrator.
+    for (const [label, model] of [["absent", undefined], ["null", null], ["unexpected", "jev-0.0.1"]] as const) {
+      const { client, requests } = realJevClient(({ questions }) => ({
+        ...(model === undefined ? {} : { model }),
+        answers: answers(questions, { context_relation: "DIFFERENT_CONTEXT" }),
+      }));
+      await expect(
+        client.ask({ result: { title: "A8 conflict alpha" } }, { relevance: {}, context_relation: {} }),
+        `${label} model must be rejected by the client`,
+      ).rejects.toThrow();
+      expect(requests.length, `${label}: the client must have issued the request`).toBe(1);
+    }
+  });
+
+  it("Claim mode also reaches eight dated core via organic search and via news", async () => {
+    // The cross-mode date claim must be durable in BOTH modes, not only on the
+    // committed About/Trace fixture. Same eleven exact occurrences; the date
+    // comes from a text surface instead, and identity is still the exact one.
+    for (const [label, organic, about, news] of [
+      ["organic", true, false, false],
+      ["news", false, false, true],
+    ] as const) {
+      const { client } = realJevClient(({ state, questions }) => ({
+        model: JEV_MODEL,
+        answers: answers(questions, { context_relation: "SAME_CONTEXT" }, 0.9),
+      }));
+      const events: unknown[] = [];
+      await runInvestigation(
+        {
+          media: new Uint8Array([1, 2, 3]),
+          claim: "A controlled claim for the cross-mode date path.",
+          timezone: "UTC",
+          locale: "en",
+        },
+        (e) => events.push(e),
+        {
+          serpapi: buildSerpapi(STATE_OVER_EIGHT, organic, about, news),
+          jev: client,
+          fetchPage: buildFetch(STATE_OVER_EIGHT),
+        },
+      );
+      const result = (events[events.length - 1] as { result: any }).result;
+      const cc = result["comparisonCoverage"] ?? {};
+      expect(asArray(result["timeline"]).length, `${label}: dated core`).toBe(8);
+      expect(cc["eligible"], `${label}: eligible`).toBe(8);
+      expect(cc["selected"], `${label}: selected`).toBe(8);
+      expect(cc["comparedPairs"], `${label}: compared`).toBe(7);
+      // Dates do not DEPEND ON page reads to exist. The run may still spend its
+      // five page reads for text, origin and refinement; that is not implied
+      // away by the presence of merged dates.
+      expect(strs(result["limitations"])).not.toContain("insufficient_dated_occurrences");
+    }
+  });
 
   it("answers derived from the serialized state reach the raw request body", async () => {
     const { requests } = await runOnce(({ state, questions }) => {
@@ -1870,16 +1955,14 @@ describe("A8 model identity is resolved by the real client", () => {
  * Generator contract — runs on every `vitest run`, no GEN gate needed.
  * ---------------------------------------------------------------------- */
 
-type JevResponse = {
-  answers: Record<string, unknown>;
-  model: string;
-  identity: { requested: string; reported: string; status: string; pinned: boolean };
-};
+/** The production client's own result type, not a hand-rolled stand-in. */
+type JevResponse = JevAskResult;
 
 /** Called as a real method so `this` survives — destructuring `.ask` off the
- *  client only worked while `jev` was a plain literal with no receiver. */
-const jevAsk = (claim: unknown, qs: Record<string, unknown>): Promise<JevResponse> =>
-  jev.ask(claim, qs);
+ *  client only worked while `jev` was a plain literal with no receiver. Typed
+ *  with the production signature so a signature drift is a type error here. */
+const jevAsk = (state: unknown, questions: Record<string, JevQuestion>): Promise<JevResponse> =>
+  jev.ask(state, questions);
 
 describe("generator contract", () => {
   it("the Jev client reports a truthful, pinned model identity", async () => {
@@ -2000,10 +2083,12 @@ describe("A8 current-source state semantics", () => {
   const caveatPresent = (r: Record<string, unknown>) => r["doesNotProveClaimTrue"] === true;
 
   it("NO_CONFLICT_FOUND caveat is load-bearing: mutating the fixture turns it red", () => {
-    // A real red, not an assign-false/assert-false tautology. The fixture bytes
-    // are copied, the caveat is removed from the copy, the copy is written back
-    // out and re-read through the same loader, and the SAME predicate that the
-    // positive assertion uses is evaluated on it.
+    // A real red, not an assign-false/assert-false tautology. The fixture's
+    // SERIALIZED TEXT is read, the caveat is removed from that string, the
+    // mutated string is re-parsed event-by-event, and the SAME predicate the
+    // positive assertion uses is evaluated on the re-parsed result. This is a
+    // serialized-bytes control, not a disk round-trip: no mutated file is ever
+    // written, and the committed bytes are never touched.
     const src = path.join(OUT, "controlled-no-conflict.ndjson");
     const original = fs.readFileSync(src, "utf8");
     try {
@@ -2020,7 +2105,9 @@ describe("A8 current-source state semantics", () => {
       // red -> green pair rather than a permanently red check.
       expect(caveatPresent(result("controlled-no-conflict"))).toBe(true);
     } finally {
-      fs.writeFileSync(src, original);
+      // The committed bytes were never modified; restore defensively so a
+      // partially-applied mutation can never leak into the fixture set.
+      if (fs.readFileSync(src, "utf8") !== original) fs.writeFileSync(src, original);
     }
   });
 
