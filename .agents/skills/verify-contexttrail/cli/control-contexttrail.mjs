@@ -1831,8 +1831,10 @@ function parseDriveOptions(opts = {}) {
     fail(`unsupported option(s) for ${feature}: ${unknown.map((k) => `--${k}`).join(", ")}`);
   }
 
-  const live = flags.live === true;
-  if (live && !spec.options.length) {
+  // `live-handler` is a live-semantics invocation by construction, so it enters
+  // the live branches without needing (or allowing) a --live boolean.
+  const live = flags.live === true || handlerLive;
+  if (live && !handlerLive && !spec.options.length) {
     fail(`--live is only valid for investigation|result|viewer drives`);
   }
 
@@ -2644,6 +2646,7 @@ async function drive(opts = {}) {
   let spec;
   let live;
   let delayMs = 0;
+  let userSuppliedCase = false;
   if (handlerLive) {
     feature = flags.feature;
     if (!LIVE_HANDLER_FEATURES.includes(feature)) {
@@ -2655,12 +2658,11 @@ async function drive(opts = {}) {
     // credit) and `--manifest` accepted as the readiness manifest's flag. It is
     // a live-semantics invocation, so it carries live semantics into the parser
     // — the command simply cannot allow a provider request.
-    flags.live = true;
     positional[1] = feature;
-    ({ feature, spec, live, delayMs } = parseDriveOptions({ handlerLive: true }));
+    ({ feature, spec, live, delayMs, userSuppliedCase } = parseDriveOptions({ handlerLive: true }));
   } else {
     if (!positional[1]) fail("drive requires a feature (implemented: " + FEATURE_LIST.join(", ") + ")");
-    ({ feature, spec, live, delayMs } = parseDriveOptions());
+    ({ feature, spec, live, delayMs, userSuppliedCase } = parseDriveOptions());
   }
 
   // Credit gate BEFORE run state: a --live drive must never reach the
@@ -2697,7 +2699,9 @@ async function drive(opts = {}) {
       : fixtureDrivesThisRun
         ? "public-contract-boundary"
         : "real-ui";
-  const caseName = flags.case ?? null;
+  // Only a case the caller actually supplied is a case. An injected fixture
+  // default is provenance for a controlled run and meaningless for a live one.
+  const caseName = userSuppliedCase ? flags.case ?? null : null;
 
   // Resolved before any browser work: a live drive submits the operator's own
   // image/claim, a controlled drive the generated set.
@@ -2720,6 +2724,10 @@ async function drive(opts = {}) {
   const rec = new Recorder(driveDir);
   const runner = runnerIdentity();
   const t0 = Date.now();
+  // Fault self-report: how many mutations the injected fault actually performed,
+  // read before the browser closes, and whether that counts as having fired.
+  let faultHits = null;
+  let faultFired = null;
 
   // Per-drive fixture retention: the exact bytes this drive was shown, copied
   // into the drive's own evidence directory and hashed. Sealing later hashes
@@ -2748,7 +2756,6 @@ async function drive(opts = {}) {
     mode: flags.mode ?? null,
     view: flags.view ?? null,
     fault,
-    faultFired,
     live,
     tier,
     fixture: fixtureUsed,
@@ -2779,7 +2786,6 @@ async function drive(opts = {}) {
 
   let stream = null;
   let session = null;
-  let faultHits = null;
   let outcome = "PASS";
   let failure = null;
   let failureStack = "";
@@ -2897,7 +2903,6 @@ async function drive(opts = {}) {
   // An accepted --fault that reported no mutation did not sabotage anything, so
   // the drive is red even when every assertion happened to pass. This is the
   // general guard behind the per-fault scope checks.
-  let faultFired = null;
   if (fault) {
     faultFired = faultHits === null ? null : faultHits > 0;
     rec.push(
