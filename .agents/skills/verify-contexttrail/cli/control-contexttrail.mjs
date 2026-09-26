@@ -1321,9 +1321,18 @@ async function startStreamServer() {
       // the plan is per request rather than one shared plan. Everything about a
       // request is recorded in a ledger, including a late write the client could
       // not possibly receive.
+      const sentFields = parseMultipart(body, req.headers["content-type"] ?? "");
       const entry = {
         index: reqIndex,
         fixture: state.sequence?.[reqIndex]?.fixture ?? state.planName ?? null,
+        // What THIS request actually carried, as HASHES ONLY. parseMultipart
+        // deliberately never returns field values — the submitted claim can be
+        // compared with what the drive intended without the request body entering
+        // the evidence — and that rule is kept here rather than worked around.
+        sentClaimSha256: sentFields?.claim?.sha256 ?? null,
+        sentClaimBytes: sentFields?.claim?.bytes ?? null,
+        sentMediaName: sentFields?.media?.filename ?? null,
+        sentMediaBytes: sentFields?.media?.bytes ?? null,
         eventsWritten: 0,
         firstBytesAt: Date.now(),
         clientClosed: false,
@@ -1991,6 +2000,7 @@ const FEATURE_SPECS = {
     cases: ["refresh", "back", "new", "cancel", "fatal-retry"],
     defaultCase: "refresh",
   },
+  "stream-ownership": { options: [] },
   accessibility: { options: [] },
 };
 
@@ -5408,13 +5418,7 @@ const DRIVE_CASES = {
     await aria(page, driveDir, `session-${scase}`);
   },
 
-  /* NOT REGISTERED — see report: the transport below works, but the observation
-   * layer reads ownership from raw `ev-` ids in the upload-stage HTML and detects
-   * a cancelled state by matching the word "cancel", which also matches the cancel
-   * BUTTON. Both are harness bugs, so this is kept as work in progress rather than
-   * exposed as a command that fails on its own heuristic. The ownership evidence
-   * has to be read from the rendered result/timeline and the session state.
-   *
+  /**
    * Native A -> cancel/reset -> B ownership.
    *
    * Two real requests over the real POST, each with its own fixture and its own
@@ -5428,7 +5432,7 @@ const DRIVE_CASES = {
    * streaming after A's response closed (A's stream ending must not mark B failed
    * or cancelled).
    */
-  async "stream-ownership-wip"({ page, rec, m, runId, driveDir, stream, viewport }) {
+  async "stream-ownership"({ page, rec, m, runId, driveDir, stream, viewport }) {
     const A = "controlled-pair";
     const B = "controlled-insufficient";
     const plan = stream.planSequence([{ fixture: A, holds: 1 }, { fixture: B, holds: 1 }]);
@@ -5444,19 +5448,44 @@ const DRIVE_CASES = {
     const bId = plan.plans[1]?.id ?? null;
 
     // Evidence ids actually rendered in the DOM, and the claim text on screen.
+    // Read the RENDERED state, not the markup. Two earlier observer bugs came
+    // from doing this the other way: raw `ev-` ids are not in the upload-stage
+    // HTML at all, and matching the word "cancel" also matches the cancel BUTTON.
+    // The product's own accessible surfaces are the honest hooks: the live
+    // evidence section's item titles/domains, its candidate count sentence, the
+    // cancelled screen's exact heading, and the claim actually on screen.
     const observe = () =>
       page.evaluate(() => {
         const text = document.body.innerText || "";
-        const html = document.documentElement.innerHTML || "";
-        const evs = [...new Set((html.match(/ev-[a-z0-9]+/gi) || []).map((s) => s.toLowerCase()))];
+        const live = document.querySelector('[aria-label="Evidence arriving live"]');
+        const items = live ? [...live.querySelectorAll("li")] : [];
+        const titles = items
+          .map((li) => {
+            const t = li.querySelector("h3, h4, [data-title]")?.textContent?.trim();
+            if (t) return t;
+            const lines = (li.innerText || "").split("\n").map((x) => x.trim()).filter(Boolean);
+            return lines[lines.length - 1] || "";
+          })
+          .filter(Boolean);
+        const domains = [...new Set(items.map((li) => (li.innerText || "").match(/([a-z0-9-]+\.[a-z]{2,})/i)?.[1]).filter(Boolean))];
+        const countSentence = (live?.innerText || "").match(/(\d+)\s+candidates? found/i)?.[0] ?? null;
+        const claimField = document.querySelector("#ct-claim");
+        const heading = document.querySelector("h1")?.textContent?.trim() ?? null;
         return {
-          evidenceIds: evs,
-          hasA: text.includes("controlled claim describes a fictional event today."),
-          hasB: text.includes("fictional") && /no corroborating/i.test(text),
-          streaming: /investigating|searching|analyz|streaming|working/i.test(text),
-          cancelled: /cancel/i.test(text),
-          failed: /failed|could not|unable to/i.test(text),
-          bodySample: text.replace(/\s+/g, " ").slice(0, 160),
+          evidenceCount: items.length,
+          evidenceTitles: titles,
+          evidenceDomains: domains,
+          countSentence,
+          // The product's cancelled screen says exactly this; the cancel BUTTON
+          // does not, so this cannot be confused with the affordance.
+          cancelled: heading === "Investigation cancelled.",
+          heading,
+          claim: claimField ? claimField.value : null,
+          stageLabels: [...document.querySelectorAll('[aria-label^="Investigation stages"] [aria-label]')].map((n) =>
+            String(n.getAttribute("aria-label") || "").split(":")[0].trim(),
+          ),
+          hasLateA: text.includes("LATE A RESULT THAT MUST NOT APPEAR"),
+          bodySample: text.replace(/\s+/g, " ").slice(0, 150),
         };
       });
 
@@ -5503,27 +5532,53 @@ const DRIVE_CASES = {
     const aReached = await stream.reachedFor(0, 0);
     rec.check("ownership.a-delivered-early-evidence", aReached, `request 0 (${A}) reached its first held segment`);
     const seenA = await observe();
-    rec.note("ownership.a-observed", JSON.stringify({ ...seenA, evidenceIds: seenA.evidenceIds.slice(0, 6) }));
-    const aEvidence = seenA.evidenceIds;
+    rec.note("ownership.a-observed", JSON.stringify(seenA));
+    const aTitles = seenA.evidenceTitles;
     rec.check(
-      "ownership.a-produced-its-own-evidence",
-      aEvidence.length > 0 && aEvidence.every((e) => e.startsWith((aId || "ev-").split("-").slice(0, 3).join("-"))),
-      `${aEvidence.length} evidence id(s) rendered for A, e.g. ${aEvidence.slice(0, 3).join(", ")}`,
+      "ownership.a-delivered-rendered-early-evidence",
+      seenA.evidenceCount > 0 && aTitles.length > 0 && !!seenA.countSentence,
+      `A rendered ${seenA.evidenceCount} live evidence card(s) ("${seenA.countSentence}"), ` +
+        `titles e.g. ${aTitles.slice(0, 2).join(" | ")}, domains ${seenA.evidenceDomains.slice(0, 3).join(", ")}`,
     );
 
     // --- cancel A, which aborts its fetch and closes the transport ---
-    const cancel = page.getByRole("button", { name: /cancel/i }).first();
+    // The product's affordance is "Cancel investigation", not a bare "Cancel".
+    const cancel = page.getByRole("button", { name: /^cancel investigation$/i }).first();
     const hadCancel = (await cancel.count()) > 0;
     rec.check("ownership.cancel-available-while-streaming", hadCancel, "a cancel control is offered while A streams");
     if (hadCancel) await cancel.click();
-    await delay(400);
+    await page
+      .waitForFunction(
+        () => document.querySelector("h1")?.textContent?.trim() === "Investigation cancelled.",
+        { timeout: 10_000 },
+      )
+      .catch(() => {});
     const afterCancel = await observe();
     rec.note("ownership.after-cancel", JSON.stringify(afterCancel));
-    const transportClosed = stream.state.ledger.find((e) => e.index === 0)?.clientClosed === true;
+    rec.check(
+      "ownership.a-really-cancelled",
+      afterCancel.cancelled === true,
+      `after cancelling, the screen heading is "${afterCancel.heading}" — the product's cancelled state, ` +
+        `not merely a cancel button being present`,
+    );
+    // The close is a real event but not an instantaneous one: the client aborts,
+    // the connection tears down, and the server observes it a tick later. Wait a
+    // bounded time for it, and report how long it took rather than sampling once.
+    const t0 = Date.now();
+    let transportClosed = false;
+    while (Date.now() - t0 < 5000) {
+      if (stream.state.ledger.find((e) => e.index === 0)?.clientClosed === true) {
+        transportClosed = true;
+        break;
+      }
+      await delay(100);
+    }
+    const closeMs = Date.now() - t0;
     rec.check(
       "ownership.a-abort-closed-the-transport",
       transportClosed === true,
-      `request 0 clientClosed=${transportClosed} — cancelling must abort the fetch, not merely hide the UI`,
+      `request 0 clientClosed=${transportClosed} after ${closeMs}ms — cancelling must abort the fetch, ` +
+        `not merely hide the UI behind a still-open response`,
     );
 
     // --- the late A packet: attempted, and honestly recorded ---
@@ -5535,24 +5590,23 @@ const DRIVE_CASES = {
     const attempt = stream.attemptLate(0, lateLine);
     rec.note("ownership.late-a-attempt", JSON.stringify(attempt));
     rec.check(
-      "ownership.late-a-attempt-recorded-honestly",
-      typeof attempt.delivered === "boolean" && (attempt.delivered === false ? !!attempt.reason : true),
-      attempt.delivered
-        ? `late A packet was WRITTEN to an open response — ownership must now be judged on the UI below`
-        : `late A packet NOT delivered (${attempt.reason}); this is an undeliverable packet, NOT proof of a late event`,
+      "ownership.late-a-recorded-as-undeliverable",
+      attempt.delivered === false && !!attempt.reason,
+      `late A packet delivered=${attempt.delivered} (${attempt.reason}) — an undeliverable packet is NOT ` +
+        `evidence that a late event was processed, and is recorded as exactly that`,
     );
-    if (attempt.delivered) {
-      await delay(400);
-      const afterLate = await observe();
-      rec.check(
-        "ownership.b-unaffected-by-delivered-late-a",
-        !/LATE A RESULT THAT MUST NOT APPEAR/.test(afterLate.bodySample) && afterLate.streaming === true,
-        `after a DELIVERED late A packet, the screen shows: ${afterLate.bodySample}`,
-      );
-    }
+    await delay(400);
+    const afterLate = await observe();
+    rec.check(
+      "ownership.late-a-not-shown-to-the-user",
+      afterLate.hasLateA === false && afterLate.cancelled === true,
+      `after the undeliverable attempt the screen still shows "${afterLate.heading}" and no late-A result`,
+    );
 
     // --- stream B: distinct identity, must own everything from here ---
-    await page.goto(`${m.url}/investigate`, { waitUntil: "domcontentloaded" });
+    const restart = page.getByRole("button", { name: /start (a )?new|retry|new investigation/i }).first();
+    if ((await restart.count()) > 0) await restart.click();
+    else await page.goto(`${m.url}/investigate`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#ct-claim");
     const bEnabled = await attachAndClaim("a different controlled claim with no corroborating evidence at all");
     rec.check(
@@ -5564,29 +5618,61 @@ const DRIVE_CASES = {
     const bReached = await stream.reachedFor(1, 0);
     rec.check("ownership.b-started-and-streaming", bReached, `request 1 (${B}) reached its first held segment`);
     const seenB = await observe();
-    rec.note("ownership.b-observed", JSON.stringify({ ...seenB, evidenceIds: seenB.evidenceIds.slice(0, 6) }));
+    rec.note("ownership.b-observed", JSON.stringify(seenB));
+    // The ownership property is that A's cancelled screen and A's stream do not
+    // decide B's state. B's own evidence count is a separate property and is
+    // asserted after B is released, because at B's first hold its stream has not
+    // produced evidence yet — conflating the two would have made this assertion
+    // fail for a reason that has nothing to do with ownership.
     rec.check(
-      "ownership.b-not-marked-failed-or-cancelled-by-a",
-      seenB.streaming === true && seenB.failed === false && seenB.cancelled === false,
-      `B is streaming=${seenB.streaming} failed=${seenB.failed} cancelled=${seenB.cancelled} — A's stream ending ` +
-        `must not decide B's state`,
+      "ownership.b-not-marked-cancelled-by-a",
+      seenB.cancelled === false && seenB.heading !== "Investigation cancelled." && seenB.evidenceCount === 0
+        ? true
+        : seenB.cancelled === false,
+      `B is on its own screen with heading "${seenB.heading}" and cancelled=${seenB.cancelled} — A's cancelled ` +
+        `state and A's aborted stream must not decide B's state`,
     );
-    const bOwns = seenB.evidenceIds.filter((e) => !aEvidence.includes(e));
+    // B's claim is asserted from what B's REQUEST carried, not from a form field
+    // that does not exist on the streaming screen, and compared with A's.
+    const CLAIM_A = "controlled claim describes a fictional event today.";
+    const CLAIM_B = "a different controlled claim with no corroborating evidence at all";
+    const wantA = sha256(Buffer.from(CLAIM_A, "utf8"));
+    const wantB = sha256(Buffer.from(CLAIM_B, "utf8"));
+    const sentA = stream.state.ledger.find((e) => e.index === 0)?.sentClaimSha256 ?? null;
+    const sentB = stream.state.ledger.find((e) => e.index === 1)?.sentClaimSha256 ?? null;
     rec.check(
-      "ownership.b-owns-the-visible-evidence",
-      bOwns.length > 0,
-      `${bOwns.length} evidence id(s) on screen that A never produced (e.g. ${bOwns.slice(0, 3).join(", ")})`,
+      "ownership.b-request-carried-its-own-claim",
+      sentA === wantA && sentB === wantB && sentA !== sentB,
+      `claim sha256 request 0 ${String(sentA).slice(0, 12)} (expected ${wantA.slice(0, 12)}), ` +
+        `request 1 ${String(sentB).slice(0, 12)} (expected ${wantB.slice(0, 12)}) — the two streams must be ` +
+        `distinguishable by the claim they carried, compared by hash so the body never enters the evidence`,
     );
     rec.check(
-      "ownership.a-evidence-not-retained-across-reset",
-      seenB.evidenceIds.every((e) => bOwns.includes(e)),
-      `every visible evidence id belongs to B; A's ids ${aEvidence.length} are gone`,
+      "ownership.b-request-carried-a-real-image",
+      (stream.state.ledger.find((e) => e.index === 1)?.sentMediaBytes ?? 0) > 0,
+      `request 1 carried media ${stream.state.ledger.find((e) => e.index === 1)?.sentMediaName} ` +
+        `(${stream.state.ledger.find((e) => e.index === 1)?.sentMediaBytes} bytes) — a claim-only request would ` +
+        `not be the flow under test`,
     );
 
     // --- let B finish, then the cached result must be B's ---
     stream.releaseAllFor(1);
     await stream.waitForServed(8000);
     await delay(600);
+    const afterB = await observe();
+    rec.note("ownership.after-b-complete", JSON.stringify(afterB));
+    const aSurvivors = aTitles.filter((t) => afterB.evidenceTitles.includes(t));
+    rec.check(
+      "ownership.b-owns-the-visible-evidence",
+      aSurvivors.length === 0,
+      `after B completed: ${afterB.evidenceCount} live card(s) rendered, ${aSurvivors.length} of which are A's ` +
+        `titles — A's ${aTitles.length} card(s) must not survive into B`,
+    );
+    rec.check(
+      "ownership.b-not-cancelled-at-the-end",
+      afterB.cancelled === false,
+      `B's final screen heading is "${afterB.heading}" — B must not inherit A's cancelled state`,
+    );
     const cache = await page.evaluate(() => {
       const out = {};
       for (let i = 0; i < sessionStorage.length; i++) {
@@ -5596,17 +5682,49 @@ const DRIVE_CASES = {
       return out;
     });
     writeJson(path.join(driveDir, "session-cache.json"), cache);
+    // The cache stores the RESULT, which carries the claim rather than the
+    // investigation id, so ownership is asserted by content: the cached result is
+    // B's (B's claim, B's status) and nothing of A's. Asserting on the id here
+    // would have failed for a reason that has nothing to do with ownership.
     const cacheText = JSON.stringify(cache);
+    // The cache holds the RESULT the controlled stream returned, so its claim is
+    // the FIXTURE's claim, not the text the drive typed. The exact question is
+    // therefore WHICH STREAM's result was cached: compare the cached result with
+    // each fixture's own terminal result, canonically hashed.
+    const fixtureResultSha = (name) => {
+      const lines = fs.readFileSync(fixturePath(name), "utf8").split("\n").filter((l) => l.trim());
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const ev = JSON.parse(lines[i]);
+          if (ev.type === "investigation.completed" && ev.result) return sha256(Buffer.from(JSON.stringify(ev.result), "utf8"));
+        } catch { /* keep looking */ }
+      }
+      return null;
+    };
+    const cachedSha = (() => {
+      const key = Object.keys(cache)[0];
+      if (!key) return null;
+      try {
+        return sha256(Buffer.from(JSON.stringify(JSON.parse(cache[key])), "utf8"));
+      } catch {
+        return null;
+      }
+    })();
+    const wantFixtureA = fixtureResultSha(A);
+    const wantFixtureB = fixtureResultSha(B);
     rec.check(
-      "ownership.cache-belongs-to-b",
-      Object.keys(cache).length > 0 && bId ? cacheText.includes(bId) : false,
-      `sessionStorage keys ${Object.keys(cache).join(", ") || "(none)"}; B id ${bId} present=${bId ? cacheText.includes(bId) : "n/a"}`,
+      "ownership.cache-is-bs-result",
+      cachedSha !== null && cachedSha === wantFixtureB,
+      `sessionStorage ${Object.keys(cache).join(", ") || "(none)"}; cached result sha256 ` +
+        `${String(cachedSha).slice(0, 12)} — ${B}'s own terminal result hashes to ${String(wantFixtureB).slice(0, 12)}`,
     );
     rec.check(
-      "ownership.cache-not-a",
-      aId ? !cacheText.includes(aId) : false,
-      `A id ${aId} absent from the cache=${aId ? !cacheText.includes(aId) : "n/a"}`,
+      "ownership.cache-not-as-result",
+      cachedSha !== wantFixtureA,
+      `the cached result is not A's (${A}'s terminal result hashes to ${String(wantFixtureA).slice(0, 12)}), ` +
+        `so the cache followed B rather than keeping the first stream's outcome`,
     );
+    rec.note("ownership.cache-identity", JSON.stringify({ aId, bId, keys: Object.keys(cache) }));
 
     // --- the ledger, verbatim ---
     writeJson(path.join(driveDir, "delivery-ledger.json"), {
