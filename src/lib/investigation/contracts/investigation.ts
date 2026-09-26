@@ -172,7 +172,12 @@ export interface SharedResultMetrics {
   comparisonCoverage: ComparisonCoverage;
   limitations: LimitationCode[];
   undatedEvidence: TimelineItem[];
+  /** Dated core occurrences (EXACT_MATCH / verified NEAR_MATCH) only. */
   timeline: TimelineItem[];
+  /** Dated non-core visual leads — supporting, never core. */
+  supportingEvidence: TimelineItem[];
+  /** Dated contextual web/news evidence with no media identity. */
+  contextualEvidence: TimelineItem[];
 }
 
 /** §22 — Trace-mode result. Never carries claim statuses. */

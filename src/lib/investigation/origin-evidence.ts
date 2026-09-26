@@ -37,14 +37,30 @@ const ATTRIBUTION_PATTERNS: RegExp[] = [
   /reprinted (?:from|with permission of)\s+([^,.;\n]{2,80})/i,
 ];
 
-/** Explicit original-reporting markers on the page itself. */
+/**
+ * Explicit original-reporting markers on the page itself. Every pattern
+ * asserts a positive act of original publication/reporting — merely
+ * mentioning staff or reporters is never evidence (§13 conservative rule).
+ */
 const OWN_REPORTING_PATTERNS: RegExp[] = [
   /first published (?:here|by us)/i,
   /\bexclusive\b[^.]{0,40}\b(?:report|investigation|interview)/i,
-  /(?:our|the)\s+(?:staff|reporters?|correspondents?|investigation (?:team|found))/i,
+  /(?:our|the)\s+(?:staff|reporters?|correspondents?)\s+(?:first\s+)?(?:reported|verified|obtained|produced|investigated|documented|broke)\b/i,
+  /our\s+(?:investigation|reporting|newsroom|outlet)\s+(?:first\s+)?(?:published|reported|broke|uncovered|verified|obtained)/i,
   /(?:reported|investigated|written) by\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b[^.]{0,40}\bfor\s+/i,
   /this (?:outlet|site|publication|newspaper) (?:first )?(?:reported|broke|published)/i,
 ];
+
+/**
+ * Negation markers that void an otherwise matching sentence — "the
+ * reporters were not involved" must never read as original reporting.
+ */
+const NEGATION_PATTERN =
+  /\b(?:not|no|never|neither|nor|without|denied|denies|uninvolved|unrelated|didn'?t|did not|wasn'?t|was not|weren'?t|were not|don'?t|do not|doesn'?t|does not)\b/i;
+
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim().length > 0);
+}
 
 /**
  * Extract an attributed origin domain from page text. Returns a registrable
@@ -74,9 +90,16 @@ export function attributedOriginDomain(text: string): string | null {
   return null;
 }
 
-/** True when the page carries an explicit original-reporting marker. */
+/**
+ * True when the page carries an explicit original-reporting marker in a
+ * non-negated sentence. Negated or merely-mentioning text is not evidence.
+ */
 export function hasOwnReportingSignal(text: string): boolean {
-  return OWN_REPORTING_PATTERNS.some((re) => re.test(text));
+  return splitSentences(text).some(
+    (s) =>
+      !NEGATION_PATTERN.test(s) &&
+      OWN_REPORTING_PATTERNS.some((re) => re.test(s)),
+  );
 }
 
 /**

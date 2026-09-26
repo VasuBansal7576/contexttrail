@@ -82,8 +82,24 @@ export function parseDateValue(
   const iso = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?(?:[T ].*)?$/.exec(s);
   if (iso) {
     const [, y, m, d] = iso;
-    if (d != null && m != null) return toParts(+y, +m, +d);
-    if (m != null) return { value: `${y}-${m}`, precision: "month" };
+    if (d != null && m != null) {
+      // Calendar validity: impossible dates (Feb 31, month 13) are rejected
+      // outright rather than allowed to roll over into a different day.
+      const ms = Date.UTC(+y, +m - 1, +d);
+      const rt = new Date(ms);
+      if (
+        rt.getUTCFullYear() !== +y ||
+        rt.getUTCMonth() !== +m - 1 ||
+        rt.getUTCDate() !== +d
+      ) {
+        return null;
+      }
+      return toParts(+y, +m, +d);
+    }
+    if (m != null) {
+      if (+m < 1 || +m > 12) return null;
+      return { value: `${y}-${m}`, precision: "month" };
+    }
     return { value: y, precision: "year" };
   }
 
@@ -149,23 +165,69 @@ function valueFromComponents(
 }
 
 /**
+ * Shift an instant so chrono's system-local calendar math lands on the
+ * wall clock of `timezone` (§19.1). Returns the instant unchanged for a
+ * missing or invalid IANA name — never guesses.
+ */
+function zonedReference(instant: Date, timezone?: string): Date {
+  if (timezone === undefined || timezone === "") return instant;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(instant);
+    const get = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const userWall = Date.UTC(
+      get("year"),
+      get("month") - 1,
+      get("day"),
+      get("hour"),
+      get("minute"),
+      get("second"),
+    );
+    const systemWall = Date.UTC(
+      instant.getFullYear(),
+      instant.getMonth(),
+      instant.getDate(),
+      instant.getHours(),
+      instant.getMinutes(),
+      instant.getSeconds(),
+    );
+    return new Date(instant.getTime() + (userWall - systemWall));
+  } catch {
+    return instant;
+  }
+}
+
+/**
  * §19.1 — extract at most one usable claim date. Multiple materially
  * different parses make the claim date ambiguous -> null (do not guess).
+ * Relative dates ("today", "yesterday") resolve on the browser's IANA
+ * timezone wall clock, not the server's.
  */
 export function parseClaimDate(
   claim: string,
   opts: {
     /**
-     * Investigation start instant. Callers should construct it so chrono's
-     * relative-date math lands on the browser's wall clock (§19.1 reference:
-     * start timestamp + browser timezone).
+     * Investigation start instant; `timezone` re-bases chrono's relative
+     * math onto that zone's wall clock (§19.1 reference).
      */
     referenceInstant: Date;
     /** IANA browser timezone (§24 request field). */
     timezone?: string;
   },
 ): ClaimDateResult {
-  const results = chrono.parse(claim, opts.referenceInstant);
+  const results = chrono.parse(
+    claim,
+    zonedReference(opts.referenceInstant, opts.timezone),
+  );
   if (results.length === 0) {
     return { claimDate: null, precision: "unknown", ambiguous: false };
   }

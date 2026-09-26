@@ -57,8 +57,14 @@ describe("buildTimeline (§20.2, §38.3)", () => {
       ]),
     );
     const r = buildTimeline([a, b, extra], seg);
-    const extraItem = r.timeline.find((t) => t.evidenceId === extra.id)!;
-    expect(extraItem.incomingConnector?.kind).toBe("unexamined");
+    // A dated visual lead is supporting evidence, not a timeline occurrence:
+    // it keeps its observed date but carries no continuity connector.
+    expect(r.timeline.map((t) => t.evidenceId)).not.toContain(extra.id);
+    const extraItem = r.supportingEvidence.find(
+      (t) => t.evidenceId === extra.id,
+    )!;
+    expect(extraItem.observedAt).toBe("2020-01-15");
+    expect(extraItem.incomingConnector).toBeNull();
     const bItem = r.timeline.find((t) => t.evidenceId === b.id)!;
     expect(bItem.incomingConnector).toEqual({
       kind: "same_context",

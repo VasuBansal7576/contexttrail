@@ -10,6 +10,7 @@
 import type { EvidenceCandidate } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
 import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
+import { isCoreOccurrence } from "./identity";
 import type { SegmentResult } from "./divergence";
 
 /** Strong context-relationship label from a Jev judgment, else null. */
@@ -63,17 +64,22 @@ function toTimelineItem(
 }
 
 export interface BuiltTimeline {
-  /** Dated, usable evidence in chronological order. */
+  /** Dated core occurrences (EXACT_MATCH / verified NEAR_MATCH) only. */
   timeline: TimelineItem[];
+  /** Dated non-core visual leads — supporting, never core. */
+  supportingEvidence: TimelineItem[];
+  /** Dated contextual web/news evidence (no media identity). */
+  contextualEvidence: TimelineItem[];
   /** Everything else — unknown/disputed dates and non-dated candidates. */
   undatedEvidence: TimelineItem[];
 }
 
 /**
- * Split candidates into the dated timeline and undated evidence.
- * Only candidates with a usable day-precision date are ordered; month/year
- * precision values can sort the timeline but are kept verbatim (never
- * promoted to a day).
+ * Split candidates into the dated core timeline, dated supporting leads,
+ * dated contextual evidence, and undated evidence. Only core occurrences
+ * may populate `timeline`; contextual and lead evidence is dated and
+ * visible but can never assert media history. Month/year precision values
+ * can sort the timeline but are kept verbatim (never promoted to a day).
  */
 export function buildTimeline(
   candidates: readonly EvidenceCandidate[],
@@ -81,6 +87,8 @@ export function buildTimeline(
   excerpts?: ReadonlyMap<string, string>,
 ): BuiltTimeline {
   const dated: EvidenceCandidate[] = [];
+  const datedLead: EvidenceCandidate[] = [];
+  const datedContextual: EvidenceCandidate[] = [];
   const undated: EvidenceCandidate[] = [];
   for (const c of candidates) {
     if (
@@ -88,7 +96,9 @@ export function buildTimeline(
       c.dateStatus === "usable" &&
       c.datePrecision !== "unknown"
     ) {
-      dated.push(c);
+      if (isCoreOccurrence(c)) dated.push(c);
+      else if (c.mediaRelationship === "VISUAL_LEAD") datedLead.push(c);
+      else datedContextual.push(c);
     } else {
       undated.push(c);
     }
@@ -98,6 +108,11 @@ export function buildTimeline(
       (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
       a.id.localeCompare(b.id),
   );
+  const byDate = (a: EvidenceCandidate, b: EvidenceCandidate) =>
+    (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
+    a.id.localeCompare(b.id);
+  datedLead.sort(byDate);
+  datedContextual.sort(byDate);
 
   const divergenceId =
     segments?.firstObservedContextDivergence?.toOccurrenceId ?? null;
@@ -129,8 +144,19 @@ export function buildTimeline(
     });
   });
 
+  const plainItem = (c: EvidenceCandidate) =>
+    toTimelineItem(c, {
+      observedAt: c.publishedAt,
+      segmentIndex: null,
+      connector: null,
+      isDivergencePoint: false,
+      excerpt: excerpts?.get(c.id) ?? null,
+    });
+
   return {
     timeline,
+    supportingEvidence: datedLead.map(plainItem),
+    contextualEvidence: datedContextual.map(plainItem),
     undatedEvidence: undated.map((c) =>
       toTimelineItem(c, {
         observedAt: null,

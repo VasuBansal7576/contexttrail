@@ -80,10 +80,25 @@ function baseCandidate(input: {
   const domain = normalizedHostname(input.link) ?? canonical.hostname;
   const registrable = registrableDomain(domain) ?? domain;
   const id = nextId();
-  const resolved = resolveMediaRelationship({
-    fromValidatedExactCollection: false,
-    verification: null,
-  });
+  // Contextual web/news/about-image surfaces never saw the media — they
+  // carry no media identity. Only Lens visual matches are VISUAL_LEAD.
+  const isVisualLead = input.retrievalKind === "lens_visual";
+  const resolved = isVisualLead
+    ? resolveMediaRelationship({
+        fromValidatedExactCollection: false,
+        verification: null,
+      })
+    : {
+        mediaRelationship: null,
+        identityEvidence: {
+          basis: "contextual" as const,
+          hashDistance: null,
+          verifierVersion: null,
+          verifierConfigId: null,
+          verificationStatus: "unavailable" as const,
+          comparisonMetrics: null,
+        },
+      };
   return {
     id,
     retrievalKind: input.retrievalKind,

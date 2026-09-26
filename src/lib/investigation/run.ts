@@ -189,6 +189,16 @@ export function selectDeepReadCandidates(
     )[0],
   );
 
+  // Fill any remaining budget with the strongest unseen judged candidates —
+  // the frozen categories pick one winner each and must not leave slots
+  // empty while unexamined relevant evidence exists (§18).
+  for (const c of byRel(
+    candidates.filter((c) => c.judgment !== null && !seen.has(c.id)),
+  )) {
+    if (picked.length >= max) break;
+    take(c);
+  }
+
   return picked;
 }
 
@@ -249,14 +259,14 @@ export async function runInvestigation(
     emit({ type: "evidence.discovered", evidence: toPublicCandidate(c, excerpts.get(c.id) ?? null) });
   };
 
-  const addCandidates = (batch: NormalizedBatch | null): number => {
-    if (batch === null) return 0;
-    let added = 0;
+  const addCandidates = (batch: NormalizedBatch | null): EvidenceCandidate[] => {
+    if (batch === null) return [];
+    const added: EvidenceCandidate[] = [];
     for (const c of batch.candidates) {
       if (!seenIds.has(c.id)) {
         seenIds.add(c.id);
         candidates.push(c);
-        added += 1;
+        added.push(c);
       }
     }
     for (const q of batch.relatedQueries) {
@@ -264,6 +274,22 @@ export async function runInvestigation(
     }
     recordDateSources(dateSources, batch);
     return added;
+  };
+
+  /** Resolve a candidate's evidence date + excerpt provenance, then emit
+   *  evidence.discovered (once per id — see emitDiscovered). */
+  const prepareAndDiscover = (c: EvidenceCandidate): void => {
+    const resolved = resolveEvidenceDate(
+      dateSources.get(c.id) ?? {},
+      new Date(startedAt),
+    );
+    c.publishedAt = resolved.publishedAt;
+    c.publishedAtSource = resolved.publishedAtSource;
+    c.datePrecision = resolved.datePrecision;
+    c.dateStatus = resolved.dateStatus;
+    c.excerptSource = c.snippet !== null ? "serp_snippet" : null;
+    if (c.snippet !== null) excerpts.set(c.id, c.snippet);
+    emitDiscovered(c);
   };
 
   const serpLimiter = createLimiter(CONCURRENCY.serpapiSearch);
@@ -371,7 +397,40 @@ export async function runInvestigation(
 
     /* ------------------------- INITIAL_RETRIEVAL ------------------------- */
     stage("INITIAL_RETRIEVAL", "started");
-    const jobs: Promise<SearchJobResult | SearchJobResult[]>[] = [];
+    const jobs: Promise<void>[] = [];
+
+    /**
+     * Per-job settle processing (§10): each batch's new candidates are
+     * discovered as soon as their job resolves — not gated on the slowest
+     * job — and per-slot failures become honest limitations immediately.
+     */
+    const processResult = (res: SearchJobResult): void => {
+      for (const c of addCandidates(res.batch)) prepareAndDiscover(c);
+      if (res.slot === "google_search_claim" && res.failed) {
+        webContextAvailable = false;
+        limitations.add("web_context_unavailable");
+      }
+      if (res.slot === "google_news_claim" && res.batch !== null && res.batch.reportedCount > 0) {
+        hasCurrentNewsResults = true;
+      }
+      if (res.slot === "lens_exact_matches" && res.batch !== null) {
+        const exactState = (res.batch as { exactState?: string }).exactState;
+        if (exactState === "empty") limitations.add("no_exact_occurrences_returned");
+        if (exactState === "malformed" || exactState === "unavailable") {
+          limitations.add("exact_match_retrieval_unavailable");
+        }
+      }
+      if (
+        res.slot === "lens_about_this_image" &&
+        (res.failed ||
+          (res.batch !== null && res.batch.surfacePresent === false))
+      ) {
+        limitations.add("about_this_image_unavailable");
+      }
+      if (res.slot === "google_news_claim" && res.failed) {
+        limitations.add("news_unavailable");
+      }
+    };
 
     if (claim !== null && deps.serpapi !== null) {
       jobs.push(
@@ -380,7 +439,7 @@ export async function runInvestigation(
           "google_search",
           { engine: "google", q: claim },
           (j) => normalizeSearchResponse(j, "google_search", { retrievedAt }),
-        ),
+        ).then(processResult),
       );
       jobs.push(
         runSearch(
@@ -388,7 +447,7 @@ export async function runInvestigation(
           "google_news",
           { engine: "google_news", q: claim },
           (j) => normalizeSearchResponse(j, "google_news", { retrievedAt }),
-        ),
+        ).then(processResult),
       );
     } else if (claim !== null) {
       // Unconfigured provider: consume base slots as failed, honestly.
@@ -444,36 +503,11 @@ export async function runInvestigation(
       ]);
     };
 
-    jobs.push(uploadAndLens());
+    jobs.push(
+      uploadAndLens().then((rs) => rs.forEach(processResult)),
+    );
 
-    const settled = await Promise.all(jobs.map(async (j) => await j));
-    for (const r of settled) {
-      const results = Array.isArray(r) ? r : [r];
-      for (const res of results) {
-        addCandidates(res.batch);
-        if (res.slot === "google_search_claim" && res.failed) webContextAvailable = false;
-        if (res.slot === "google_news_claim" && res.batch !== null && res.batch.reportedCount > 0) {
-          hasCurrentNewsResults = true;
-        }
-        if (res.slot === "lens_exact_matches" && res.batch !== null) {
-          const exactState = (res.batch as { exactState?: string }).exactState;
-          if (exactState === "empty") limitations.add("no_exact_occurrences_returned");
-          if (exactState === "malformed" || exactState === "unavailable") {
-            limitations.add("exact_match_retrieval_unavailable");
-          }
-        }
-        if (
-          res.slot === "lens_about_this_image" &&
-          res.batch !== null &&
-          res.batch.surfacePresent === false
-        ) {
-          limitations.add("about_this_image_unavailable");
-        }
-        if (res.slot === "google_news_claim" && res.failed) {
-          limitations.add("news_unavailable");
-        }
-      }
-    }
+    await Promise.all(jobs);
     // A failed dedicated exact request is a limitation, not a silent pass.
     const exactTicket = budget.attemptFor("lens_exact_matches");
     if (exactTicket?.outcome === "failed") {
@@ -507,16 +541,28 @@ export async function runInvestigation(
 
     /* ------------------------------ NORMALIZE ---------------------------- */
     stage("NORMALIZE", "started");
-    let pool = applyRetentionCaps(dedupeByCanonicalUrl(candidates));
+    // Deterministic pool order regardless of settle order: discovery may
+    // have emitted progressively, but dedupe/retention/downstream selection
+    // must not depend on which job finished first.
+    const KIND_ORDER: Record<EvidenceCandidate["retrievalKind"], number> = {
+      lens_exact: 0,
+      lens_visual: 1,
+      lens_about_image: 2,
+      google_search: 3,
+      google_news: 4,
+    };
+    const sortForPool = (list: readonly EvidenceCandidate[]) =>
+      [...list].sort(
+        (a, b) =>
+          KIND_ORDER[a.retrievalKind] - KIND_ORDER[b.retrievalKind] ||
+          (a.serpPosition ?? 1e9) - (b.serpPosition ?? 1e9) ||
+          a.id.localeCompare(b.id),
+      );
+    let pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)));
     for (const c of pool) {
-      const resolved = resolveEvidenceDate(dateSources.get(c.id) ?? {}, new Date(startedAt));
-      c.publishedAt = resolved.publishedAt;
-      c.publishedAtSource = resolved.publishedAtSource;
-      c.datePrecision = resolved.datePrecision;
-      c.dateStatus = resolved.dateStatus;
-      c.excerptSource = c.snippet !== null ? "serp_snippet" : null;
-      if (c.snippet !== null) excerpts.set(c.id, c.snippet);
-      emitDiscovered(c);
+      // Candidates discovered progressively already carry resolved dates;
+      // retained-but-unemitted ids (dedupe survivors) resolve + emit here.
+      if (!emittedEvidenceIds.has(c.id)) prepareAndDiscover(c);
     }
     stage("NORMALIZE", "completed", `${pool.length} candidates retained`);
 
@@ -589,19 +635,13 @@ export async function runInvestigation(
           const res = await runAdaptiveSearch(ticket, choice, imageId);
           if (res.batch !== null) {
             const added = addCandidates(res.batch);
-            if (added > 0) {
-              pool = applyRetentionCaps(dedupeByCanonicalUrl(pool));
-              const newOnes = pool.filter((c) => !emittedEvidenceIds.has(c.id));
-              for (const c of newOnes) {
-                const resolved = resolveEvidenceDate(dateSources.get(c.id) ?? {}, new Date(startedAt));
-                c.publishedAt = resolved.publishedAt;
-                c.publishedAtSource = resolved.publishedAtSource;
-                c.datePrecision = resolved.datePrecision;
-                c.dateStatus = resolved.dateStatus;
+            if (added.length > 0) {
+              // Rebuild from the merged candidate list so adaptive results
+              // join the investigated pool (previously dropped).
+              pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)));
+              for (const c of added) {
                 c.mediaRelationship = enforceIdentityInvariants(c);
-                c.excerptSource = c.snippet !== null ? "serp_snippet" : null;
-                if (c.snippet !== null) excerpts.set(c.id, c.snippet);
-                emitDiscovered(c);
+                prepareAndDiscover(c);
                 if (c.mediaRelationship === "VISUAL_LEAD") {
                   limitations.add("unverified_visual_leads_present");
                   limitations.add("near_match_verifier_disabled");
@@ -750,6 +790,8 @@ export async function runInvestigation(
         ? buildClaimResult({
             candidates: pool,
             timeline: built.timeline,
+            supportingEvidence: built.supportingEvidence,
+            contextualEvidence: built.contextualEvidence,
             undatedEvidence: built.undatedEvidence,
             coverage,
             firstObservedContextDivergence: segments.firstObservedContextDivergence,
@@ -763,6 +805,8 @@ export async function runInvestigation(
         : buildTraceResult({
             candidates: pool,
             timeline: built.timeline,
+            supportingEvidence: built.supportingEvidence,
+            contextualEvidence: built.contextualEvidence,
             undatedEvidence: built.undatedEvidence,
             coverage,
             firstObservedContextDivergence: segments.firstObservedContextDivergence,
