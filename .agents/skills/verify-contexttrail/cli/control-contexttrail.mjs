@@ -1586,28 +1586,34 @@ const FAULTS = {
 
 const FAULT_SCRIPT = `window.__ctFault = (mode) => {
   let err = false;
+  // A fault that never fires must not be reported green: each branch counts the
+  // mutations it actually performed, and the drive reads the count afterwards.
+  window.__ctFaultHits = 0;
+  const hit = () => { window.__ctFaultHits++; };
   const alter = () => {
     if (mode === "bad-selection") {
       document.querySelectorAll('[role="tab"]').forEach((tab) => {
         if (tab.textContent.trim() === "Sources" && tab.getAttribute("aria-selected") === "true") {
           tab.setAttribute("aria-selected", "false");
+          hit();
         }
       });
     } else if (mode === "a11y-false-green") {
       const input = document.getElementById("ct-image-input");
-      if (input && input.tabIndex !== -1) input.tabIndex = -1;
+      if (input && input.tabIndex !== -1) { input.tabIndex = -1; hit(); }
       const h1 = document.querySelector("h1");
-      if (h1 && h1.style.color !== "transparent") h1.style.color = "transparent";
-      if (h1 && !err) { err = true; console.error("CONTROLLED_UNEXPECTED_UI_ERROR"); }
+      if (h1 && h1.style.color !== "transparent") { h1.style.color = "transparent"; hit(); }
+      if (h1 && !err) { err = true; console.error("CONTROLLED_UNEXPECTED_UI_ERROR"); hit(); }
     } else if (mode === "anchor-broken") {
       const s = document.getElementById("how-it-works");
-      if (s) s.removeAttribute("id");
+      if (s && s.id) { s.removeAttribute("id"); hit(); }
     } else if (mode === "focus-removed") {
       const c = document.getElementById("ct-claim");
-      if (c && c.tabIndex !== -1) c.tabIndex = -1;
+      if (c && c.tabIndex !== -1) { c.tabIndex = -1; hit(); }
     } else if (mode === "unexpected-request") {
       if (!window.__ctFaultFired) {
         window.__ctFaultFired = true;
+        hit();
         fetch("https://serpapi.com/search?api_key=CONTROLLED_FAULT&tbm=isch").catch(() => {});
       }
     } else if (mode === "group-mislabel") {
@@ -1617,7 +1623,7 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
       document.querySelectorAll("#ct-panel-analysis li p").forEach((p) => {
         const t = (p.textContent || "").trim();
         const m = /^Reporting group of (\\d+) occurrence/.exec(t);
-        if (m) p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length);
+        if (m) { p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length); hit(); }
       });
     } else if (mode === "pair-endpoint-wrong" || mode === "pair-note-wrong") {
       // Both faults only apply while a paired-divergence note is on screen, so
@@ -1629,13 +1635,14 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         if (mode === "pair-note-wrong") {
           if (!/same context as previous/.test(t)) {
             p.textContent = "Observed divergence pair \\u2014 same context as previous occurrence.";
+            hit();
           }
           return;
         }
         document.querySelectorAll('[role="dialog"] p').forEach((q) => {
           const u = (q.textContent || "").trim();
           const m = /^Evidence ID:\\s*(\\S+)/.exec(u);
-          if (m && m[1] !== "ev-wrong-endpoint") q.textContent = "Evidence ID: ev-wrong-endpoint";
+          if (m && m[1] !== "ev-wrong-endpoint") { q.textContent = "Evidence ID: ev-wrong-endpoint"; hit(); }
         });
       });
     }
@@ -1651,7 +1658,7 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
   if (mode === "drop-timeline-item") {
     const drop = () => {
       const li = document.querySelector("#ct-panel-timeline ol > li");
-      if (li) li.remove();
+      if (li) { li.remove(); hit(); }
     };
     const timer = setInterval(drop, 50);
     setTimeout(() => clearInterval(timer), 30000);
@@ -1671,8 +1678,7 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
       // upload phase would fail an unrelated assertion.
       if (!seenDialog) return;
       const el = document.activeElement;
-      if (el && el !== document.body) el.blur();
-      window.__ctFaultDone = true;
+      if (el && el !== document.body) { el.blur(); hit(); window.__ctFaultDone = true; }
     };
     const timer = setInterval(steal, 20);
     setTimeout(() => clearInterval(timer), 30000);
@@ -1752,6 +1758,35 @@ const FAULT_SCOPE = {
   "unexpected-request": { features: FEATURE_LIST },
 };
 
+/**
+ * Some faults need a target that the chosen fixture actually contains. This is
+ * knowable before any side effect, so an un-sabotageable run is refused rather
+ * than accepted and reported green. Returns the reason, or null.
+ */
+function faultTargetIsEmpty(fault, feature, { caseName, view } = {}) {
+  const fixture = fixtureDrives.has(feature) || feature === "result" ? driveFixture(feature, caseName) : null;
+  if (!fixture) return null;
+  const terminal = fixtureTerminal(fixture);
+  if (!terminal) return null;
+  if (fault === "drop-timeline-item") {
+    const rows = asLen(terminal.timeline);
+    return rows > 0 ? null : `fixture ${fixture} has ${rows} timeline occurrence(s) to drop`;
+  }
+  if (fault === "group-mislabel") {
+    const groups = asLen(terminal.reportingGroups);
+    return groups > 0 ? null : `fixture ${fixture} reports ${groups} reporting group(s) to relabel`;
+  }
+  if (fault === "bad-selection") {
+    // The Sources tab is rendered for every result; nothing to know up front.
+    return null;
+  }
+  if (fault === "pair-endpoint-wrong" || fault === "pair-note-wrong") {
+    const div = fixtureDivergence(fixture);
+    return div ? null : `fixture ${fixture} has no paired divergence to corrupt`;
+  }
+  return null;
+}
+
 /** Why a fault does not apply, or null when it does. */
 function faultScopeViolation(fault, feature, { caseName, view } = {}) {
   const scope = FAULT_SCOPE[fault];
@@ -1772,14 +1807,25 @@ function faultScopeViolation(fault, feature, { caseName, view } = {}) {
  * Full schema validation. Runs before any side effect: no manifest read, no
  * port probe, no browser. Returns the normalized option object.
  */
-function parseDriveOptions() {
+function parseDriveOptions(opts = {}) {
+  // A fixture DEFAULT is not a user choice: `drive result --live` legitimately
+  // has no --case, and the default must not be mistaken for one. The rejection
+  // below therefore looks at what the caller actually supplied.
+  const userSuppliedCase = flags.case !== undefined;
+  const handlerLive = opts.handlerLive === true;
   const feature = positional[1];
   if (!feature) fail("drive requires a feature (implemented: " + FEATURE_LIST.join(", ") + ")");
   if (positional.length > 2) fail(`unexpected argument ${JSON.stringify(positional[2])}`);
   const spec = FEATURE_SPECS[feature];
   if (!spec) fail(`unknown drive feature ${feature} (implemented: ${FEATURE_LIST.join(", ")})`);
 
-  const allowed = [...COMMAND_FLAGS.drive, ...spec.options, ...new Set(COMMAND_FLAGS.drive.concat(spec.options))];
+  // `live-handler` is governed by its own command allow-list, which already
+  // carries the live surface (`--manifest`, `--image`, `--claim-text`,
+  // `--viewport`, `--declared-result`) and deliberately omits the
+  // controlled-only options (`--case`, `--fault`, `--delay-ms`).
+  const allowed = handlerLive
+    ? [...COMMAND_FLAGS["live-handler"]]
+    : [...COMMAND_FLAGS.drive, ...spec.options, ...new Set(COMMAND_FLAGS.drive.concat(spec.options))];
   const unknown = Object.keys(flags).filter((k) => !allowed.includes(k));
   if (unknown.length) {
     fail(`unsupported option(s) for ${feature}: ${unknown.map((k) => `--${k}`).join(", ")}`);
@@ -1877,8 +1923,9 @@ function parseDriveOptions() {
   }
   // An explicit fixture/case option is a controlled-run concept: a live
   // investigation is whatever the backend returns, so comparing against (or
-  // selecting for) a controlled case would silently make the drive a lie.
-  if (live && flags.case !== undefined) {
+  // selecting for) a controlled case would silently make the drive a lie. Only
+  // a case the caller actually supplied counts.
+  if (live && userSuppliedCase) {
     fail(
       `--case ${flags.case} is a controlled-fixture option and is not valid with --live; ` +
         "a live run asserts the real response it receives, with no expected case to select",
@@ -1901,7 +1948,7 @@ function parseDriveOptions() {
   // mode, and a live-readiness manifest that names the source and hash of the
   // image about to be submitted. Fixture pacing is a controlled-stub concept
   // and is refused here.
-  if (live && process.env.RUN_LIVE_TESTS !== "1") {
+  if (live && !handlerLive && process.env.RUN_LIVE_TESTS !== "1") {
     fail("--live requires RUN_LIVE_TESTS=1 (provider credit gate)");
   }
   if (live) {
@@ -1909,13 +1956,15 @@ function parseDriveOptions() {
       fail("--live requires --image <path> (the submitted media for the provider run)");
     }
     if (!fs.existsSync(path.resolve(flags.image))) fail(`--image not found: ${flags.image}`);
-    if (flags["live-manifest"] === undefined) {
+    // `live-handler` names the same readiness manifest with `--manifest`.
+    const manifestFlag = handlerLive ? "manifest" : "live-manifest";
+    if (flags[manifestFlag] === undefined) {
       fail(
-        "--live requires --live-manifest <path> (a readiness manifest naming the public " +
+        `--live requires --${manifestFlag} <path> (a readiness manifest naming the public ` +
           "imageSource, its sha256, the mode/claim under test and the credit acknowledgement)",
       );
     }
-    const manifest = readLiveManifest(flags["live-manifest"]);
+    const manifest = readLiveManifest(flags[manifestFlag]);
     const mode = liveMode(spec);
     const claimText = flags["claim-text"] ?? null;
     const readiness = liveReadinessChecks({
@@ -1927,13 +1976,25 @@ function parseDriveOptions() {
     const failed = readiness.filter((c) => c.status === "FAIL");
     if (failed.length) {
       fail(
-        `--live-manifest failed the live input contract: ` +
+        `--${manifestFlag} failed the live input contract: ` +
           failed.map((c) => `${c.id} (${c.detail})`).join("; "),
       );
     }
   }
 
-  return { feature, spec, live, delayMs };
+  // A fault whose target does not exist in the fixture it will replay cannot
+  // fire, and an inert fault that passes is worse than a refusal.
+  if (flags.fault !== undefined) {
+    const empty = faultTargetIsEmpty(flags.fault, feature, { caseName: flags.case, view: flags.view });
+    if (empty) {
+      fail(
+        `--fault ${flags.fault} has nothing to sabotage in this run: ${empty}. ` +
+          "Pick a fixture/case whose surface it can actually alter.",
+      );
+    }
+  }
+
+  return { feature, spec, live, delayMs, userSuppliedCase };
 }
 
 /* ------------------------------ browser io ------------------------------ */
@@ -2588,31 +2649,15 @@ async function drive(opts = {}) {
     if (!LIVE_HANDLER_FEATURES.includes(feature)) {
       fail(`--feature ${feature} is not exercisable through live-handler (supported: ${LIVE_HANDLER_FEATURES.join("|")})`);
     }
-    spec = FEATURE_SPECS[feature];
-    // The live input contract, minus the credit gate: no provider request can
-    // be made on this path, so requiring RUN_LIVE_TESTS=1 would be theatre.
-    const manifest = readLiveManifest(required("manifest"));
-    const imagePath = required("image");
-    const claimText = flags["claim-text"] ?? null;
-    const mode =
-      typeof claimText === "string" && claimText.trim() !== "" ? "claim" : "trace";
-    if (mode === "claim" && (claimText === null || claimText.trim() === "")) {
-      fail("--mode claim requires --claim-text (the claim actually under test)");
-    }
-    // The mode is derived from the claim that will really be submitted, so the
-    // manifest is validated against that — a manifest without a `mode` field is
-    // reported as a manifest that fails, not silently accepted.
-    const readiness = liveReadinessChecks({ manifest, imagePath, mode, claimText });
-    const failed = readiness.filter((c) => c.status === "FAIL");
-    if (failed.length) {
-      fail(
-        `--live-manifest failed the live input contract: ` +
-          failed.map((c) => `${c.id} (${c.detail})`).join("; "),
-      );
-    }
-    flags.entry = spec.defaultEntry ?? flags.entry;
-    flags.view = spec.defaultView ?? flags.view;
-    live = true;
+    // The REAL parser, not a bypass: the same option allow-list, entry/view
+    // defaults, fault scope and live input contract a `drive --live` invocation
+    // goes through, with only the credit gate lifted (this path cannot spend
+    // credit) and `--manifest` accepted as the readiness manifest's flag. It is
+    // a live-semantics invocation, so it carries live semantics into the parser
+    // — the command simply cannot allow a provider request.
+    flags.live = true;
+    positional[1] = feature;
+    ({ feature, spec, live, delayMs } = parseDriveOptions({ handlerLive: true }));
   } else {
     if (!positional[1]) fail("drive requires a feature (implemented: " + FEATURE_LIST.join(", ") + ")");
     ({ feature, spec, live, delayMs } = parseDriveOptions());
@@ -2703,6 +2748,7 @@ async function drive(opts = {}) {
     mode: flags.mode ?? null,
     view: flags.view ?? null,
     fault,
+    faultFired,
     live,
     tier,
     fixture: fixtureUsed,
@@ -2733,6 +2779,7 @@ async function drive(opts = {}) {
 
   let stream = null;
   let session = null;
+  let faultHits = null;
   let outcome = "PASS";
   let failure = null;
   let failureStack = "";
@@ -2794,6 +2841,11 @@ async function drive(opts = {}) {
     });
 
     if (session.syncBoundary) session.syncBoundary();
+    // Read the fault's self-report before the browser closes: an accepted fault
+    // that never fired is a red, never a green.
+    if (fault) {
+      faultHits = await page.evaluate(() => Number(window.__ctFaultHits ?? 0)).catch(() => 0);
+    }
     boundaryCheck(rec, boundary, live, handlerLive);
     const consoleSet = classifyConsoleSet(consoleRaw, stream?.origin ?? null);
     rec.check("console.no-unexpected-errors", consoleSet.unexpected === 0, `${consoleSet.unexpected} unexpected`);
@@ -2840,6 +2892,25 @@ async function drive(opts = {}) {
     outcome = "FAIL";
     failure = failure ?? `video collection failed: ${String(err?.message ?? err)}`;
     rec.push("drive.videos-collected", "FAIL", String(err?.message ?? err));
+  }
+
+  // An accepted --fault that reported no mutation did not sabotage anything, so
+  // the drive is red even when every assertion happened to pass. This is the
+  // general guard behind the per-fault scope checks.
+  let faultFired = null;
+  if (fault) {
+    faultFired = faultHits === null ? null : faultHits > 0;
+    rec.push(
+      "fault.sabotage-reported",
+      faultFired === true ? "PASS" : "FAIL",
+      `${fault} performed ${faultHits ?? "unknown"} mutation(s)`,
+    );
+    if (faultFired !== true) {
+      outcome = "FAIL";
+      failure =
+        failure ??
+        `fault ${fault} never fired (${faultHits ?? 0} mutation(s) reported): an inert fault must not pass`;
+    }
   }
 
   const counts = rec.counts();
