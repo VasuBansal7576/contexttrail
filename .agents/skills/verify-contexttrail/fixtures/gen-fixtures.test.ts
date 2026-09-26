@@ -34,16 +34,22 @@ const answers = (qs: Record<string, unknown>, winners: Record<string, string>) =
       k,
       k === "relevance"
         ? { type: "noul", noul: 0.92 }
-        : {
-            type: "choice",
-            choice: winners[k] ?? (CHOICE as Record<string, readonly string[]>)[k]?.[0],
-            probabilities: Object.fromEntries(
-              ((CHOICE as Record<string, readonly string[]>)[k] ?? ["UNCLEAR"]).map((v: string) => [
-                v,
-                v === (winners[k] ?? (CHOICE as Record<string, readonly string[]>)[k]?.[0]) ? 0.9 : 0.1 / 3,
-              ]),
-            ),
-          },
+        : (() => {
+            const keys = (CHOICE as Record<string, readonly string[]>)[k] ?? ["UNCLEAR"];
+            const winner = winners[k] ?? keys[0];
+            return {
+              type: "choice",
+              choice: winner,
+              // Probabilities must sum to 1 — the validated contract
+              // rejects unnormalized distributions.
+              probabilities: Object.fromEntries(
+                keys.map((v: string) => [
+                  v,
+                  v === winner ? 0.9 : (1 - 0.9) / (keys.length - 1),
+                ]),
+              ),
+            };
+          })(),
     ]),
   );
 
@@ -132,6 +138,12 @@ const jev = {
   ask: async (_s: unknown, qs: Record<string, unknown>) => ({
     answers: answers(qs, { context_relation: "DIFFERENT_CONTEXT", claim_relation: "NEUTRAL" }),
     model: "jev-1.13.0",
+    identity: {
+      requested: "jev-1.13.0",
+      reported: "jev-1.13.0",
+      status: "verified",
+      pinned: true,
+    },
   }),
 } as unknown as JevClient;
 

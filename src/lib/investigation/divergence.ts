@@ -162,6 +162,9 @@ export interface SegmentResult {
   contextSegmentCount: number | null;
   firstObservedContextDivergence: Divergence | null;
   coverage: ComparisonCoverage;
+  /** occurrenceId -> pair ids it was an endpoint of where a pairwise
+   *  comparison was actually performed (§14). */
+  comparedPairsFor: Map<string, string[]>;
 }
 
 /**
@@ -178,8 +181,15 @@ export function buildContextSegments(
 ): SegmentResult {
   const segmentOf = new Map<string, number | null>();
   const connectorOf = new Map<string, TimelineConnector>();
+  const comparedPairsFor = new Map<string, string[]>();
+  const recordComparedPair = (a: string, b: string) => {
+    const pk = pairKey(a, b);
+    comparedPairsFor.set(a, [...(comparedPairsFor.get(a) ?? []), pk]);
+    comparedPairsFor.set(b, [...(comparedPairsFor.get(b) ?? []), pk]);
+  };
   let segmentIdx = 0;
   let comparedPairs = 0;
+  const comparedPairIds: string[] = [];
   let firstDivergence: Divergence | null = null;
   // An exact segment count needs complete adjacent coverage of the
   // eligible run — a sampled sequence that skips occurrences can never
@@ -203,7 +213,14 @@ export function buildContextSegments(
       connectorOf,
       contextSegmentCount: null,
       firstObservedContextDivergence: null,
-      coverage: { eligible: eligible.length, selected: 0, comparedPairs: 0 },
+      coverage: {
+        eligible: eligible.length,
+        selected: 0,
+        comparedPairs: 0,
+        displayedDatedCore: eligible.length,
+        comparedPairIds: [],
+      },
+      comparedPairsFor,
     };
   }
 
@@ -231,6 +248,8 @@ export function buildContextSegments(
       kind = "unexamined";
     } else {
       comparedPairs += 1;
+      comparedPairIds.push(pairKey(prev.id, cur.id));
+      recordComparedPair(prev.id, cur.id);
       const rel = classifyPairwise(j);
       kind =
         rel === "SAME_CONTEXT"
@@ -276,6 +295,11 @@ export function buildContextSegments(
       eligible: eligible.length,
       selected: selected.length,
       comparedPairs,
+      // Filled by the caller once the displayed chronology is built —
+      // buildContextSegments only knows the eligible run.
+      displayedDatedCore: eligible.length,
+      comparedPairIds,
     },
+    comparedPairsFor,
   };
 }

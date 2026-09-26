@@ -88,6 +88,23 @@ function splitSentences(text: string): string[] {
 }
 
 /**
+ * Sentences carrying an explicit syndication/origin attribution — the
+ * inspectable spans behind `explicit_syndication_attribution`. Negated
+ * or disclaimed sentences never qualify, matching the extraction rules.
+ */
+export function attributionSentences(text: string): string[] {
+  const out: string[] = [];
+  const sentences = splitSentences(text);
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i];
+    if (NEGATION_PATTERN.test(s)) continue;
+    if (DISCLAIMER_PATTERN.test(sentences[i + 1] ?? "")) continue;
+    if (ATTRIBUTION_PATTERNS.some((re) => re.test(s))) out.push(s.trim());
+  }
+  return out;
+}
+
+/**
  * Extract an attributed origin domain from page text. Returns a registrable
  * domain string when the attribution names a recognizable outlet/domain,
  * else null. Self-attribution is returned too — callers compare it to the
@@ -247,7 +264,16 @@ export function refineReportingOrigins(
     list.push(c);
     attrGroups.set(groupId, list);
     if (c.reportingOrigin.status === "unresolved") {
-      markSharedOrigin([c], groupId, ["explicit_syndication_attribution"], [c.id]);
+      markSharedOrigin(
+        [c],
+        groupId,
+        ["explicit_syndication_attribution"],
+        [c.id],
+        attributionSentences(text).map((s) => ({
+          text: s,
+          relation: "explicit_syndication_attribution",
+        })),
+      );
       changed.add(c.id);
     }
   }
@@ -258,12 +284,19 @@ export function refineReportingOrigins(
       (m) => m.reportingOrigin.status === "unresolved",
     );
     if (members.length >= 2 && unresolvedMembers.length > 0) {
-      markSharedOrigin(
-        members.filter((m) => m.reportingOrigin.status !== "separate_origin_evidenced"),
-        groupId,
-        ["common_originating_report"],
-        members.map((m) => m.id),
-      );
+      for (const m of members) {
+        if (m.reportingOrigin.status === "separate_origin_evidenced") continue;
+        markSharedOrigin(
+          [m],
+          groupId,
+          ["common_originating_report"],
+          members.map((x) => x.id),
+          attributionSentences(pageTexts.get(m.id) ?? "").map((s) => ({
+            text: s,
+            relation: "explicit_syndication_attribution",
+          })),
+        );
+      }
       for (const m of members) changed.add(m.id);
     }
   }
@@ -277,7 +310,10 @@ export function refineReportingOrigins(
   //      share ONE group, they never become N separate origins;
   //    - bylines without a media-bound publisher credit prove authorship
   //      at most and leave the origin unresolved.
-  const providerGroups = new Map<string, EvidenceCandidate[]>();
+  const providerGroups = new Map<
+    string,
+    Array<{ c: EvidenceCandidate; spans: string[] }>
+  >();
   const separate: Array<{ c: EvidenceCandidate; spans: string[] }> = [];
   for (const c of fetched) {
     if (c.reportingOrigin.status === "separate_origin_evidenced") continue;
@@ -300,29 +336,37 @@ export function refineReportingOrigins(
     }
     for (const k of names) {
       const list = providerGroups.get(k) ?? [];
-      list.push(c);
+      list.push({ c, spans: ev.spans });
       providerGroups.set(k, list);
     }
   }
 
-  for (const { c } of separate) {
+  for (const { c, spans } of separate) {
     if (c.reportingOrigin.status !== "unresolved") continue;
-    markSeparateOriginEvidenced(c, `origin:${c.registrableDomain}`, [c.id]);
+    markSeparateOriginEvidenced(
+      c,
+      `origin:${c.registrableDomain}`,
+      [c.id],
+      spans.map((s) => ({ text: s, relation: "media_bound_publisher_credit" })),
+    );
     changed.add(c.id);
   }
   for (const [k, members] of providerGroups) {
     if (members.length < 2) continue;
     const targets = members.filter(
-      (m) => m.reportingOrigin.status !== "separate_origin_evidenced",
+      (m) => m.c.reportingOrigin.status !== "separate_origin_evidenced",
     );
     if (targets.length === 0) continue;
-    markSharedOrigin(
-      targets,
-      `provider:${k}`,
-      ["shared_named_provider"],
-      targets.map((m) => m.id),
-    );
-    for (const m of targets) changed.add(m.id);
+    for (const { c: m, spans } of targets) {
+      markSharedOrigin(
+        [m],
+        `provider:${k}`,
+        ["shared_named_provider"],
+        targets.map((t) => t.c.id),
+        spans.map((s) => ({ text: s, relation: "shared_named_provider" })),
+      );
+      changed.add(m.id);
+    }
   }
 
   return [...changed];

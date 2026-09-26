@@ -26,6 +26,7 @@ export function unresolvedOrigin(candidateId: string): ReportingOrigin {
     status: "unresolved",
     basis: ["origin_unresolved_missing_evidence"],
     evidenceIds: [],
+    attributionSpans: [],
   };
 }
 
@@ -40,6 +41,7 @@ export function markSharedOrigin(
   groupId: string,
   basis: ReportingOriginBasis[],
   evidenceIds: string[],
+  attributionSpans: Array<{ text: string; relation: string }> = [],
 ): void {
   for (const c of candidates) {
     c.reportingOrigin = {
@@ -47,6 +49,7 @@ export function markSharedOrigin(
       status: "shared_origin",
       basis,
       evidenceIds,
+      attributionSpans,
     };
   }
 }
@@ -60,12 +63,14 @@ export function markSeparateOriginEvidenced(
   candidate: EvidenceCandidate,
   groupId: string,
   evidenceIds: string[],
+  attributionSpans: Array<{ text: string; relation: string }> = [],
 ): void {
   candidate.reportingOrigin = {
     groupId,
     status: "separate_origin_evidenced",
     basis: ["separate_reporting_evidence"],
     evidenceIds,
+    attributionSpans,
   };
 }
 

@@ -122,13 +122,21 @@ function makeSerpapi(calls: SerpapiParams[], overrides: Partial<SearchProvider> 
   };
 }
 
-function makeJev(askImpl?: (state: unknown, qs: Record<string, unknown>) => Promise<{ answers: Record<string, unknown>; model: string | null }>) {
+const VERIFIED_IDENTITY = {
+  requested: "jev-1.13.0",
+  reported: "jev-1.13.0",
+  status: "verified",
+  pinned: true,
+} as const;
+
+function makeJev(askImpl?: (state: unknown, qs: Record<string, unknown>) => Promise<{ answers: Record<string, unknown>; model: string | null; identity: typeof VERIFIED_IDENTITY }>) {
   const ask = vi.fn(
     askImpl ??
       (async (_s, qs) => ({
         answers:
           "pairwise_context" in qs ? PAIRWISE_ANSWERS : { ...EVIDENCE_ANSWERS },
         model: "jev-1.13.0",
+        identity: VERIFIED_IDENTITY,
       })),
   );
   return { client: { ask } as unknown as JevClient, ask };

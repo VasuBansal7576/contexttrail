@@ -23,6 +23,12 @@ function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
   return null;
 }
 
+const DISPLAY_ATTRIBUTION: Record<string, string> = {
+  page_text: "Extracted page excerpt",
+  serp_snippet: "Search snippet",
+  page_composite: "Composite page excerpt (title/snippet/body)",
+};
+
 function toTimelineItem(
   c: EvidenceCandidate,
   opts: {
@@ -31,6 +37,8 @@ function toTimelineItem(
     connector: TimelineItem["incomingConnector"];
     isDivergencePoint: boolean;
     excerpt: string | null;
+    classificationContext: string | null;
+    comparisonSelection: TimelineItem["comparisonSelection"];
   },
 ): TimelineItem {
   const firstRetrieval = c.retrievals[0] ?? null;
@@ -60,6 +68,30 @@ function toTimelineItem(
         : c.reportingOrigin.groupId,
     reportingOriginBasis: c.reportingOrigin.basis,
     identityBasis: c.identityEvidence.basis,
+    identityBasisDetail: {
+      method: c.identityEvidence.basis,
+      supportId: c.identityEvidence.verifierConfigId,
+    },
+    dateProvenance: {
+      value: c.publishedAt,
+      precision: c.datePrecision,
+      source: c.publishedAtSource,
+      entityBinding: c.dateEntityBinding ?? null,
+      rejectedCandidates: c.rejectedDateCandidates ?? [],
+    },
+    originSupport: {
+      status: c.reportingOrigin.status,
+      groupId:
+        c.reportingOrigin.status === "unresolved"
+          ? null
+          : c.reportingOrigin.groupId,
+      attributionSpans: c.reportingOrigin.attributionSpans,
+      groupingReason: c.reportingOrigin.basis,
+    },
+    displayAttribution:
+      c.excerptSource === null ? null : (DISPLAY_ATTRIBUTION[c.excerptSource] ?? null),
+    classificationContext: opts.classificationContext,
+    comparisonSelection: opts.comparisonSelection,
     contextLabel: contextLabelOf(c),
     serpPosition: c.serpPosition,
     retrievedAt: firstRetrieval?.retrievedAt ?? null,
@@ -91,6 +123,9 @@ export function buildTimeline(
   candidates: readonly EvidenceCandidate[],
   segments: SegmentResult | null,
   excerpts?: ReadonlyMap<string, string>,
+  /** Model-input composites keyed by candidate id — surfaced separately
+   *  as `classificationContext`, never as the displayed quote. */
+  modelExcerpts?: ReadonlyMap<string, string>,
 ): BuiltTimeline {
   const dated: EvidenceCandidate[] = [];
   const datedLead: EvidenceCandidate[] = [];
@@ -140,6 +175,13 @@ export function buildTimeline(
       connector,
       isDivergencePoint: c.id === divergenceId,
       excerpt: excerpts?.get(c.id) ?? null,
+      classificationContext: modelExcerpts?.get(c.id) ?? null,
+      comparisonSelection: {
+        selected:
+          segments !== null &&
+          (segments.segmentOf.has(c.id) || segments.connectorOf.has(c.id)),
+        comparedPairIds: segments?.comparedPairsFor.get(c.id) ?? [],
+      },
     });
   });
 
@@ -150,6 +192,8 @@ export function buildTimeline(
       connector: null,
       isDivergencePoint: false,
       excerpt: excerpts?.get(c.id) ?? null,
+      classificationContext: modelExcerpts?.get(c.id) ?? null,
+      comparisonSelection: { selected: false, comparedPairIds: [] },
     });
 
   return {
@@ -163,6 +207,8 @@ export function buildTimeline(
         connector: null,
         isDivergencePoint: false,
         excerpt: excerpts?.get(c.id) ?? null,
+        classificationContext: modelExcerpts?.get(c.id) ?? null,
+        comparisonSelection: { selected: false, comparedPairIds: [] },
       }),
     ),
   };

@@ -20,6 +20,9 @@ import type {
   Divergence,
   InvestigationResult,
   LimitationCode,
+  PolicyReason,
+  ReportingGroupSummary,
+  RequestLogEntry,
   Takeaway,
   TimelineItem,
 } from "./contracts/investigation";
@@ -87,6 +90,8 @@ export interface ClaimPolicyResult {
   limitations: LimitationCode[];
   /** Why the status was assigned — bounded deterministic codes. */
   basis: ClaimStatusBasis[];
+  /** Every gate evaluated, pass or fail, with its supporting ids (§21). */
+  gates: PolicyReason[];
 }
 
 /**
@@ -108,6 +113,13 @@ export function evaluateClaimPolicy(
 ): ClaimPolicyResult {
   const qualifying = candidates.filter(isQualifyingConflict);
   const limitations: LimitationCode[] = [];
+  const gates: PolicyReason[] = [];
+  gates.push({
+    gate: "qualifying_conflicts",
+    passed: qualifying.length >= 2,
+    detail: `${qualifying.length} qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT`,
+    supportIds: qualifying.map((c) => c.id),
+  });
 
   if (qualifying.length >= 2) {
     // Corroborating pair: distinct domains + distinct separately evidenced
@@ -130,12 +142,22 @@ export function evaluateClaimPolicy(
         }
       }
     }
+    gates.push({
+      gate: "corroborating_pair",
+      passed: conflictPair !== null,
+      detail:
+        conflictPair !== null
+          ? "corroborating pair across distinct domains and separately evidenced reporting groups"
+          : "no pair across distinct domains + separately evidenced reporting groups satisfying the identity gate",
+      supportIds: conflictPair === null ? [] : conflictPair.map((c) => c.id),
+    });
     if (conflictPair !== null) {
       return {
         status: "CONTEXT_CONFLICT",
         qualifyingConflictIds: qualifying.map((c) => c.id),
         limitations,
         basis: ["qualifying_conflicts_corroborated"],
+        gates,
       };
     }
     if (qualifying.some((c) => c.reportingOrigin.status === "unresolved")) {
@@ -146,6 +168,7 @@ export function evaluateClaimPolicy(
       qualifyingConflictIds: qualifying.map((c) => c.id),
       limitations,
       basis: ["conflicts_without_corroboration"],
+      gates,
     };
   }
 
@@ -158,6 +181,7 @@ export function evaluateClaimPolicy(
       qualifyingConflictIds: [qualifying[0].id],
       limitations,
       basis: ["single_qualifying_conflict"],
+      gates,
     };
   }
 
@@ -165,7 +189,45 @@ export function evaluateClaimPolicy(
   const domainCount = countSourceDomains(relevantCore);
   const groups = reportingGroupCount(relevantCore);
   const unresolved = unresolvedOriginCount(relevantCore);
-  const corroborated = satisfiesCorroborationGate(relevantCore).satisfied;
+  const corroboration = satisfiesCorroborationGate(relevantCore);
+  const strongSupport = relevantCore.filter(hasStrongSupport);
+
+  gates.push(
+    {
+      gate: "relevant_core_coverage",
+      passed: relevantCore.length >= 3,
+      detail: `${relevantCore.length} relevant core occurrence(s); >=3 required`,
+      supportIds: relevantCore.map((c) => c.id),
+    },
+    {
+      gate: "distinct_domains",
+      passed: domainCount >= 2,
+      detail: `${domainCount} registrable domain(s) among relevant core; >=2 required`,
+      supportIds: relevantCore.map((c) => c.id),
+    },
+    {
+      gate: "distinct_reporting_groups",
+      passed: groups >= 2,
+      detail: `${groups} resolved reporting group(s) among relevant core; >=2 required`,
+      supportIds: relevantCore
+        .filter((c) => c.reportingOrigin.status !== "unresolved")
+        .map((c) => c.id),
+    },
+    {
+      gate: "corroborating_pair",
+      passed: corroboration.satisfied,
+      detail: corroboration.satisfied
+        ? "corroborating pair across distinct domains and separately evidenced groups"
+        : "no corroborating pair across distinct domains + separately evidenced groups",
+      supportIds: corroboration.pairIds ?? [],
+    },
+    {
+      gate: "strong_support",
+      passed: strongSupport.length > 0,
+      detail: `${strongSupport.length} strong support judgment(s); >=1 required`,
+      supportIds: strongSupport.map((c) => c.id),
+    },
+  );
 
   if (unresolved > 0) limitations.push("reporting_origins_unresolved");
 
@@ -173,14 +235,15 @@ export function evaluateClaimPolicy(
     relevantCore.length >= 3 &&
     domainCount >= 2 &&
     groups >= 2 &&
-    corroborated &&
-    relevantCore.some(hasStrongSupport)
+    corroboration.satisfied &&
+    strongSupport.length > 0
   ) {
     return {
       status: "NO_CONFLICT_FOUND",
       qualifyingConflictIds: [],
       limitations,
       basis: ["corroborated_no_conflict"],
+      gates,
     };
   }
 
@@ -189,6 +252,7 @@ export function evaluateClaimPolicy(
     qualifyingConflictIds: [],
     limitations,
     basis: ["insufficient_qualifying_evidence"],
+    gates,
   };
 }
 
@@ -281,6 +345,8 @@ export interface ResultAssemblyInput {
   firstObservedContextDivergence: Divergence | null;
   contextSegmentCount: number | null;
   limitations: LimitationCode[];
+  /** Per-operation retrieval accounting (§34). */
+  requestLog: RequestLogEntry[];
 }
 
 /** Assemble the shared metrics both result modes carry. */
@@ -299,6 +365,29 @@ export function sharedMetrics(input: ResultAssemblyInput) {
         a.id.localeCompare(b.id),
     );
 
+  const groups = new Map<string, { memberIds: string[]; reason: Set<string> }>();
+  const unresolvedCandidateIds: string[] = [];
+  for (const c of core) {
+    if (c.reportingOrigin.status === "unresolved") {
+      unresolvedCandidateIds.push(c.id);
+      continue;
+    }
+    const g = groups.get(c.reportingOrigin.groupId) ?? {
+      memberIds: [],
+      reason: new Set<string>(),
+    };
+    g.memberIds.push(c.id);
+    for (const b of c.reportingOrigin.basis) g.reason.add(b);
+    groups.set(c.reportingOrigin.groupId, g);
+  }
+  const reportingGroups: ReportingGroupSummary[] = [...groups.entries()].map(
+    ([groupId, g]) => ({
+      groupId,
+      memberIds: g.memberIds,
+      reason: [...g.reason] as ReportingGroupSummary["reason"],
+    }),
+  );
+
   return {
     earliestObservedOccurrence: dated[0]?.publishedAt ?? null,
     sourceDomainCount: countSourceDomains(core),
@@ -307,6 +396,9 @@ export function sharedMetrics(input: ResultAssemblyInput) {
     contextSegmentCount: input.contextSegmentCount,
     firstObservedContextDivergence: input.firstObservedContextDivergence,
     comparisonCoverage: input.coverage,
+    requestLog: input.requestLog,
+    reportingGroups,
+    unresolvedCandidateIds,
     limitations: input.limitations,
     undatedEvidence: input.undatedEvidence,
     supportingEvidence: input.supportingEvidence,
@@ -354,6 +446,7 @@ export function buildClaimResult(
     mode: "claim_check",
     status: policy.status,
     statusBasis: policy.basis,
+    policyReasons: policy.gates,
     claim: input.claim,
     claimDate: input.claimDate,
     doesNotProveClaimTrue: true,

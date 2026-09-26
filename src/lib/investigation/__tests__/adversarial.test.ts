@@ -151,7 +151,13 @@ describe("F05 adversarial — displayed chronology coverage", () => {
       [pairKey("month-2020", "day-2021"), { sameContext: 0.9, differentContext: 0.05, unclear: 0.05 }],
     ]);
     const seg = buildContextSegments(eligible, selected, judgments);
-    expect(seg.coverage).toEqual({ eligible: 3, selected: 3, comparedPairs: 2 });
+    expect(seg.coverage).toEqual({
+      eligible: 3,
+      selected: 3,
+      comparedPairs: 2,
+      displayedDatedCore: 3,
+      comparedPairIds: [pairKey("day-2019", "month-2020"), pairKey("month-2020", "day-2021")],
+    });
     expect(seg.contextSegmentCount).toBe(1);
   });
 
@@ -237,6 +243,17 @@ const GOOD_ANSWERS = {
   },
 };
 
+const VERIFIED_JEV = {
+  requested: "jev-1.13.0",
+  reported: "jev-1.13.0",
+  status: "verified",
+  pinned: true,
+} as const;
+
+const VERIFIED_JEV_CLIENT = {
+  ask: async () => ({ answers: GOOD_ANSWERS, model: "jev-1.13.0", identity: VERIFIED_JEV }),
+};
+
 const fetchPageStub = async (url: string): Promise<FetchedPage> => ({
   url,
   html: `<html><body><article><p>${"Controlled factual page body. ".repeat(25)}</p></article></body></html>`,
@@ -277,7 +294,7 @@ describe("run-level adversarial probes", () => {
             return { visual_matches: [] };
           },
         } as never,
-        jev: { ask: async () => ({ answers: GOOD_ANSWERS, model: "jev-1.13.0" }) } as never,
+        jev: VERIFIED_JEV_CLIENT as never,
         fetchPage: fetchPageStub,
       },
     );
@@ -295,7 +312,7 @@ describe("run-level adversarial probes", () => {
       (e) => events.push(e),
       {
         serpapi: baseSerp as never,
-        jev: { ask: async () => ({ answers: GOOD_ANSWERS, model: "jev-1.13.0" }) } as never,
+        jev: VERIFIED_JEV_CLIENT as never,
         fetchPage: fetchPageStub,
       },
     );
@@ -313,12 +330,51 @@ describe("run-level adversarial probes", () => {
       (e) => events.push(e),
       {
         serpapi: baseSerp as never,
-        jev: { ask: async () => ({ answers: GOOD_ANSWERS, model: "jev-1.13.0" }) } as never,
+        jev: VERIFIED_JEV_CLIENT as never,
         fetchPage: fetchPageStub,
       },
     );
     const result = events.find((e) => e.type === "investigation.completed")?.result;
     expect(result?.limitations).toContain("reporting_origins_unresolved");
+  });
+
+  it("an unexpected provider model is never displayed as the pinned model", async () => {
+    const events: Array<{
+      type: string;
+      id?: string;
+      publicJudgment?: { model?: string };
+      result?: { limitations?: string[]; timeline?: Array<{ jevModel: string | null }> };
+    }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: null, timezone: "UTC", locale: "en" },
+      (e) => events.push(e),
+      {
+        serpapi: baseSerp as never,
+        jev: {
+          ask: async () => ({
+            answers: GOOD_ANSWERS,
+            model: "jev-9.9.9-unexpected",
+            identity: {
+              requested: "jev-1.13.0",
+              reported: "jev-9.9.9-unexpected",
+              status: "unexpected",
+              pinned: true,
+            },
+          }),
+        } as never,
+        fetchPage: fetchPageStub,
+      },
+    );
+    const result = events.find((e) => e.type === "investigation.completed")?.result;
+    // The unexpected identity is refused — no judgment may carry the
+    // pinned label, and classification is reported as unavailable.
+    expect(
+      events.filter((e) => e.type === "evidence.classified"),
+    ).toHaveLength(0);
+    expect(result?.limitations).toContain("semantic_classification_unavailable");
+    for (const t of result?.timeline ?? []) {
+      expect(t.jevModel).toBeNull();
+    }
   });
 
   it("zero successful classifications is unavailable, not partial", async () => {

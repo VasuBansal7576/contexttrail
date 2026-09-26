@@ -16,6 +16,9 @@ export interface PageExtraction {
   paragraphs: string[];
   /** datePublished-ish values from JSON-LD blocks, bound to the fetched page's entity. */
   jsonLdDates: string[];
+  /** Binding tier that produced the selected JSON-LD date — "page_url",
+   *  "main_entity", or "root_entity"; null when none was accepted. */
+  jsonLdDateBinding: "page_url" | "main_entity" | "root_entity" | null;
   /** JSON-LD dates rejected for the page, with the binding reason. */
   rejectedJsonLdDates: Array<{ value: string; reason: string }>;
   /** article:published_time / equivalent meta values. */
@@ -169,15 +172,20 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     root_entity: 2,
     nested: 3,
   };
-  const jsonLdDates = candidates
+  const accepted = candidates
     .filter((c) => c.bound !== "nested")
-    .sort((a, b) => rank[a.bound] - rank[b.bound])
-    .map((c) => c.value);
+    .sort((a, b) => rank[a.bound] - rank[b.bound]);
+  const jsonLdDates = accepted.map((c) => c.value);
+  let jsonLdDateBinding: PageExtraction["jsonLdDateBinding"] =
+    accepted[0] === undefined || accepted[0].bound === "nested"
+      ? null
+      : accepted[0].bound;
   const rejectedJsonLdDates = candidates
     .filter((c) => c.bound === "nested")
     .map((c) => ({ value: c.value, reason: "unbound_nested_entity" }));
   if (jsonLdDates.length === 0) {
     for (const p of parsedLd) rootPublicationDate(p, jsonLdDates);
+    if (jsonLdDates.length > 0) jsonLdDateBinding = "root_entity";
   }
 
   const metaDates: string[] = [];
@@ -217,7 +225,7 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length >= 40);
 
-  return { title, text, paragraphs, jsonLdDates, rejectedJsonLdDates, metaDates, timeDates };
+  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, metaDates, timeDates };
 }
 
 /* ---------------- deterministic excerpt builder (§18.3) ---------------- */

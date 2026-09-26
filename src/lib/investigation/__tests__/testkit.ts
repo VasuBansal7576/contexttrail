@@ -44,6 +44,7 @@ export function makeCandidate(
       status: "unresolved",
       basis: ["origin_unresolved_missing_evidence"],
       evidenceIds: [],
+      attributionSpans: [],
     },
     datePrecision: "unknown",
     dateStatus: "unknown",
@@ -127,6 +128,7 @@ export function separateOrigin(
     status: "separate_origin_evidenced",
     basis: ["separate_reporting_evidence"],
     evidenceIds: [c.id],
+    attributionSpans: [],
   };
   return c;
 }
@@ -140,6 +142,7 @@ export function sharedOrigin(
     status: "shared_origin",
     basis: ["article_text_duplication"],
     evidenceIds: [c.id],
+    attributionSpans: [],
   };
   return c;
 }

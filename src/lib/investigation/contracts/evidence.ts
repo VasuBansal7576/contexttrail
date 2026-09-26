@@ -77,6 +77,9 @@ export interface ReportingOrigin {
   status: ReportingOriginStatus;
   basis: ReportingOriginBasis[];
   evidenceIds: string[];
+  /** Inspector-visible attribution spans that produced this status —
+   *  the exact retrieved sentences and how they were used (§13). */
+  attributionSpans: Array<{ text: string; relation: string }>;
 }
 
 export type PublishedAtSource =
@@ -138,6 +141,11 @@ export interface EvidenceCandidate {
   excerptSource: ExcerptSource;
   retrievals: RetrievalRecord[];
 
+  /** Which JSON-LD binding tier produced the selected page date —
+   *  "page_url" | "main_entity" | "root_entity" — else null. */
+  dateEntityBinding?: string | null;
+  /** JSON-LD dates rejected for this page, with binding reasons (§19.2). */
+  rejectedDateCandidates?: Array<{ value: string; reason: string }>;
   pageText: string | null;
 
   judgment: EvidenceJudgment | null;

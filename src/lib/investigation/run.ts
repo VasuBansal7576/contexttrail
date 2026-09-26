@@ -12,7 +12,7 @@
  * forbidden (§40), this seam exists only for that purpose.
  */
 
-import type { EvidenceCandidate } from "./contracts/evidence";
+import type { EvidenceCandidate, RetrievalKind } from "./contracts/evidence";
 import type {
   InvestigationEvent,
   InvestigationErrorCode,
@@ -62,7 +62,7 @@ import { judgmentFromAnswers, pairwiseFromAnswers } from "../jev/client";
 import {
   PAIRWISE_QUESTION,
   candidateState,
-  claimMayStateLocation,
+  claimLocationEligibility,
   evidenceQuestions,
   pairwiseState,
 } from "../jev/questions";
@@ -111,6 +111,8 @@ const EMPTY_COVERAGE: ComparisonCoverage = {
   eligible: 0,
   selected: 0,
   comparedPairs: 0,
+  displayedDatedCore: 0,
+  comparedPairIds: [],
 };
 
 /**
@@ -399,17 +401,24 @@ export async function runInvestigation(
         choice.slot === "adaptive_lens_refined"
           ? normalizeLensAllResponse(json, { retrievedAt: new Date().toISOString() })
           : normalizeSearchResponse(json, "google_search", { retrievedAt: new Date().toISOString() });
+      telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: true, count: batch.reportedCount });
       emit({ type: "search.batch", engine: "expansion", count: batch.reportedCount });
       return { slot: "adaptive", engineLabel: "expansion", batch, failed: false };
     } catch (err) {
       logProviderFailure(`serpapi ${choice.slot}`, err);
+      telemetry.searches.push({ slot: choice.slot, engine: "expansion", ok: false, count: 0 });
       ticket.fail();
       return { slot: "adaptive", engineLabel: "expansion", batch: null, failed: true };
     }
   };
 
   const jevLimiter = createLimiter(CONCURRENCY.jev);
-  const claimHasLocation = claim !== null ? claimMayStateLocation(claim) : false;
+  // §16.5 — the typed eligibility record is retained so the rationale
+  // (bounded reason codes, matched spans) is inspectable, not just the
+  // boolean.
+  const locationEligibility =
+    claim !== null ? claimLocationEligibility(claim) : null;
+  const claimHasLocation = locationEligibility?.eligible === true;
   /** Successful Jev classifications this run — distinguishes "all calls
    *  failed" (unavailable) from an ordinary partial batch. */
   let jevSuccesses = 0;
@@ -429,14 +438,17 @@ export async function runInvestigation(
     telemetry.jevAttempted += 1;
     try {
       const excerpt = excerpts.get(c.id) ?? c.snippet;
-      const { answers } = await jevLimiter(() =>
+      const res = await jevLimiter(() =>
         deps.jev!.ask(
           candidateState(c, claim, excerpt),
           evidenceQuestions({ claimMode: mode === "claim_check", claimHasLocation }),
           shared.signal,
         ),
       );
-      const judgment = judgmentFromAnswers(answers, { claimMode: mode === "claim_check" });
+      const judgment = judgmentFromAnswers(res.answers, {
+        claimMode: mode === "claim_check",
+        provenance: res.identity,
+      });
       if (judgment === null) {
         logProviderFailure(`jev answers malformed for ${c.id}`, new ProviderError("malformed", "jev answers failed validation"));
         return false;
@@ -753,6 +765,8 @@ export async function runInvestigation(
             pageTexts.set(c.id, ex.text);
           }
           if (ex.title !== null) c.title ??= ex.title;
+          c.dateEntityBinding = ex.jsonLdDateBinding;
+          c.rejectedDateCandidates = ex.rejectedJsonLdDates;
           const src = dateSources.get(c.id) ?? {};
           src.pageJsonLd = ex.jsonLdDates[0] ?? null;
           src.pageMeta = ex.metaDates[0] ?? null;
@@ -847,14 +861,14 @@ export async function runInvestigation(
       await Promise.all(
         orderablePairs.map(async ([prev, cur]) => {
           try {
-            const { answers } = await jevLimiter(() =>
+            const res = await jevLimiter(() =>
               deps.jev!.ask(
                 pairwiseState(prev, cur, excerpts.get(prev.id) ?? null, excerpts.get(cur.id) ?? null),
                 { pairwise_context: PAIRWISE_QUESTION },
                 shared.signal,
               ),
             );
-            judgments.set(pairKey(prev.id, cur.id), pairwiseFromAnswers(answers));
+            judgments.set(pairKey(prev.id, cur.id), pairwiseFromAnswers(res.answers, res.identity));
           } catch (err) {
             logProviderFailure(`jev pairwise ${prev.id}~${cur.id}`, err);
             judgments.set(pairKey(prev.id, cur.id), null);
@@ -876,8 +890,28 @@ export async function runInvestigation(
 
     /* ----------------------------- FINAL_POLICY -------------------------- */
     stage("FINAL_POLICY", "started");
-    const built = buildTimeline(pool, segments, displayExcerpts);
-    const coverage = segments.coverage;
+    const built = buildTimeline(pool, segments, displayExcerpts, excerpts);
+    const coverage = { ...segments.coverage, displayedDatedCore: built.timeline.length };
+    // §34 request/operation log — per-slot attempted/returned counts plus
+    // how many pool candidates each retrieval kind retained. Counts only;
+    // no params, no provider payloads.
+    const SLOT_KIND: Record<string, RetrievalKind> = {
+      lens_all: "lens_visual",
+      lens_exact_matches: "lens_exact",
+      lens_about_this_image: "lens_about_image",
+      google_search_claim: "google_search",
+      google_news_claim: "google_news",
+      adaptive_lens_refined: "lens_visual",
+      adaptive_google_search: "google_search",
+    };
+    const requestLog = telemetry.searches.map((s) => ({
+      engine: s.slot,
+      attempted: 1,
+      returned: s.ok ? s.count : 0,
+      retained: pool.filter((c) =>
+        c.retrievals.some((r) => r.kind === SLOT_KIND[s.slot]),
+      ).length,
+    }));
     const takeaways: Takeaway[] =
       mode === "claim_check"
         ? deriveTakeaways({
@@ -903,6 +937,7 @@ export async function runInvestigation(
             claimDate,
             webContextAvailable,
             takeaways,
+            requestLog,
           })
         : buildTraceResult({
             candidates: pool,
@@ -914,6 +949,7 @@ export async function runInvestigation(
             firstObservedContextDivergence: segments.firstObservedContextDivergence,
             contextSegmentCount: segments.contextSegmentCount,
             limitations: [...limitations],
+            requestLog,
           });
     // Stage completion precedes the terminal event — a client that stops
     // reading at investigation.completed still sees a finished stage list.
@@ -929,6 +965,16 @@ export async function runInvestigation(
       searches: telemetry.searches,
       jev: { attempted: telemetry.jevAttempted, succeeded: telemetry.jevSucceeded, pairwiseAttempted: telemetry.pairwiseAttempted },
       pages: { attempted: telemetry.pagesAttempted, succeeded: telemetry.pagesSucceeded },
+      // §16.5 eligibility rationale — bounded codes only, never raw
+      // provider strings or the claim text.
+      locationEligibility:
+        locationEligibility === null
+          ? null
+          : {
+              eligible: locationEligibility.eligible,
+              reasons: locationEligibility.reasons,
+              rejectedBy: locationEligibility.rejectedBy,
+            },
       limitations: [...limitations],
     });
     emit({ type: "investigation.completed", result });

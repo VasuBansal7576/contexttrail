@@ -92,7 +92,13 @@ describe("buildContextSegments (§20.2)", () => {
       observedAt: "2020-03-01",
       earlierTransitionsUnresolved: false,
     });
-    expect(r.coverage).toEqual({ eligible: 3, selected: 3, comparedPairs: 2 });
+    expect(r.coverage).toEqual({
+      eligible: 3,
+      selected: 3,
+      comparedPairs: 2,
+      displayedDatedCore: 3,
+      comparedPairIds: [pairKey(a.id, b.id), pairKey(b.id, c.id)],
+    });
   });
 
   it("an uncertain connector breaks continuity and nulls the count", () => {

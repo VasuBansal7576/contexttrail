@@ -176,7 +176,16 @@ describe("F02 — contextual search/news never enters the core media timeline", 
 /* --------------------------------- F03 ---------------------------------- */
 
 const jevStub = {
-  ask: async () => ({ answers: {}, model: null }),
+  ask: async () => ({
+    answers: {},
+    model: "jev-1.13.0",
+    identity: {
+      requested: "jev-1.13.0",
+      reported: "jev-1.13.0",
+      status: "verified",
+      pinned: true,
+    },
+  }),
 } as unknown as JevClient;
 const fetchStub = async (url: string): Promise<FetchedPage> => ({
   url,

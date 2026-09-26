@@ -122,10 +122,17 @@ describe("result assembly (§21.4, §22, §38.3)", () => {
     supportingEvidence: [],
     contextualEvidence: [],
     undatedEvidence: [],
-    coverage: { eligible: 0, selected: 0, comparedPairs: 0 },
+    coverage: {
+      eligible: 0,
+      selected: 0,
+      comparedPairs: 0,
+      displayedDatedCore: 0,
+      comparedPairIds: [],
+    },
     firstObservedContextDivergence: null,
     contextSegmentCount: null,
     limitations: [] as const,
+    requestLog: [],
   };
 
   it("trace result carries no claim status", () => {
