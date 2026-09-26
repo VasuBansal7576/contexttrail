@@ -458,6 +458,13 @@ function retainedControlDigest(name) {
   return hit ? { sha256: hit.sha256, mutation: hit.mutation, derivedFrom: hit.derivedFrom } : null;
 }
 
+/**
+ * Which generator produced the controlled fixtures, for stream provenance. The
+ * fixtures carry no generator field, so this is the declared identity from the
+ * generator that owns them, not an inference from their contents.
+ */
+const GENERATOR_IDENTITY = "fixtures/gen-fixtures.test.ts (CONTEXTTRAIL_GEN_FIXTURES=1) via runInvestigation";
+
 function fixturePath(name) {
   // A maintained fixture always wins, so a private stream can never shadow one
   // of ours by name; a retained control is found beside the manifest that pins
@@ -1333,6 +1340,9 @@ async function startStreamServer() {
         sentClaimBytes: sentFields?.claim?.bytes ?? null,
         sentMediaName: sentFields?.media?.filename ?? null,
         sentMediaBytes: sentFields?.media?.bytes ?? null,
+        // How the harness put the image in: a real file input via setInputFiles,
+        // not a native file-chooser interaction and not a React setter.
+        imageEntryMethod: "setInputFiles",
         eventsWritten: 0,
         firstBytesAt: Date.now(),
         clientClosed: false,
@@ -1443,6 +1453,12 @@ async function startStreamServer() {
           const releasePromise = new Promise((r) => (resolveRelease = r));
           return { reached: reachedP, releasePromise, resolveReached, resolveRelease };
         });
+        // The EXACT bytes this stream will be served from, retained and hashed at
+        // the point the sequence reads them, plus the generator identity, so a
+        // replay can be tied to the bytes rather than to a fixture name.
+        const raw = fs.readFileSync(fixturePath(p.fixture));
+        const bytes = raw.length;
+        const sha256 = crypto.createHash("sha256").update(raw).digest("hex");
         const id = (() => {
           for (const l of lines) {
             try {
@@ -1452,7 +1468,7 @@ async function startStreamServer() {
           }
           return null;
         })();
-        return { fixture: p.fixture, segments, holds, id };
+        return { fixture: p.fixture, segments, holds, id, bytes, sha256, generator: GENERATOR_IDENTITY };
       });
       state.paceMs = Math.max(0, plans[0]?.paceMs ?? 0);
       return { plans: state.sequence.map((p) => ({ fixture: p.fixture, id: p.id, segments: p.segments.length })) };
@@ -1767,6 +1783,7 @@ const FAULTS = {
   "tab-map-broken": "make ArrowRight/Home move focus without selecting the matching tab or panel",
   "long-value-truncated": "clip long values to one line with overflow:hidden, so they are cut instead of wrapped",
   "reading-order-reversed": "reverse the visual order of the result rows while leaving DOM order untouched",
+  "stale-a-inserted": "append a plainly visible old-A-only title to B's completed result",
 };
 
 const FAULT_SCRIPT = `window.__ctFault = (mode) => {
@@ -1776,7 +1793,25 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
   window.__ctFaultHits = 0;
   const hit = () => { window.__ctFaultHits++; };
   const alter = () => {
-    if (mode === "bad-selection") {
+    if (mode === "stale-a-inserted") {
+      // A native DOM control, not a product mutation: once a completed result is
+      // on screen, append a VISIBLE block carrying a title that belongs only to A.
+      // A stale-content guard that cannot see this proves nothing, so this is the
+      // opposing control for ownership.no-stale-a-content-on-completed-overview.
+      if (document.getElementById("ct-stale-a")) return;
+      const heading = document.querySelector("h1");
+      if (!heading || !/insufficient evidence|possible context conflict|no corroborating/i.test(document.body.innerText || "")) {
+        return; // not on a completed result yet; the poll retries
+      }
+      const stale = document.createElement("section");
+      stale.id = "ct-stale-a";
+      stale.setAttribute("aria-label", "Earlier investigation");
+      stale.className = "mx-auto max-w-3xl px-5 py-6";
+      stale.innerHTML =
+        "<h2>Earlier investigation</h2><p>CONTROLLED FIXTURE contextual article</p>";
+      heading.parentElement.insertBefore(stale, heading.nextSibling);
+      hit();
+    } else if (mode === "bad-selection") {
       document.querySelectorAll('[role="tab"]').forEach((tab) => {
         if (tab.textContent.trim() === "Sources" && tab.getAttribute("aria-selected") === "true") {
           tab.setAttribute("aria-selected", "false");
@@ -1935,6 +1970,21 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
     setTimeout(() => clearInterval(timer), 30000);
   }
 
+  // The stale-A insertion only has a target once a COMPLETED result is rendered,
+  // which is after the observer has settled, so it polls until then.
+  if (mode === "stale-a-inserted") {
+    const timer = setInterval(() => {
+      if (document.getElementById("ct-stale-a")) return clearInterval(timer);
+      if (!document.head) return;
+      try {
+        alter();
+      } catch {
+        /* the result surface is not ready; retry */
+      }
+    }, 150);
+    setTimeout(() => clearInterval(timer), 40000);
+  }
+
   // Focus return is not a DOM mutation, so it cannot ride the observer: poll
   // for the dialog's disappearance and then blur whatever holds focus, which is
   // exactly the lost-focus state a keyboard user lands in.
@@ -2052,6 +2102,7 @@ const FAULT_SCOPE = {
   "tab-map-broken": { features: ["result"] },
   "long-value-truncated": { features: ["result"] },
   "reading-order-reversed": { features: ["result"] },
+  "stale-a-inserted": { features: ["stream-ownership"] },
   "anchor-broken": { features: ["landing"] },
   "bad-selection": { features: ["result"] },
   "drop-timeline-item": { features: ["result"], views: ["timeline"] },
@@ -3850,7 +3901,9 @@ async function drive(opts = {}) {
  *  its cases submit a real request that the boundary redirects into the
  *  in-process fixture stream, so its evidence is contract-boundary evidence
  *  even though it also exercises real UI controls. */
-const fixtureDrives = new Set(["investigation", "result", "viewer", "session"]);
+// stream-ownership posts the app's real /api/investigate and consumes redirected
+// local streams, so it proves the public contract, not a real UI surface.
+const fixtureDrives = new Set(["investigation", "result", "viewer", "session", "stream-ownership"]);
 
 function featureDrivesTier(feature) {
   return fixtureDrives.has(feature);
@@ -5475,7 +5528,32 @@ const DRIVE_CASES = {
     const A = "controlled-pair";
     const B = "controlled-insufficient";
     const plan = stream.planSequence([{ fixture: A, holds: 1 }, { fixture: B, holds: 1 }]);
-    writeJson(path.join(driveDir, "ownership-plan.json"), { plan, viewport });
+    // Both consumed streams, identified by their exact bytes, recorded before the
+    // first request: name, byte length, sha256 and generator, plus the viewport and
+    // the entry method the harness used to attach the image.
+    const streamsConsumed = plan.plans.map((pl, i) => ({
+      request: i,
+      fixture: pl.fixture,
+      bytes: stream.state.sequence?.[i]?.bytes ?? null,
+      sha256: stream.state.sequence?.[i]?.sha256 ?? null,
+      generator: stream.state.sequence?.[i]?.generator ?? null,
+      segments: pl.segments,
+    }));
+    rec.note("ownership.streams-consumed", JSON.stringify(streamsConsumed));
+    writeJson(path.join(driveDir, "ownership-plan.json"), {
+      streamsConsumed,
+      viewport,
+      imageEntryMethod: "setInputFiles",
+      imagePath: path.basename(uploadFileSet(runId)["upload.png"].path),
+      imageSha256: sha256(fs.readFileSync(uploadFileSet(runId)["upload.png"].path)),
+    });
+    rec.check(
+      "ownership.both-streams-retained-with-bytes",
+      streamsConsumed.every((x) => typeof x.bytes === "number" && /^([0-9a-f]{64})$/.test(String(x.sha256)) && !!x.generator),
+      `A ${streamsConsumed[0].bytes}B sha256 ${String(streamsConsumed[0].sha256).slice(0, 12)}, ` +
+        `B ${streamsConsumed[1].bytes}B sha256 ${String(streamsConsumed[1].sha256).slice(0, 12)}, ` +
+        `generator ${streamsConsumed[0].generator}`,
+    );
 
     const ids = (p) => p.filter(Boolean).map((x) => String(x));
     rec.check(
@@ -5485,6 +5563,29 @@ const DRIVE_CASES = {
     );
     const aId = plan.plans[0]?.id ?? null;
     const bId = plan.plans[1]?.id ?? null;
+    // A's real article titles, from the fixtures' own evidence rows. A rendered
+    // card's last line is the DOMAIN, which matches nothing, so the identity has to
+    // come from the fixture data.
+    const fixtureTitles = (name) => {
+      const out = new Set();
+      for (const l of fs.readFileSync(fixturePath(name), "utf8").split("\n")) {
+        if (!l.trim()) continue;
+        try {
+          const ev = JSON.parse(l);
+          const rows = ev.evidence ? (Array.isArray(ev.evidence) ? ev.evidence : [ev.evidence]) : [];
+          for (const r of rows) {
+            if (typeof r?.title === "string" && r.title.trim().length > 3) out.add(r.title.trim());
+          }
+        } catch { /* keep looking */ }
+      }
+      return [...out];
+    };
+    const aTitlesAll = fixtureTitles(A);
+    const bTitlesAll = fixtureTitles(B);
+    // A-exclusive: titles A has that B does not. Shared titles are legitimate on
+    // both results, so requiring every A title to be absent would be a false red.
+    const aExclusive = aTitlesAll.filter((t) => !bTitlesAll.includes(t));
+    rec.note("ownership.a-exclusive-titles", JSON.stringify({ aExclusive, shared: aTitlesAll.length - aExclusive.length }));
 
     // Evidence ids actually rendered in the DOM, and the claim text on screen.
     // Read the RENDERED state, not the markup. Two earlier observer bugs came
@@ -5698,6 +5799,41 @@ const DRIVE_CASES = {
     stream.releaseAllFor(1);
     await stream.waitForServed(8000);
     await delay(600);
+    // B's completed Overview surface: exact terminal heading, and no A-exclusive
+    // title anywhere in the RENDERED body. The live evidence section does not exist
+    // on a completed result, so reading stale content from it proved nothing.
+    await page
+      .waitForFunction(
+        () => /insufficient evidence|possible context conflict|no corroborating/i.test(document.body.innerText || ""),
+        { timeout: 20_000 },
+      )
+      .catch(() => {});
+    const overview = await page.evaluate(() => {
+      const text = document.body.innerText || "";
+      return {
+        heading: document.querySelector("h1")?.textContent?.trim() ?? null,
+        norm: text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+        chars: text.length,
+        headingText: [...document.querySelectorAll("h1,h2")].map((h) => h.textContent?.trim()).filter(Boolean).slice(0, 6),
+      };
+    });
+    writeJson(path.join(driveDir, "result-overview.json"), { heading: overview.heading, chars: overview.chars, headings: overview.headingText });
+    rec.check(
+      "ownership.b-terminal-heading-is-its-own",
+      overview.heading === "Insufficient evidence",
+      `B's completed Overview heading is "${overview.heading}" (headings on screen: ${JSON.stringify(overview.headingText)}) — ` +
+        `the exact terminal state for ${B}, not merely "not cancelled"`,
+    );
+    const normTitle = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const staleVisible = aExclusive.filter((t) => overview.norm.includes(normTitle(t)));
+    rec.check(
+      "ownership.no-stale-a-content-on-completed-overview",
+      staleVisible.length === 0,
+      staleVisible.length === 0
+        ? `none of A's ${aExclusive.length} exclusive title(s) appear in the ${overview.chars}-char rendered Overview ` +
+          `(checked against the whole body, not the absent live section)`
+        : `${staleVisible.length} of A's exclusive titles are VISIBLE on B's completed Overview: ${JSON.stringify(staleVisible.slice(0, 3))}`,
+    );
     const afterB = await observe();
     rec.note("ownership.after-b-complete", JSON.stringify(afterB));
     const aSurvivors = aTitles.filter((t) => afterB.evidenceTitles.includes(t));
