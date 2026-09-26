@@ -45,6 +45,13 @@ Analysis:
 | `result.analysis-reporting-group-<i>-member-link` | each declared member is listed inside its group |
 | `result.analysis-reporting-group-count-matches` | the number of rendered group headlines equals the fixture's `reportingGroups.length` and `reportingGroupCount` |
 | `result.analysis-policy-gate-<gate>` | each declared `policyReasons` gate renders with its real pass/fail |
+| `result.analysis-performed-list-count` | the "Comparisons performed" list holds one row per entry in the result's `comparisons` field — **direct rows only**, never a comparison's nested probability rows |
+| `result.analysis-performed-probability-rows` / `-probabilities-normalized` | every returned distribution renders one option row per label and sums to 1 |
+| `result.analysis-performed-probabilities-not-comparison-rows` | a probability row is never counted as a comparison |
+| `result.analysis-performed-pairs-are-displayed` / `-list-identity` | every performed pair names two occurrences the result actually displayed, and each row names those same two in order — validated **whether or not** a coverage summary exists |
+| `result.analysis-performed-list-not-invented` | with no `comparisons` field the view must say none was performed; an absent field is never read as zero |
+| `result.analysis-coverage-count-matches-performed-list` | a **known** `comparedPairs` is cross-checked against the separately supplied list even when the summary used the empty-state sentence |
+| `result.analysis-coverage-not-contradictory` | a summary may claim at most `max(0, selected − 1)` adjacent pairs — fewer is valid for imprecise/equal-date gaps — and never a pair with nothing eligible |
 | `result.analysis-no-placeholder` | panel text contains no placeholder token |
 | `result.reporting-group-not-mislabeled` | no `Shared group of N occurrence(s)` label anywhere (R4 residual — checked first so a regression is the failure that gets named) |
 | `result.reporting-group-headline` | a resolved group renders the neutral `Reporting group of N occurrence(s)` |

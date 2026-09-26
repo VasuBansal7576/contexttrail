@@ -18,10 +18,14 @@ never as a command that does not exist, and never as a satisfied check.
 | Gate | Requirement | Status |
 | --- | --- | --- |
 | Candidate | one immutable integrated revision, recorded with its sha and Next `BUILD_ID` | supplied by firstmate; last verified here: `9bef35c1` / `MQQYbrRn7fhZfsN9f3KOw` |
-| Verification foundation | checklist A4: C1–C6, pair/focus, model identity, pixel and provenance guards | closed on the reviewed skill tree (byte-identical to this one) |
+| Verification foundation | checklist A4: C1–C6, pair/focus, model identity, pixel and provenance guards | closed; C7 R1–R4 corrected this stage and awaiting independent acceptance |
 | Live permission | `RUN_LIVE_TESTS=1` + `--live` + a readiness manifest per live chapter | **not granted**; the live chapters below are marked LIVE and stay unexecuted until the captain approves bounded calls |
 | Browser ledger | checklist A12 | Chrome for Testing 153.0.8010.12 and native Chrome 153.0.8010.53 only. Edge/Firefox/Safari remain NOT_VERIFIED; do not install or enable anything implicitly |
-| Theme | checklist A10 "both themes" | **GAP: the app ships a single light theme** (no `prefers-color-scheme` surface, no theme control). Record the single theme as the observed truth and do not claim a dark-theme pass |
+| Theme | **corrected**: there is no theme feature. PRD§4.5 (1178–1190) fixes *per-screen surfaces* — dark landing, light upload, dark investigation, light result/timeline, dark viewer. Contrast must be measured on those surfaces where they are, not on a theme that does not exist | composited contrast is now measured by the runner on the screen it drives; per-screen coverage for the dark landing/investigation and dark viewer surfaces is still to be added |
+| Graph authority (A1) | I1/I2/I4 accepted at `d279`; date I3 at `203` | accepted, carried by source — not reopened here |
+| Inspection UI (A2) | measured UI, hostile wrapping, valid/invalid opener paths accepted at `9bef` | carried; the runner now measures composited contrast, keyboard-visible focus, the full tablist pattern and reduced motion |
+| Location register (A3) | bounded discourse precedence accepted through `d279`; the optional undated-read decision stays recorded | carried, not reopened |
+| Deadline (A9) | the **55 s pipeline cutoff is a native-timer acceptance at `ea1b` — do not rerun it to fill video length**. The **client watchdog is 90 000 ms** and was accepted on a virtual-clock tier, not as a native 90 s gate | do not invent a mandatory 90 s native gate; if a 90 s native recording is ever taken, label it 90 s and assert timeout with retained partial evidence, never cancellation |
 
 ```bash
 # one immutable snapshot, own port, credential-stripped child env
@@ -118,8 +122,14 @@ Asserts: `session.*` — claim/image retained through cancel,
 restore-and-discard, `session.storage-*` privacy.
 Checklist: A9. Tier: CONTROLLED public boundary (the request is redirected into
 the fixture stream; upstream billing cancellation is **not** established).
-**GAP (A9):** "no late event from the old stream changes the new result" has no
-assertion; it needs a two-stream drive the runner does not implement.
+**GAP (A9), still open after this stage:** the two-stream isolation scenario
+(stream A early evidence → cancel/reset → stream B with distinct ids → a delayed
+A candidate/terminal/error attempt while B is pending, asserting every visible
+stage, result and cache stays B's) is **not implemented**. It is unproved
+product behaviour, not a source-only defect finding, and no browser claim about a
+late event is made. A deterministic hook/reader-level opposing control would have
+to be labelled UNIT, never browser, and must actually let stale ownership affect
+the assertion.
 
 ### 05 · All four result tabs, every claim/trace state — `drive result`
 ```bash
@@ -201,14 +211,27 @@ Asserts today: `a11y.claim-reachable-by-tab`, `a11y.link-reachable-by-tab`,
 `a11y.storage-keys-only`, `a11y.storage-no-image-data`, plus
 `a11y.h1-contrast-measured` (the measurement is recorded, not gated).
 Checklist: A10. Tier: real browser, measured styles/ARIA.
-**GAP (A10) — four behaviours have no assertion and must be added to the runner
-before the final capture:** (1) a real contrast *ratio* assertion with a 4.5:1
-floor for body text and 3:1 for large text and control boundaries — today only
-the h1 measurement is recorded; (2) visible focus-ring detection on the result
-controls and the viewer; (3) Arrow/Home/End keyboard operation of the result
-tablist; (4) reduced-motion behaviour — the app's `prefers-reduced-motion`
-rules are never exercised, and the runner has no control for it. Also unasserted:
-mobile reading order and long-value wrapping on the new §34 inspection content.
+Now implemented in the runner (measured, with sabotage controls):
+
+- `a11y.contrast-meets-floor` — composited contrast for every visible text node
+  (4.5:1 normal, 3:1 large), background found by climbing ancestors and alpha
+  composited, with `--fault contrast-lowered` red;
+- `a11y.focus-indicator-visible` — real Tab focus must paint an indicator
+  compared against the same element unfocused, with `--fault focus-ring-hidden`
+  red;
+- `result.tablist-keyboard-<key>-consistent` and `-roving-tabindex` for
+  ArrowRight ×2, Home, End and ArrowLeft, with `--fault tab-map-broken` red;
+- `a11y.reduced-motion-emulated` / `-content-settled` /
+  `-primary-target-44px` — the media feature is emulated, the screen reloaded,
+  and settled visibility with a 44 px primary target is required.
+
+Still open for A10: per-screen composited contrast on the **dark** landing,
+investigation and viewer surfaces (the runner measures the screen it drives, which
+is the light upload/result surface); mobile reading order and long-value wrapping
+on the dense inspection content; the selected-tab fallback for a hidden, disabled,
+disconnected or `tabindex="-1"` opener; and media-failure / unavailable-excerpt
+attribution. Accepted private 9bef evidence covers several of these inputs, but
+they are not yet maintained assertions here.
 
 ### 09 · Sessions, responsive layout, privacy, cleanup
 ```bash

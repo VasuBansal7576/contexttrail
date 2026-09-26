@@ -107,9 +107,29 @@ bin/control-contexttrail drive accessibility --run-id <id> --viewport mobile
 - `session.restore-*` asserts that a refresh offers an explicit choice rather
   than silently dropping or silently resurrecting the result, and that the
   restored view is honest about what was lost (stage history, image preview).
-- Contrast is computed from the resolved `h1` colour against the nearest
-  opaque painted ancestor background, with the WCAG large-text exemption
-  applied from computed font size and weight.
+- `a11y.h1-contrast-wcag-aa` still checks the resolved `h1` colour, but it is
+  now the narrow case: `a11y.contrast-meets-floor` covers every visible text
+  node on the screen, with the large-text exemption applied from computed font
+  size and weight.
+
+## Maintained measurements (A10)
+
+These are measured in the browser on every `drive accessibility` /
+`drive result` run, with a sabotage control for each; none stores a constant.
+
+| Assertion | What it measures | Red control |
+| --- | --- | --- |
+| `a11y.contrast-meets-floor` | composited contrast per visible text node — background resolved by climbing ancestors, alpha composited, 4.5:1 normal / 3:1 large | `--fault contrast-lowered` |
+| `a11y.focus-indicator-visible` | real Tab focus paints an indicator, compared with the same element unfocused | `--fault focus-ring-hidden` |
+| `a11y.reduced-motion-emulated` / `-content-settled` / `-primary-target-44px` | the reduced-motion preference is emulated, then settled visibility and a 44px primary target are required | — |
+| `result.tablist-keyboard-<key>-consistent` / `-roving-tabindex` | ArrowRight ×2, Home, End, ArrowLeft move focus, `aria-selected`, the roving tabindex and the matching visible panel together | `--fault tab-map-broken` |
+
+Not yet maintained here, though accepted private evidence exists for several of
+them: per-screen composited contrast on the **dark** surfaces (landing,
+investigation, viewer), mobile reading order and long-value wrapping on the
+dense inspection content, and the selected-tab fallback for a hidden, disabled,
+disconnected or `tabindex="-1"` opener.
+
 
 Keep screenshots, ARIA snapshots, action video, sanitized response/events and
 invariant results with the feature ID. Cleanup closes owned runtime state and

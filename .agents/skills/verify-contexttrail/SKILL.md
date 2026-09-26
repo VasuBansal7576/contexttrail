@@ -118,6 +118,14 @@ Implemented drives (seven):
     order equals the fixture's flat viewer order, each side shows its own id
     and note, the pair control is keyboard-reachable and activates with Enter,
     and ordinary Next outside the pair clears both the note and the control.
+- `accessibility` also maintains the measurements that decide acceptance:
+  composited contrast per visible text node (background resolved by climbing
+  ancestors, 4.5:1 normal / 3:1 large — no stored constants), keyboard-visible
+  focus compared with the same element unfocused, the full result-tablist
+  keyboard pattern (ArrowRight ×2, Home, End, ArrowLeft) including the roving
+  tabindex and the matching visible panel, and reduced motion emulated with
+  settled content and a 44px primary target. `result` runs the tablist pattern
+  and its contrast pass on the result surface.
 - `session --case refresh|back|new|cancel|fatal-retry` — refresh restore
   offer / restore / discard, browser Back, New investigation, cancellation and
   fatal-interruption surfaces, including that the claim and image survive and
@@ -168,7 +176,9 @@ Beyond scope, two more guards keep a fault from ever being green by accident:
 
 | fault | applies to |
 | --- | --- |
-| `a11y-false-green`, `focus-removed` | `accessibility` |
+| `a11y-false-green`, `focus-removed`, `focus-ring-hidden` | `accessibility` |
+| `contrast-lowered` | `accessibility`, `result` |
+| `tab-map-broken` | `result` |
 | `anchor-broken` | `landing` |
 | `bad-selection` | `result` (any view) |
 | `drop-timeline-item` | `result --view timeline` |
