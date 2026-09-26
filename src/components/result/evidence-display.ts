@@ -163,11 +163,17 @@ export function identityBasis(occurrence: JsonRecord): IdentityBasis | null {
 }
 
 /** Core occurrences, visual leads and contextual results stay visibly apart. */
-export function occurrenceRole(occurrence: JsonRecord): string | null {
+export function occurrenceRole(
+  occurrence: JsonRecord,
+  group: "dated" | "supporting" | "contextual" | "unknown" | null = null,
+): string | null {
   const rel = (str(occurrence, "mediaRelationship") ?? str(occurrence, "relationship") ?? "").toUpperCase();
   if (rel.includes("EXACT") || rel.includes("NEAR")) return "Core occurrence";
   if (rel.includes("VISUAL_LEAD") || rel.includes("LEAD")) return "Visual lead";
   if (rel !== "") return "Contextual result";
+  // The contract leaves mediaRelationship null for contextual web/news
+  // evidence; only that group may claim the contextual label.
+  if (group === "contextual") return "Contextual result";
   return null;
 }
 

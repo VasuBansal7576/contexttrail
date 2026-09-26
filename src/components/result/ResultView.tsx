@@ -99,18 +99,22 @@ export default function ResultView({
   const groups: TimelineGroups = useMemo(() => {
     const supportingRaw =
       arr(result, "supportingEvidence") ?? arr(result, "visualLeads") ?? [];
+    const contextualRaw = arr(result, "contextualEvidence") ?? [];
+    const clean = (items: unknown[]) =>
+      items
+        .map((i) => (typeof i === "object" && i !== null && !Array.isArray(i) ? (i as JsonRecord) : null))
+        .filter((i): i is JsonRecord => i !== null);
     return {
       dated: timeline.dated,
       unknownDate: timeline.unknownDate,
-      supporting: supportingRaw
-        .map((i) => (typeof i === "object" && i !== null && !Array.isArray(i) ? (i as JsonRecord) : null))
-        .filter((i): i is JsonRecord => i !== null),
+      supporting: clean(supportingRaw),
+      contextual: clean(contextualRaw),
     };
   }, [result, timeline.dated, timeline.unknownDate]);
 
   /** Flat navigation order for the evidence viewer. */
   const viewerItems = useMemo(
-    () => [...groups.dated, ...groups.supporting, ...groups.unknownDate],
+    () => [...groups.dated, ...groups.supporting, ...groups.contextual, ...groups.unknownDate],
     [groups],
   );
 
@@ -142,6 +146,16 @@ export default function ResultView({
     if (id === endpoints.fromId) return endpoints.toId;
     if (id === endpoints.toId) return endpoints.fromId;
     return null;
+  };
+
+  /** Viewer position → evidence group (matches viewerItems order). */
+  const groupOfIndex = (i: number): "dated" | "supporting" | "contextual" | "unknown" => {
+    if (i < groups.dated.length) return "dated";
+    if (i < groups.dated.length + groups.supporting.length) return "supporting";
+    if (i < groups.dated.length + groups.supporting.length + groups.contextual.length) {
+      return "contextual";
+    }
+    return "unknown";
   };
 
   const openEvidenceById = (id: string, entry?: { kind: "takeaway"; index: number } | { kind: "divergence" }) => {
@@ -272,32 +286,8 @@ export default function ResultView({
             aria-labelledby="ct-tab-overview"
             className="grid gap-10 lg:grid-cols-[1fr_2fr]"
           >
-            {/* Submitted material — after the result on mobile, beside it on desktop. */}
-            <aside aria-label="Submitted material" className="order-2 lg:order-1">
-              {submittedImageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={submittedImageUrl}
-                  alt="The image submitted for this investigation"
-                  className="w-full rounded-xl object-cover ring-1 ring-ink/10"
-                />
-              ) : restoredNotice ? (
-                <p className="rounded-xl bg-ink/5 p-6 text-sm leading-relaxed text-ink/60 ring-1 ring-ink/10">
-                  Submitted image unavailable after refresh — uploaded images are never stored.
-                </p>
-              ) : null}
-              <p className="mt-3 text-sm font-medium">Submitted image</p>
-              {claim ? (
-                <p className="mt-2 border-l-2 border-ink/15 pl-3 text-sm leading-relaxed text-ink/75">
-                  “{claim}”
-                </p>
-              ) : (
-                <p className="mt-2 text-sm text-ink/55">No claim submitted — trace mode.</p>
-              )}
-            </aside>
-
-            {/* Result */}
-            <section aria-label="Investigation result" className="order-1 lg:order-2">
+            {/* Result first in DOM and on mobile; submitted material beside it on desktop. */}
+            <section aria-label="Investigation result" className="lg:order-2">
               <div className={cn("rounded-2xl p-6 ring-1 sm:p-8", panelTone)}>
                 <h1 className="font-serif text-4xl text-balance sm:text-5xl">{headline}</h1>
                 {mode === "claim-check" && copy ? (
@@ -405,6 +395,30 @@ export default function ResultView({
                 </button>
               </div>
             </section>
+
+            {/* Submitted material — after the result in DOM/mobile, left column on desktop. */}
+            <aside aria-label="Submitted material" className="lg:order-1">
+              {submittedImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={submittedImageUrl}
+                  alt="The image submitted for this investigation"
+                  className="w-full rounded-xl object-cover ring-1 ring-ink/10"
+                />
+              ) : restoredNotice ? (
+                <p className="rounded-xl bg-ink/5 p-6 text-sm leading-relaxed text-ink/60 ring-1 ring-ink/10">
+                  Submitted image unavailable after refresh — uploaded images are never stored.
+                </p>
+              ) : null}
+              <p className="mt-3 text-sm font-medium">Submitted image</p>
+              {claim ? (
+                <p className="mt-2 border-l-2 border-ink/15 pl-3 text-sm leading-relaxed text-ink/75">
+                  “{claim}”
+                </p>
+              ) : (
+                <p className="mt-2 text-sm text-ink/55">No claim submitted — trace mode.</p>
+              )}
+            </aside>
           </div>
         )}
 
@@ -426,8 +440,9 @@ export default function ResultView({
               <h2 className="font-serif text-4xl">Sources</h2>
               <p className="mt-2 max-w-3xl text-sm text-ink/65">
                 Every retrieved occurrence in this investigation. Core occurrences are confirmed
-                against the submitted image; visual leads are not. Labels reflect what the
-                evidence supports, not independent verification.
+                against the submitted image; visual leads are not, and contextual web results
+                never depict it as retrieved media. Labels reflect what the evidence supports,
+                not independent verification.
               </p>
               {viewerItems.length === 0 ? (
                 <p className="mt-6 rounded-xl bg-white/70 p-8 text-center text-sm text-ink/60 ring-1 ring-ink/10">
@@ -440,7 +455,7 @@ export default function ResultView({
                     const title = str(o, "title") ?? "Untitled result";
                     const domain = str(o, "domain");
                     const url = str(o, "url") ?? str(o, "sourceUrl");
-                    const role = occurrenceRole(o);
+                    const role = occurrenceRole(o, groupOfIndex(i));
                     const identity = identityBasis(o);
                     const showRole = role !== null && role !== (identity?.badge ?? null);
                     const dateKey =
