@@ -427,6 +427,28 @@ function fixtureTerminal(name) {
 
 const asLen = (v) => (Array.isArray(v) ? v.length : 0);
 
+/** Set when the drive replays a control from Astra's retained manifest, so the
+ *  evidence records which bytes proved it rather than only which case name. */
+let retainedSha256 = null;
+
+/** Astra's retained C7 controls, with the sha256 of the exact bytes she
+ *  captured on app ea1b539. Copied in as a manifest only: the .ndjson files stay
+ *  untracked private data, so a replayed control is proven byte-identical rather
+ *  than merely named. Any drift fails the run instead of quietly changing what
+ *  the opposing control proves. */
+function retainedControlDigest(name) {
+  const manifest = path.join(FIXTURES_DIR, "controls", "astra-c7-controls.json");
+  if (!fs.existsSync(manifest)) return null;
+  let entries;
+  try {
+    entries = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  } catch {
+    return null;
+  }
+  const hit = Array.isArray(entries) ? entries.find((e) => e && e.name === name) : null;
+  return hit ? { sha256: hit.sha256, mutation: hit.mutation, derivedFrom: hit.derivedFrom } : null;
+}
+
 function fixturePath(name) {
   const p = path.join(FIXTURES_DIR, `${name}.ndjson`);
   if (!fs.existsSync(p)) {
@@ -2867,6 +2889,23 @@ async function observeResultView(page, rec, view, panel, panelText) {
  */
 async function drive(opts = {}) {
   const handlerLive = opts.handlerLive === true;
+  if (flags.case) {
+    const retained = retainedControlDigest(flags.case);
+    if (retained) {
+      const actual = crypto
+        .createHash("sha256")
+        .update(fs.readFileSync(fixturePath(flags.case)))
+        .digest("hex");
+      if (actual !== retained.sha256) {
+        fail(
+          `retained control ${flags.case} does not match the bytes Astra captured on ea1b539 ` +
+            `(manifest ${retained.sha256.slice(0, 12)}, file ${actual.slice(0, 12)}); ` +
+            `refusing to report a replay of a different stream as her control`,
+        );
+      }
+      retainedSha256 = { name: flags.case, ...retained, actual };
+    }
+  }
   if (handlerLive) {
     enforceCommandSchema("live-handler", {
       requiredOptions: ["run-id", "feature", "manifest", "image"],
@@ -3000,6 +3039,10 @@ async function drive(opts = {}) {
     // The harness files this drive actually READ, hashed now — not at seal
     // time, which would let a later map/generator edit be attributed backward.
     runnerFiles: runner.runnerFiles,
+    // Provenance of a replayed opposing control: the case name, the mutation it
+    // came from and the sha256 of the exact bytes, verified against the manifest
+    // before the drive started.
+    retainedControl: retainedSha256,
     startedAt: new Date(t0).toISOString(),
     outcome: "INCOMPLETE",
     complete: false,
