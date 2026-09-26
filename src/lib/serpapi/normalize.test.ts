@@ -6,6 +6,7 @@ import {
   normalizeSearchResponse,
   recordDateSources,
 } from "./normalize";
+import { serpapiResponseFailed } from "./client";
 import type { EvidenceDateSources } from "../investigation/dates";
 
 const retrievedAt = "2026-09-26T00:00:00.000Z";
@@ -92,6 +93,75 @@ describe("normalizeExactMatchesResponse", () => {
     expect(batch.exactState).toBe("validated_occurrences");
     expect(batch.candidates[0].mediaRelationship).toBe("EXACT_MATCH");
     expect(batch.candidates[0].retrievals[0].kind).toBe("lens_exact");
+  });
+
+  it("treats the documented Success + no-results error + absent collection as provider-reported empty", () => {
+    // Observed live + documented at serpapi.com/api-status-and-error-codes:
+    // status=Success with a "hasn't returned any results" style error and
+    // no exact_matches key.
+    const batch = normalizeExactMatchesResponse(
+      {
+        search_metadata: { status: "Success", id: "x" },
+        error: "Google Lens hasn't returned any results for this query.",
+      },
+      { requestFailed: false, retrievedAt },
+    );
+    expect(batch.exactState).toBe("empty");
+    expect(batch.candidates).toHaveLength(0);
+  });
+
+  it("keeps Success + an arbitrary error + absent collection unavailable, not empty", () => {
+    const batch = normalizeExactMatchesResponse(
+      {
+        search_metadata: { status: "Success" },
+        error: "Some unrecognised provider condition.",
+      },
+      { requestFailed: false, retrievedAt },
+    );
+    expect(batch.exactState).toBe("unavailable");
+  });
+
+  it("keeps absent collection without any provider error malformed", () => {
+    const batch = normalizeExactMatchesResponse(
+      { search_metadata: { status: "Success" } },
+      { requestFailed: false, retrievedAt },
+    );
+    expect(batch.exactState).toBe("malformed");
+  });
+
+  it("marks metadata status=Error unavailable even when the caller did not flag failure", () => {
+    const batch = normalizeExactMatchesResponse(
+      {
+        search_metadata: { status: "Error" },
+        error: "We couldn't get valid results for this search.",
+      },
+      { requestFailed: false, retrievedAt },
+    );
+    expect(batch.exactState).toBe("unavailable");
+  });
+
+  it("keeps a non-array collection malformed", () => {
+    const batch = normalizeExactMatchesResponse(
+      { search_metadata: { status: "Success" }, exact_matches: { bogus: true } },
+      { requestFailed: false, retrievedAt },
+    );
+    expect(batch.exactState).toBe("malformed");
+  });
+});
+
+describe("serpapiResponseFailed", () => {
+  it("treats Success + result-level error as completed (provider-reported empty)", () => {
+    expect(
+      serpapiResponseFailed({
+        search_metadata: { status: "Success" },
+        error: "no results",
+      }),
+    ).toBe(false);
+    expect(serpapiResponseFailed({ search_metadata: { status: "Error" } })).toBe(true);
+    expect(serpapiResponseFailed({ error: "denied" })).toBe(true);
+    expect(serpapiResponseFailed({ error: "denied", search_metadata: { status: "Success" } })).toBe(false);
+    expect(serpapiResponseFailed({ visual_matches: [] })).toBe(false);
+    expect(serpapiResponseFailed(null)).toBe(true);
   });
 });
 
