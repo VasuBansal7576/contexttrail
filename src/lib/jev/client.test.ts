@@ -354,6 +354,76 @@ describe("claimLocationEligibility — authorship and topic binding", () => {
   });
 });
 
+describe("claimLocationEligibility — discourse frames take a topic, not a place", () => {
+  /**
+   * A discourse noun's complement is a subject by definition, so "a speech on
+   * Jordan" states no location. §16.5 permits the question only when the claim
+   * explicitly contains a usable location, and this construction is decided by
+   * its frame rather than by any particular phrase.
+   */
+  it.each([
+    ["This image is about a speech on Jordan.", "topic_or_source_reference"],
+    ["A speech on Jordan.", "topic_or_source_reference"],
+    ["A speech on London.", "topic_or_source_reference"],
+    ["An article on Jordan.", "topic_or_source_reference"],
+    ["A report on London.", "topic_or_source_reference"],
+    ["This image is about a speech on London politics.", "topic_or_source_reference"],
+  ])("declines %s", (claim, rejection) => {
+    const r = claimLocationEligibility(claim);
+    expect(r.eligible, claim).toBe(false);
+    expect(r.rejectedBy, claim).toBe(rejection);
+  });
+
+  it("generalises across discourse heads rather than matching one phrase", () => {
+    for (const claim of [
+      "A talk on Jordan.",
+      "An interview about Jordan.",
+      "A debate on London.",
+      "A documentary about Amman.",
+      "An essay on Paris.",
+      "A column on Delhi.",
+    ]) {
+      expect(claimMayStateLocation(claim), claim).toBe(false);
+    }
+  });
+
+  it("keeps explicit location constructions of the same names", () => {
+    const kept: Array<[string, boolean]> = [
+      ["This image was taken in Jordan.", true],
+      ["A protest in Amman.", true],
+      ["A speech given in Paris.", true],
+      ["An article published in Delhi.", true],
+      ["Flooding on the Thames.", true],
+      ["This image was taken on the Thames.", true],
+      ["A fire on the bridge.", true],
+      ["Damage at the airport.", true],
+      ["Fire at the hospital this morning.", true],
+      ["this photo is from Delhi today", true],
+      ["This image was taken in London today.", true],
+      ["This image is about the economy in London.", true],
+      ["This image was taken in the Oval Office about the economy.", true],
+      ["This image was taken at 10 Downing Street.", true],
+    ];
+    for (const [claim, expected] of kept) {
+      expect(claimMayStateLocation(claim), claim).toBe(expected);
+    }
+  });
+
+  it("does not let a discourse head in another clause suppress a real location", () => {
+    // "speech" heads the first clause; the span sits in the second
+    const r = claimLocationEligibility(
+      "There was a speech on migration and this image was taken in Berlin.",
+    );
+    expect(r.eligible).toBe(true);
+    expect(r.spans).toContain("Berlin");
+  });
+
+  it("leaves a capture verb in the same clause in charge", () => {
+    expect(claimMayStateLocation("This image was taken on the Thames.")).toBe(true);
+    expect(claimMayStateLocation("This was published on the record.")).toBe(false);
+  });
+});
+
 describe("claimLocationEligibility — honest unknown state", () => {
   it("reports an unrecognised name as unknown, not as definitely not a place", () => {
     for (const claim of [

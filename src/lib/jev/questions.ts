@@ -461,6 +461,30 @@ const TOPIC_PREPOSITIONS = new Set([
 ]);
 
 /**
+ * Head nouns of a discourse or abstract frame. Their complement is a *topic* by
+ * definition - a speech is on something, an article is about something - so a
+ * name governed by one of these is the subject of the discourse rather than a
+ * place the image was taken in. This is a property of the construction, not of
+ * any particular phrase, so it generalises to "a talk on X", "an interview
+ * about X" and "a report on X" alike.
+ */
+const DISCOURSE_HEADS = new Set([
+  "speech", "speeches", "talk", "talks", "address", "addresses", "speech(es)",
+  "statement", "statements", "interview", "interviews", "article", "articles",
+  "report", "reports", "essay", "essays", "analysis", "analyses", "debate",
+  "debates", "discussion", "commentary", "column", "editorial", "opinion",
+  "opinions", "documentary", "podcast", "presentation", "lecture", "seminar",
+  "briefing", "press", "coverage", "segment", "episode", "feature", "profile",
+  "book", "books", "chapter", "paper", "study", "survey", "poll", "review",
+  "reflection", "remark", "remarks", "quote", "quotation", "testimony",
+  "headline", "caption", "title", "post", "story", "piece", "series", "panel",
+  "conference", "convention", "forum", "summit", "rally", "campaign",
+  "politics", "policy", "economy", "history", "war", "peace", "rights",
+  "reform", "crisis", "election", "law", "rights", "future", "past", "issue",
+  "issues", "matter", "matters", "question", "questions", "debate",
+]);
+
+/**
  * Verbs that assert a capture or occurrence site. A claim containing one is
  * describing where something was captured or happened, so a following
  * preposition is read as locative rather than topical.
@@ -842,9 +866,9 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       // name is allowed to stand as place evidence, because a proper name can
       // belong to a person, an account or a subject as easily as to a place.
       // An address is exempt: it is positive address evidence on its own.
-      const topic =
-        signal === "street_address" ? false : isTopicFrame(tokens, i, to);
-      const owned = signal === "street_address" ? false : isSourceOwnershipFrame(tokens, from, to);
+      const topic = isTopicFrame(tokens, i, to, signal);
+      const owned =
+        signal === "street_address" ? false : isSourceOwnershipFrame(tokens, from, to);
       candidates.push({ from, to, evidence: signal, topic: topic || owned });
     } else {
       // Unresolvable object inside a locative frame: recorded, never guessed.
@@ -860,7 +884,8 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
         from: j,
         to,
         evidence: null,
-        topic: isTopicFrame(tokens, i, j) || isSourceOwnershipFrame(tokens, j, j),
+        topic:
+          isTopicFrame(tokens, i, j, null) || isSourceOwnershipFrame(tokens, j, j),
       });
     }
   }
@@ -908,15 +933,53 @@ function nextIsBareModifier(tokens: Token[], spanTo: number): boolean {
 }
 
 /**
+ * True when a discourse or abstract head noun governs the topical preposition
+ * within its own clause - "a speech on Jordan", "an article about London".
+ * Scanning is leftwards from the preposition and stays inside the clause, so a
+ * discourse noun in a different clause does not suppress a real location.
+ */
+function hasDiscourseHead(tokens: Token[], prepositionIndex: number): boolean {
+  const from = clauseStart(tokens, prepositionIndex);
+  for (let i = prepositionIndex - 1; i >= from && i >= prepositionIndex - 3; i--) {
+    const w = tokens[i].lower;
+    if (w.length === 0) continue;
+    if (DETERMINERS.has(w)) continue;
+    if (PHRASE_BREAK.has(w)) return false;
+    if (DISCOURSE_HEADS.has(w)) return true;
+    // only a determiner or an adjective may sit between the head and the
+    // preposition; any other noun means this is a different phrase
+    return false;
+  }
+  return false;
+}
+
+/**
  * True when the span is the object of a topic frame rather than a place.
  *
  * The test is bound to the span's own clause: a capture verb in a *different*
  * clause says nothing about this one, which is what let "The photo was taken
  * yesterday and focuses on Jordan smiling" through.
+ *
+ * Three independent signals, any of which withholds a proper name's place
+ * reading: a discourse head governing the preposition; a possessive or
+ * participle right after the span; or the span continuing into a bare modifier.
+ * A capture verb in the same clause, a preposition after the span, and a
+ * place-type noun or street address as the evidence all keep the place reading.
  */
-function isTopicFrame(tokens: Token[], prepositionIndex: number, spanTo: number): boolean {
+function isTopicFrame(
+  tokens: Token[],
+  prepositionIndex: number,
+  spanTo: number,
+  evidence: PlaceEvidence | null,
+): boolean {
   if (!TOPIC_PREPOSITIONS.has(tokens[prepositionIndex].lower)) return false;
+  // A place-type noun and a street address are self-sufficient positive
+  // evidence and are never withdrawn. A gazetteer name - and an object that
+  // matched nothing at all, whose local signals are still worth reporting -
+  // do go through this test.
+  if (evidence === "place_type_noun" || evidence === "street_address") return false;
   if (clauseHasCaptureVerb(tokens, prepositionIndex)) return false;
+  if (hasDiscourseHead(tokens, prepositionIndex)) return true;
   const next = tokens[spanTo + 1];
   if (next !== undefined) {
     if (isPossessive(next)) return true;
