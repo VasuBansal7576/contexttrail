@@ -1,26 +1,37 @@
 /**
  * Screen 5 — Evidence timeline (spec sections 3.11–3.13, 4.8).
  *
- * Single vertical timeline of dated core occurrences, then a separate
- * "Additional evidence · date unknown" section. Unknown dates are never
- * forced onto the line. Connectors are solid only for assessed
- * relationships; uncertain/uncompared edges are dashed and labeled.
+ * A disciplined occurrence ledger: dated core occurrences on the line, then
+ * supporting leads and unknown-date evidence kept visibly separate. Each
+ * edge renders its actual comparison relationship — solid only for assessed
+ * same/different pairs, dashed with required text for uncertain or
+ * unperformed comparisons. The first observed divergence marks its later
+ * node and links both endpoints. Unknown dates are never forced onto the
+ * line, and an empty core stays honestly empty.
  */
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  contextLabel,
-  mediaRelationshipLabel,
   occurrenceDate,
   occurrenceDatePrecision,
-  occurrenceDateSource,
-  occurrenceExcerpt,
   occurrenceId,
   occurrenceImage,
   str,
   type JsonRecord,
 } from "@/lib/stream/result-view";
+import {
+  attributableSpan,
+  connectorInfo,
+  dateSourceLabel,
+  dateStatusNote,
+  identityBasis,
+  isDivergencePoint,
+  occurrenceRole,
+  reportingOriginLabel,
+  type ConnectorInfo,
+  type DivergenceEndpoints,
+} from "./evidence-display";
 import { Badge } from "@/components/ui";
 import { cn } from "@/components/cn";
 
@@ -30,31 +41,52 @@ export interface TimelineGroups {
   supporting: JsonRecord[];
 }
 
-function MatchBadge({ occurrence }: { occurrence: JsonRecord }) {
-  const label = mediaRelationshipLabel(occurrence);
-  if (!label) return null;
-  const tone = label === "Visual lead" ? "neutral" : "info";
-  return <Badge tone={tone}>{label}</Badge>;
+export interface DivergenceLink {
+  endpoints: DivergenceEndpoints;
+  fromTitle: string | null;
+  toTitle: string | null;
 }
 
-function ContextBadge({ occurrence }: { occurrence: JsonRecord }) {
-  const label = contextLabel(occurrence);
+function MatchBadge({ occurrence }: { occurrence: JsonRecord }) {
+  const identity = identityBasis(occurrence);
+  if (!identity) return null;
+  const tone = identity.badge === "Visual lead" ? "neutral" : "link";
+  return <Badge tone={tone}>{identity.badge}</Badge>;
+}
+
+/**
+ * Context labels appear only on assessed (compared) edges. Uncompared edges
+ * must not inherit context labels — the connector text carries the meaning.
+ */
+function ContextBadge({
+  occurrence,
+  assessed,
+}: {
+  occurrence: JsonRecord;
+  assessed: boolean;
+}) {
+  if (!assessed) return null;
+  const raw = (str(occurrence, "contextLabel") ?? str(occurrence, "context") ?? "").toUpperCase();
+  let label: string | null = null;
+  if (raw.includes("SAME")) label = "Same context";
+  else if (raw.includes("DIFFERENT")) label = "Different context";
+  else if (raw.includes("HISTORICAL")) label = "Historical reference";
+  else if (raw.includes("UNCLEAR") || raw.includes("UNCERTAIN")) label = "Unclear";
+  else if (raw.includes("SUBMITTED") || raw.includes("CLAIM")) label = "Submitted claim";
   if (!label) return null;
   const tone = label === "Different context" ? "conflict" : label === "Same context" ? "ok" : "neutral";
   return <Badge tone={tone}>{label}</Badge>;
 }
 
-function Excerpt({ occurrence }: { occurrence: JsonRecord }) {
-  const { text, source } = occurrenceExcerpt(occurrence);
-  if (!text) return <p className="mt-2 text-sm text-ink/55">No excerpt available</p>;
-  const attribution =
-    source ?? (str(occurrence, "excerptType")?.toLowerCase().includes("page") ? "Extracted page excerpt" : "Search snippet");
+function ShortExcerpt({ occurrence }: { occurrence: JsonRecord }) {
+  const span = attributableSpan(occurrence, 280);
+  if (!span) return <p className="mt-2 text-sm text-ink/55">No excerpt available</p>;
   return (
     <figure className="mt-2">
       <blockquote className="border-l-2 border-ink/15 pl-3 text-sm leading-relaxed text-ink/75">
-        “{text}”
+        “{span.text}”
       </blockquote>
-      {attribution ? <figcaption className="mt-1 pl-3 text-xs text-ink/50">{attribution}</figcaption> : null}
+      <figcaption className="mt-1 pl-3 text-xs text-ink/50">{span.attribution}</figcaption>
     </figure>
   );
 }
@@ -63,27 +95,38 @@ function OccurrenceCard({
   occurrence,
   index,
   highlight,
+  assessed,
+  groupLabel,
   onInspect,
 }: {
   occurrence: JsonRecord;
   index: number;
   highlight: boolean;
+  /** True when this edge was actually compared (core dated pairs). */
+  assessed: boolean;
+  groupLabel: string | null;
   onInspect: () => void;
 }) {
   const date = occurrenceDate(occurrence);
   const precision = occurrenceDatePrecision(occurrence);
-  const dateSource = occurrenceDateSource(occurrence);
+  const rawDateKey =
+    str(occurrence, "dateSource") ??
+    str(occurrence, "publicationDateSource") ??
+    str(occurrence, "publishedAtSource");
+  const dateSource = dateSourceLabel(rawDateKey);
   const title = str(occurrence, "title");
   const domain = str(occurrence, "domain");
   const image = occurrenceImage(occurrence);
-  const reportingOrigin =
-    str(occurrence, "reportingOrigin") ?? str(occurrence, "reportingOriginStatus");
+  const identity = identityBasis(occurrence);
+  const role = occurrenceRole(occurrence);
+  const divergence = isDivergencePoint(occurrence);
+  const dateNote = dateStatusNote(occurrence);
 
   return (
     <div
       className={cn(
         "rounded-xl bg-white/70 p-4 ring-1 transition sm:p-5",
-        highlight ? "ring-2 ring-signal" : "ring-ink/10",
+        highlight || divergence ? "ring-2 ring-coral" : "ring-ink/10",
       )}
     >
       <div className="flex flex-col gap-4 sm:flex-row">
@@ -99,28 +142,40 @@ function OccurrenceCard({
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium tracking-wide text-ink/55 uppercase">
             {date ?? "Date unknown"}
-            {precision && date ? ` · ${precision}` : ""}
+            {precision && date ? ` · ${precision} precision` : ""}
           </p>
           <h3 className="mt-1 font-medium text-ink">{title ?? "Untitled result"}</h3>
           {domain ? <p className="text-sm text-ink/60">{domain}</p> : null}
           <div className="mt-2 flex flex-wrap gap-2">
+            {groupLabel ? <Badge tone="neutral">{groupLabel}</Badge> : null}
+            {role && groupLabel !== role ? <Badge tone="neutral">{role}</Badge> : null}
             <MatchBadge occurrence={occurrence} />
-            <ContextBadge occurrence={occurrence} />
+            <ContextBadge occurrence={occurrence} assessed={assessed} />
+            {divergence ? <Badge tone="conflict">First observed divergence</Badge> : null}
           </div>
-          {dateSource ? (
-            <p className="mt-2 text-xs text-ink/50">Date source: {dateSource}</p>
-          ) : date ? (
-            <p className="mt-2 text-xs text-ink/50">Date source unknown</p>
-          ) : null}
-          {reportingOrigin ? (
-            <p className="mt-1 text-xs text-ink/50">Reporting origin: {reportingOrigin}</p>
-          ) : null}
-          <Excerpt occurrence={occurrence} />
+          {identity ? (
+            <p className="mt-2 text-xs text-ink/55">Match basis: {identity.basis}.</p>
+          ) : (
+            <p className="mt-2 text-xs text-ink/55">Match basis not reported.</p>
+          )}
+          {date ? (
+            <p className="mt-1 text-xs text-ink/50">
+              {dateSource ? `Publication date: ${dateSource}.` : "Date source unknown."}
+              {dateNote ? ` ${dateNote}` : ""}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-ink/50">
+              No usable date was retrieved for this occurrence.
+              {dateNote ? ` ${dateNote}` : ""}
+            </p>
+          )}
+          <p className="mt-1 text-xs text-ink/50">{reportingOriginLabel(occurrence)}</p>
+          <ShortExcerpt occurrence={occurrence} />
           <button
             type="button"
             onClick={onInspect}
             aria-label={`Inspect evidence: ${title ?? `occurrence ${index + 1}`}`}
-            className="mt-3 inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal underline underline-offset-2"
+            className="mt-3 inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
           >
             Inspect evidence <span aria-hidden="true">→</span>
           </button>
@@ -130,14 +185,45 @@ function OccurrenceCard({
   );
 }
 
+function ConnectorEdge({ info }: { info: ConnectorInfo }) {
+  if (info.kind === "start") return null;
+  return (
+    <p
+      className={cn(
+        "mb-3 flex items-center gap-2 text-xs",
+        info.tone === "conflict" ? "text-coral" : "text-ink/55",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-block h-0 w-8 border-t-2",
+          info.dashed ? "border-dashed border-ink/30" : "border-solid",
+          !info.dashed && info.tone === "conflict" ? "border-coral/60" : "",
+          !info.dashed && info.tone !== "conflict" ? "border-ink/25" : "",
+        )}
+      />
+      {info.label}
+    </p>
+  );
+}
+
 interface TimelineViewProps {
   groups: TimelineGroups;
-  divergenceNote: string | null;
+  /** Comparison coverage line, e.g. "7 of 8 selected pairs compared". */
+  coverageText: string | null;
+  divergence: DivergenceLink | null;
   highlightId: string | null;
   onInspect: (id: string) => void;
 }
 
-export default function TimelineView({ groups, divergenceNote, highlightId, onInspect }: TimelineViewProps) {
+export default function TimelineView({
+  groups,
+  coverageText,
+  divergence,
+  highlightId,
+  onInspect,
+}: TimelineViewProps) {
   const reduce = useReducedMotion();
   const { dated, unknownDate, supporting } = groups;
 
@@ -156,55 +242,123 @@ export default function TimelineView({ groups, divergenceNote, highlightId, onIn
         This timeline shows appearances found in this investigation. Gaps do not mean the image was
         absent from the web.
       </p>
+      <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink/65">
+        {coverageText ? (
+          <>Context comparisons: {coverageText}.</>
+        ) : (
+          <>Comparison coverage was not reported for this investigation.</>
+        )}
+      </p>
 
-      {divergenceNote ? (
-        <p role="note" className="mt-4 rounded-xl bg-coral/10 px-4 py-3 text-sm ring-1 ring-coral/25">
-          <strong>First observed context divergence in retrieved evidence.</strong> {divergenceNote}
-        </p>
+      {divergence ? (
+        <div
+          role="note"
+          aria-label="First observed context divergence"
+          className="mt-4 rounded-xl bg-coral/10 px-4 py-3 text-sm ring-1 ring-coral/25"
+        >
+          <p>
+            <strong>First observed context divergence in retrieved evidence.</strong>{" "}
+            {divergence.endpoints.earlierUnresolved
+              ? "Earlier transitions are unresolved — this is the earliest strongly different compared pair, not the first change on the internet."
+              : "The later occurrence below presents the media in a different context than the earlier one, in retrieved evidence."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => onInspect(divergence.endpoints.fromId)}
+              className="inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
+            >
+              Earlier: {divergence.fromTitle ?? divergence.endpoints.fromId} <span aria-hidden="true">→</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onInspect(divergence.endpoints.toId)}
+              className="inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
+            >
+              Later: {divergence.toTitle ?? divergence.endpoints.toId} · first observed divergence{" "}
+              <span aria-hidden="true">→</span>
+            </button>
+          </div>
+        </div>
       ) : null}
 
       {dated.length > 0 ? (
         <ol className="mt-8 space-y-0">
-          {dated.map((occurrence, i) => (
-            <motion.li
-              key={occurrenceId(occurrence, `dated-${i}`)}
-              initial={reduce ? false : { opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-40px" }}
-              transition={{ duration: 0.4 }}
-              className="relative grid gap-3 border-l-2 border-ink/15 pb-8 pl-6 last:pb-0 sm:grid-cols-[110px_1fr] sm:gap-6 sm:pl-8"
-            >
-              <span aria-hidden="true" className="absolute top-2 -left-[7px] h-3 w-3 rounded-full bg-signal ring-4 ring-paper" />
-              <p className="text-sm font-semibold text-ink/70">
-                {occurrenceDate(occurrence) ?? "—"}
-              </p>
-              <OccurrenceCard
-                occurrence={occurrence}
-                index={i}
-                highlight={highlightId === occurrenceId(occurrence, `dated-${i}`)}
-                onInspect={() => onInspect(occurrenceId(occurrence, `dated-${i}`))}
-              />
-            </motion.li>
-          ))}
+          {dated.map((occurrence, i) => {
+            const id = occurrenceId(occurrence, `dated-${i}`);
+            const info = connectorInfo(occurrence);
+            const assessed = info.kind === "same" || info.kind === "different";
+            return (
+              <motion.li
+                key={id}
+                initial={reduce ? false : { opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-40px" }}
+                transition={{ duration: 0.4 }}
+                className={cn(
+                  "relative grid gap-3 border-l-2 pb-8 pl-6 last:pb-0 sm:grid-cols-[110px_1fr] sm:gap-6 sm:pl-8",
+                  info.dashed ? "border-dashed border-ink/30" : "border-solid",
+                  !info.dashed && info.tone === "conflict" ? "border-coral/50" : "",
+                  !info.dashed && info.tone !== "conflict" ? "border-ink/15" : "",
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute top-2 -left-[7px] h-3 w-3 rounded-full ring-4 ring-paper",
+                    info.tone === "conflict" ? "bg-coral" : "bg-signal",
+                  )}
+                />
+                <p className="text-sm font-semibold text-ink/70">
+                  {occurrenceDate(occurrence) ?? "—"}
+                </p>
+                <div>
+                  <ConnectorEdge info={info} />
+                  <OccurrenceCard
+                    occurrence={occurrence}
+                    index={i}
+                    highlight={highlightId === id}
+                    assessed={assessed}
+                    groupLabel={null}
+                    onInspect={() => onInspect(id)}
+                  />
+                </div>
+              </motion.li>
+            );
+          })}
         </ol>
-      ) : null}
+      ) : (
+        <p className="mt-8 rounded-xl bg-white/70 p-5 text-sm leading-relaxed text-ink/65 ring-1 ring-ink/10">
+          <strong>No dated core occurrences were found,</strong> so nothing is placed on the
+          timeline. Leads below are shown without manufacturing a chronology.
+        </p>
+      )}
 
       {supporting.length > 0 ? (
         <section aria-label="Supporting visual leads" className="mt-10">
           <h3 className="text-sm font-semibold tracking-wide text-ink/60 uppercase">
             Supporting visual leads · not part of the core timeline
           </h3>
+          <p className="mt-1 text-xs text-ink/55">
+            Visually similar material that was not confirmed as the same image. Dates here do not
+            place these leads into the core history.
+          </p>
           <ul className="mt-3 space-y-4">
-            {supporting.map((occurrence, i) => (
-              <li key={occurrenceId(occurrence, `supporting-${i}`)}>
-                <OccurrenceCard
-                  occurrence={occurrence}
-                  index={i}
-                  highlight={highlightId === occurrenceId(occurrence, `supporting-${i}`)}
-                  onInspect={() => onInspect(occurrenceId(occurrence, `supporting-${i}`))}
-                />
-              </li>
-            ))}
+            {supporting.map((occurrence, i) => {
+              const id = occurrenceId(occurrence, `supporting-${i}`);
+              return (
+                <li key={id}>
+                  <OccurrenceCard
+                    occurrence={occurrence}
+                    index={i}
+                    highlight={highlightId === id}
+                    assessed={false}
+                    groupLabel="Supporting lead"
+                    onInspect={() => onInspect(id)}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
@@ -218,16 +372,21 @@ export default function TimelineView({ groups, divergenceNote, highlightId, onIn
             These occurrences could not be placed on the timeline because no usable date was retrieved.
           </p>
           <ul className="mt-3 space-y-4">
-            {unknownDate.map((occurrence, i) => (
-              <li key={occurrenceId(occurrence, `unknown-${i}`)}>
-                <OccurrenceCard
-                  occurrence={occurrence}
-                  index={i}
-                  highlight={highlightId === occurrenceId(occurrence, `unknown-${i}`)}
-                  onInspect={() => onInspect(occurrenceId(occurrence, `unknown-${i}`))}
-                />
-              </li>
-            ))}
+            {unknownDate.map((occurrence, i) => {
+              const id = occurrenceId(occurrence, `unknown-${i}`);
+              return (
+                <li key={id}>
+                  <OccurrenceCard
+                    occurrence={occurrence}
+                    index={i}
+                    highlight={highlightId === id}
+                    assessed={false}
+                    groupLabel="Date unknown"
+                    onInspect={() => onInspect(id)}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

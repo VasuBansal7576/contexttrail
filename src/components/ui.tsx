@@ -37,12 +37,14 @@ export function Badge({
   className,
 }: {
   children: ReactNode;
-  tone?: "neutral" | "info" | "conflict" | "ok";
+  tone?: "neutral" | "info" | "link" | "conflict" | "ok";
   className?: string;
 }) {
   const tones: Record<string, string> = {
     neutral: "bg-black/5 text-ink/80 ring-black/10",
+    /* `info` is for dark surfaces; `link` is the AA-safe tone for light ones. */
     info: "bg-signal/10 text-signal ring-signal/25",
+    link: "bg-signal-ink/10 text-signal-ink ring-signal-ink/25",
     conflict: "bg-coral/10 text-coral ring-coral/25",
     ok: "bg-evidence/10 text-evidence ring-evidence/25",
   };

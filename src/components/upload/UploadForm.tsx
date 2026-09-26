@@ -109,6 +109,7 @@ export default function UploadForm({
               }}
               className={cn(
                 "rounded-2xl border-2 border-dashed p-10 text-center transition",
+                "focus-within:border-signal focus-within:ring-2 focus-within:ring-signal/50 focus-within:ring-offset-2 focus-within:ring-offset-paper",
                 dragging ? "border-signal bg-signal/5" : "border-ink/20 bg-white/60",
               )}
             >
@@ -154,7 +155,7 @@ export default function UploadForm({
                   <button
                     type="button"
                     onClick={() => inputRef.current?.click()}
-                    className="min-h-[32px] font-medium text-signal underline underline-offset-2"
+                    className="min-h-[32px] font-medium text-signal-ink underline underline-offset-2"
                   >
                     Replace
                   </button>

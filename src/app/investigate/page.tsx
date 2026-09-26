@@ -5,6 +5,11 @@
  * claim live only in component state for the active flow and are revoked on
  * removal, replacement, or restart. Server image persistence never happens
  * here — the client sends the preprocessed bytes once via multipart POST.
+ *
+ * A completed result additionally survives a refresh via the latest-result
+ * session cache (never image bytes): the upload screen offers an explicit
+ * resume action that restores the serialized result with a clear
+ * submitted-image-unavailable state (F17).
  */
 "use client";
 
@@ -18,14 +23,35 @@ import {
   preprocessImage,
   PreprocessError,
 } from "@/lib/media/image-preprocess.client";
-import { useInvestigation } from "@/lib/stream/useInvestigation";
+import { readCachedResult, useInvestigation } from "@/lib/stream/useInvestigation";
+import { rec, str, type JsonRecord } from "@/lib/stream/result-view";
+
+/**
+ * Mirrors the backend-owned RESULT_CACHE_KEY in useInvestigation
+ * ("contexttrail.latest-result"). Frontend use only until the shared typed
+ * result contract lands; do not change one without the other.
+ */
+const RESULT_CACHE_KEY = "contexttrail.latest-result";
+
+const RESTORED_NOTICE =
+  "Restored after refresh. The submitted image preview is unavailable — uploaded images are never stored. " +
+  "Stage history and retrieval counts from the live run were not preserved with this result.";
 
 export default function InvestigatePage() {
   const [selection, setSelection] = useState<UploadSelection | null>(null);
   const [claim, setClaim] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [preprocessing, setPreprocessing] = useState(false);
+  /** Serialized completed result restored after a refresh (F17); never image bytes. */
+  const [restored, setRestored] = useState<JsonRecord | null>(null);
+  const [cachedAvailable, setCachedAvailable] = useState(false);
   const inv = useInvestigation();
+
+  // After a refresh there is no active flow; offer the cached completed
+  // result explicitly instead of silently dropping it.
+  useEffect(() => {
+    if (readCachedResult() !== null) setCachedAvailable(true);
+  }, []);
 
   // Revoke the preview object URL when it is replaced or on unmount.
   useEffect(() => {
@@ -85,10 +111,52 @@ export default function InvestigatePage() {
     inv.reset();
     handleRemove();
     setClaim("");
+    setRestored(null);
+    try {
+      // A new run supersedes the stored completed result.
+      sessionStorage.removeItem(RESULT_CACHE_KEY);
+    } catch {
+      // Best-effort only.
+    }
+    setCachedAvailable(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleRemove]);
 
+  const handleRestore = useCallback(() => {
+    const cached = readCachedResult();
+    if (cached) {
+      setRestored(cached);
+      setCachedAvailable(false);
+    } else {
+      setCachedAvailable(false);
+    }
+  }, []);
+
+  const handleDiscardCached = useCallback(() => {
+    try {
+      sessionStorage.removeItem(RESULT_CACHE_KEY);
+    } catch {
+      // Best-effort only.
+    }
+    setCachedAvailable(false);
+  }, []);
+
   const phase = inv.phase;
+
+  if (restored) {
+    const restoredClaim = str(restored, "claim") ?? str(rec(restored, "input"), "claim");
+    return (
+      <ResultView
+        result={restored}
+        submittedImageUrl={null}
+        claim={restoredClaim}
+        searchCounts={[]}
+        stages={[]}
+        onNewInvestigation={handleNewInvestigation}
+        restoredNotice={RESTORED_NOTICE}
+      />
+    );
+  }
 
   if (phase === "completed" && inv.result) {
     return (
@@ -180,15 +248,44 @@ export default function InvestigatePage() {
   }
 
   return (
-    <UploadForm
-      selection={selection}
-      claim={claim}
-      preparing={preprocessing}
-      error={uploadError}
-      onSelect={handleSelect}
-      onRemove={handleRemove}
-      onClaimChange={setClaim}
-      onSubmit={handleSubmit}
-    />
+    <div className="bg-paper">
+      {cachedAvailable ? (
+        <div className="mx-auto max-w-[560px] px-5 pt-6 sm:pt-10" role="note" aria-label="Restore previous result">
+          <div className="rounded-2xl bg-white/70 p-5 ring-1 ring-ink/10">
+            <p className="text-sm font-medium">Your last completed result is still in this tab.</p>
+            <p className="mt-1 text-sm leading-relaxed text-ink/60">
+              Refreshing never keeps your uploaded image — only the completed result text is
+              restored.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleRestore}
+                className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition hover:bg-black"
+              >
+                View last result
+              </button>
+              <button
+                type="button"
+                onClick={handleDiscardCached}
+                className="inline-flex min-h-[44px] items-center rounded-full px-5 py-2 text-sm font-medium ring-1 ring-ink/20 transition hover:ring-ink/50"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <UploadForm
+        selection={selection}
+        claim={claim}
+        preparing={preprocessing}
+        error={uploadError}
+        onSelect={handleSelect}
+        onRemove={handleRemove}
+        onClaimChange={setClaim}
+        onSubmit={handleSubmit}
+      />
+    </div>
   );
 }
