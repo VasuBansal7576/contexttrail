@@ -2050,6 +2050,72 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
   }
 };`;
 
+/* --------------------- retained stream integrity ----------------------- */
+
+/**
+ * The single pure check on retained stream files: for each expected stream, is the
+ * file on disk still the bytes that were captured, by both length and sha256?
+ *
+ * One function, used by the drive at the end of the run, by `evidence` before it
+ * writes an intact seal, and by the offline controls, so a check that exists in
+ * three places cannot drift into three answers. It is pure: it takes expectation
+ * rows and a read(row) callback and returns rows.
+ *
+ * The retained files are the SOURCE bytes each request is served from, not a
+ * capture of the bytes as they crossed the wire: the stream is built by splitting
+ * and re-joining lines, so this proves the input was retained intact and says
+ * nothing about transport framing.
+ */
+function verifyRetainedStreams(expected, read) {
+  return expected.map((r) => {
+    let buf = null;
+    let present = true;
+    try {
+      // The callback is given the whole ROW, not the file name. A previous version
+      // passed r.file to a callback that then read f.drive / f.file, so every read
+      // threw, every case reported "missing" -- including a pristine run -- and the
+      // check was worse than having none.
+      buf = read(r);
+    } catch {
+      present = false;
+    }
+    if (!present || buf === null) {
+      return { ...r, present: false, actualBytes: null, actualSha256: null, matches: false, why: "retained file is missing" };
+    }
+    const sha256 = crypto.createHash("sha256").update(buf).digest("hex");
+    const sameLength = buf.length === r.bytes;
+    const sameHash = sha256 === r.sha256;
+    return {
+      ...r,
+      present: true,
+      actualBytes: buf.length,
+      actualSha256: sha256,
+      sameLength,
+      sameHash,
+      matches: sameLength && sameHash,
+      // A same-length corruption is exactly what a length-only check would miss.
+      why: sameLength && sameHash ? "byte-identical" : sameLength ? "same length, different bytes" : "length differs",
+    };
+  });
+}
+
+/** Files the run PLANNED to retain, projected to expectation fields only. */
+function plannedRetainedStreams(runId) {
+  const out = [];
+  const drivesDir = path.join(evidenceDir(runId), "drives");
+  if (!fs.existsSync(drivesDir)) return out;
+  for (const name of fs.readdirSync(drivesDir)) {
+    const p = path.join(drivesDir, name, "retained-streams.json");
+    if (!fs.existsSync(p)) continue;
+    try {
+      for (const r of JSON.parse(fs.readFileSync(p, "utf8")).streams ?? []) {
+        out.push({ drive: name, file: r.file, bytes: r.bytes, sha256: r.sha256, generator: r.generator });
+      }
+    } catch { /* a drive that never wrote it contributes nothing planned */ }
+  }
+  return out;
+}
+
 /* ------------------------- fault script syntax gate --------------------- */
 
 /**
@@ -6091,7 +6157,7 @@ const DRIVE_CASES = {
 
     // Seal-time integrity: the retained per-request stream files must still be the
     // exact bytes those requests were served from.
-    const integrity = retainedIntegrity();
+    const integrity = verifyRetainedStreams(retained, (r) => fs.readFileSync(path.join(driveDir, r.file)));
     writeJson(path.join(driveDir, "retained-streams.json"), {
       streams: integrity,
       note:
@@ -6496,6 +6562,16 @@ async function evidence() {
   const dir = evidenceDir(runId);
   const manifestPathOut = path.join(dir, "evidence-manifest.json");
 
+  // S1: every stream this run PLANNED to retain must still be the captured bytes
+  // BEFORE an intact seal is written. A seal that hashes a missing or corrupted
+  // retained file is a green hiding missing evidence.
+  const plannedStreams = plannedRetainedStreams(runId);
+  const retainedCheck = verifyRetainedStreams(plannedStreams, (r) =>
+    fs.readFileSync(path.join(dir, "drives", r.drive, r.file)),
+  );
+  const retainedBad = retainedCheck.filter((r) => !r.matches);
+  const retainedOk = plannedStreams.length === 0 || retainedBad.length === 0;
+
   if (fs.existsSync(manifestPathOut) && !flags.regenerate) {
     fail(
       `evidence for run ${runId} generation ${generation(runId)} is already sealed at ` +
@@ -6675,6 +6751,24 @@ async function evidence() {
     runId,
     generation: generation(runId),
     sealedAt: new Date().toISOString(),
+    // What the run PLANNED to retain and whether those files are still the captured
+    // bytes. A same-length corruption is caught by the hash, which is the case a
+    // length check alone would report as intact.
+    retainedStreams: {
+      planned: plannedStreams.length,
+      ok: retainedOk,
+      streams: retainedCheck.map((r) => ({
+        drive: r.drive,
+        file: r.file,
+        expectedBytes: r.bytes,
+        expectedSha256: r.sha256,
+        actualBytes: r.actualBytes,
+        actualSha256: r.actualSha256,
+        matches: r.matches,
+        why: r.why,
+      })),
+    },
+    retainedIntegrityOk: retainedOk,
     appRevision: m.revision,
     buildId: m.buildId,
     live: m.live === true,
@@ -6723,8 +6817,20 @@ async function evidence() {
       assertionTotals: summary.assertionTotals,
       artifactCount: summary.artifactCount,
       manifest: manifestPathOut,
+      retainedStreams: summary.retainedStreams,
+      retainedIntegrityOk: summary.retainedIntegrityOk,
     }),
   );
+  // The seal is written either way, so the failure is inspectable, but a run whose
+  // retained streams are missing or corrupted must NOT be reported as a pass.
+  if (!retainedOk) {
+    fail(
+      `sealed ${runId} with FAILED retained-stream integrity: ` +
+        retainedBad
+          .map((r) => `${r.drive}/${r.file} expected ${r.bytes}B ${String(r.sha256).slice(0, 12)}, got ${r.actualBytes ?? "nothing"}B ${String(r.actualSha256 ?? "-").slice(0, 12)} (${r.why})`)
+          .join("; "),
+    );
+  }
 }
 
 /* -------------------------------- cleanup ------------------------------- */
