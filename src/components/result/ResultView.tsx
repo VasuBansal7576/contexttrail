@@ -442,6 +442,7 @@ export default function ResultView({
                     const url = str(o, "url") ?? str(o, "sourceUrl");
                     const role = occurrenceRole(o);
                     const identity = identityBasis(o);
+                    const showRole = role !== null && role !== (identity?.badge ?? null);
                     const dateKey =
                       str(o, "dateSource") ??
                       str(o, "publicationDateSource") ??
@@ -458,7 +459,7 @@ export default function ResultView({
                               {dateSrc ? ` · ${dateSrc}` : ""}
                             </p>
                             <div className="mt-2 flex flex-wrap gap-2">
-                              {role ? <Badge tone="neutral">{role}</Badge> : null}
+                              {showRole && role ? <Badge tone="neutral">{role}</Badge> : null}
                               {identity ? (
                                 <Badge tone={identity.badge === "Visual lead" ? "neutral" : "link"}>
                                   {identity.badge}

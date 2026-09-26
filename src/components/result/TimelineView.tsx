@@ -119,6 +119,10 @@ function OccurrenceCard({
   const image = occurrenceImage(occurrence);
   const identity = identityBasis(occurrence);
   const role = occurrenceRole(occurrence);
+  const matchBadge = identity?.badge ?? null;
+  // Each badge carries distinct meaning (section group vs role vs match
+  // basis); never print the same label twice.
+  const showRole = role !== null && role !== groupLabel && role !== matchBadge;
   const divergence = isDivergencePoint(occurrence);
   const dateNote = dateStatusNote(occurrence);
 
@@ -148,7 +152,7 @@ function OccurrenceCard({
           {domain ? <p className="text-sm text-ink/60">{domain}</p> : null}
           <div className="mt-2 flex flex-wrap gap-2">
             {groupLabel ? <Badge tone="neutral">{groupLabel}</Badge> : null}
-            {role && groupLabel !== role ? <Badge tone="neutral">{role}</Badge> : null}
+            {showRole && role ? <Badge tone="neutral">{role}</Badge> : null}
             <MatchBadge occurrence={occurrence} />
             <ContextBadge occurrence={occurrence} assessed={assessed} />
             {divergence ? <Badge tone="conflict">First observed divergence</Badge> : null}

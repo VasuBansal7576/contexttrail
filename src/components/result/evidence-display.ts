@@ -124,6 +124,9 @@ export function comparisonCoverageText(result: JsonRecord | null): string | null
   const selected = num(coverage, "selected");
   const compared = num(coverage, "comparedPairs") ?? num(coverage, "compared");
   if (eligible === null && selected === null && compared === null) return null;
+  if (eligible === 0 && selected === 0 && (compared === 0 || compared === null)) {
+    return "No occurrences were selected for context comparison";
+  }
   const parts: string[] = [];
   if (compared !== null && selected !== null) {
     parts.push(`${compared} of ${selected} selected pairs compared`);
@@ -251,23 +254,35 @@ function truncateWords(text: string, maxChars: number): { text: string; truncate
 /**
  * The single quotable span for an occurrence: the first genuine page-body
  * paragraph for extracted page text, otherwise the search snippet text.
+ * A page with no extracted body never inherits page-text attribution: a
+ * bare "Title:" wrapper is not an excerpt (the title already heads the
+ * card), while an embedded snippet is quoted as what it is — a snippet.
  */
 export function attributableSpan(occurrence: JsonRecord, maxChars = 280): AttributableSpan | null {
   const raw = str(occurrence, "excerpt") ?? str(occurrence, "snippet");
   const source = str(occurrence, "excerptSource") ?? str(occurrence, "excerptAttribution");
   if (!raw) return null;
-  const attribution = excerptAttribution(source);
   if (source === "page_text") {
     const { body, snippet } = splitCompositeExcerpt(raw);
-    const span = body ?? snippet;
-    if (!span) return null;
-    const firstParagraph = span.split(/\r?\n\r?\n/)[0].trim() || span;
-    const { text, truncated } = truncateWords(firstParagraph, maxChars);
-    return { text, attribution, truncated: truncated || span.length > firstParagraph.length };
+    if (body) {
+      const firstParagraph = body.split(/\r?\n\r?\n/)[0].trim() || body;
+      const { text, truncated } = truncateWords(firstParagraph, maxChars);
+      return {
+        text,
+        attribution: "Extracted page excerpt",
+        truncated: truncated || body.length > firstParagraph.length,
+      };
+    }
+    if (snippet) {
+      const { text, truncated } = truncateWords(snippet, maxChars);
+      if (!text) return null;
+      return { text, attribution: "Search snippet", truncated };
+    }
+    return null;
   }
   const { text, truncated } = truncateWords(raw.trim(), maxChars);
   if (!text) return null;
-  return { text, attribution, truncated };
+  return { text, attribution: excerptAttribution(source), truncated };
 }
 
 /** Full retrievable text behind the span, for viewer expansion. */
