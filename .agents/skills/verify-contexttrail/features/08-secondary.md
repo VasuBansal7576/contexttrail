@@ -39,6 +39,12 @@ Analysis:
 | --- | --- |
 | `result.analysis-section-present` | `section[aria-label="Analysis"]` rendered |
 | `result.analysis-policy-or-coverage` | the panel names its comparison/policy/basis/limitation content |
+| `result.analysis-coverage-pair-count` | the coverage sentence carries the fixture's real `comparedPairs` ("2 pairs compared"), with the singular form for 1 |
+| `result.analysis-coverage-selection-counts` | it carries the fixture's real `selected`/`eligible` counts, or the explicit empty sentence when `eligible === 0` |
+| `result.analysis-reporting-group-<i>-member-count` | each declared group renders `Reporting group of N occurrence(s)` with N equal to the group's real `memberIds.length` |
+| `result.analysis-reporting-group-<i>-member-link` | each declared member is listed inside its group |
+| `result.analysis-reporting-group-count-matches` | the number of rendered group headlines equals the fixture's `reportingGroups.length` and `reportingGroupCount` |
+| `result.analysis-policy-gate-<gate>` | each declared `policyReasons` gate renders with its real pass/fail |
 | `result.analysis-no-placeholder` | panel text contains no placeholder token |
 | `result.reporting-group-not-mislabeled` | no `Shared group of N occurrence(s)` label anywhere (R4 residual — checked first so a regression is the failure that gets named) |
 | `result.reporting-group-headline` | a resolved group renders the neutral `Reporting group of N occurrence(s)` |

@@ -29,7 +29,20 @@ that drops an item turns the drive red:
 | ID | What it proves |
 | --- | --- |
 | `result.timeline-count-matches-fixture` | `#ct-panel-timeline ol > li` count equals the fixture's `timeline.length` |
-| `result.timeline-shows-dates` | when the fixture has usable dates, the panel text carries at least one `20xx` year token |
+| `result.timeline-shows-every-fixture-date` | **every** dated occurrence's own year appears in the rendered rows — a missing occurrence's date cannot hide behind a count match |
+| `result.timeline-rendered-in-chronological-order` | the dates rendered in the panel are non-decreasing, and the fixture's own order is chronological |
+| `result.timeline-connector-different_context` | the fixture has a decisive edge and the view renders `Different context from previous · compared` |
+| `result.timeline-connector-same_context` | same for `Same context as previous · compared` |
+| `result.timeline-connector-uncertain` | the fixture has a compared-but-unsettled edge and the view renders `Comparison inconclusive — performed but not established` |
+| `result.timeline-connector-unexamined` | the fixture has an edge that was never compared and the view renders `Not compared in this investigation` |
+| `result.timeline-no-invented-connector-<kind>` | a connector the fixture does **not** contain is never rendered |
+| `result.timeline-distinguishes-not-compared-from-inconclusive` | the two different claims are never collapsed into one another |
+
+`controlled-pair` is the fixture that exercises all four connector states in one
+chronology: a decisive edge (the divergence pair), a same-day edge that was
+never compared, and a compared-but-inconclusive edge. Because an unexamined or
+uncertain edge breaks the decisive run, that fixture's `contextSegmentCount` is
+`null` and no exact segment count may be claimed.
 | `result.timeline-section-nonempty-contextual-web-results` | a labelled section that renders contains ≥1 item |
 | `result.timeline-section-nonempty-supporting-visual-leads` | same for supporting leads |
 | `result.timeline-section-nonempty-evidence-with-unknown-dates` | same for unknown-date evidence |

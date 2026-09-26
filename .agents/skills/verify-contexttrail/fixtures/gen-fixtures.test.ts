@@ -12,8 +12,10 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { runInvestigation, type SearchProvider } from "../../../../src/lib/investigation/run";
+import { JEV_MODEL } from "../../../../src/lib/jev/client";
 import type { SerpapiParams } from "../../../../src/lib/serpapi/client";
 import type { JevClient } from "../../../../src/lib/jev/client";
 import type { FetchedPage } from "../../../../src/lib/pages/fetch";
@@ -28,12 +30,12 @@ const CHOICE = {
   pairwise_context: ["SAME_CONTEXT", "DIFFERENT_CONTEXT", "UNCLEAR"],
 } as const;
 
-const answers = (qs: Record<string, unknown>, winners: Record<string, string>) =>
+const answers = (qs: Record<string, unknown>, winners: Record<string, string>, relevance = 0.92) =>
   Object.fromEntries(
     Object.keys(qs).map((k) => [
       k,
       k === "relevance"
-        ? { type: "noul", noul: 0.92 }
+        ? { type: "noul", noul: relevance }
         : (() => {
             const keys = (CHOICE as Record<string, readonly string[]>)[k] ?? ["UNCLEAR"];
             const winner = winners[k] ?? keys[0];
@@ -154,6 +156,8 @@ const PAGE_DATES: Record<string, string> = {
   "fixture-archive-c.example.org": "2018-06-15",
   "fixture-site-d.example.org": "2020-10-02",
   "fixture-news-f.example.org": "2026-09-24",
+  "fixture-dupe-e.example.org": "2020-10-02",
+  "fixture-four-h.example.org": "2023-08-01",
 };
 
 const fetchPage = async (url: string): Promise<FetchedPage> => {
@@ -173,10 +177,77 @@ const fetchPage = async (url: string): Promise<FetchedPage> => {
   };
 };
 
-/** 1×1 PNG as a data URI — a retrieved image that actually loads in the
- *  browser, so viewer `image-load` coverage exercises the real <img> path. */
-const DATA_URI_THUMB =
-  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+/** The transparent 1×1 PNG the harness submits as the *input* image. */
+export const SUBMITTED_1PX_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function crc32(buf: Buffer): number {
+  let c = 0xffffffff;
+  for (const b of buf) c = (CRC_TABLE[(c ^ b) & 0xff] as number) ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  const t = Buffer.from(type, "ascii");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([t, data])));
+  return Buffer.concat([len, t, data, crc]);
+}
+
+/** Solid 8×8 RGB PNG as a data URI in one exact colour.
+ *
+ *  Controlled retrieved images must be *distinguishable*: a set of identical
+ *  1×1 transparent pixels renders identically wherever it appears, so a
+ *  screenshot cannot attribute the rendered <img> to the candidate that
+ *  shipped it and cannot disprove submission-image substitution. One colour
+ *  per candidate gives every retrieved image its own bytes. */
+function colorPng(r: number, g: number, b: number): string {
+  const w = 8;
+  const h = 8;
+  const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // colour type: truecolour
+  const raw = Buffer.alloc(h * (1 + w * 3));
+  for (let y = 0; y < h; y++) {
+    const o = y * (1 + w * 3);
+    raw[o] = 0; // filter byte
+    for (let x = 0; x < w; x++) {
+      raw[o + 1 + x * 3] = r;
+      raw[o + 2 + x * 3] = g;
+      raw[o + 3 + x * 3] = b;
+    }
+  }
+  const png = Buffer.concat([
+    sig,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
+/** Per-candidate retrieved images for the paired-divergence fixture. */
+const PAIR_IMG = {
+  archive: colorPng(198, 40, 40),
+  site: colorPng(40, 96, 198),
+  dupe: colorPng(40, 176, 96),
+  four: colorPng(232, 176, 32),
+} as const;
 
 const lensAllViewer = {
   search_metadata: { id: "fixture-lens-viewer", status: "Success" },
@@ -186,14 +257,16 @@ const lensAllViewer = {
       title: "CONTROLLED FIXTURE lead — loadable thumbnail",
       link: "https://fixture-viewer-a.example.org/report/loadable",
       snippet: "controlled loadable snippet",
-      thumbnail: DATA_URI_THUMB,
+      // Distinct bytes per lead: a screenshot of the rendered <img> can only
+      // be attributed to a specific lead if the leads differ visually.
+      thumbnail: colorPng(24, 120, 200),
       date: "Apr 4, 2019",
     },
     {
       position: 2,
       title: "CONTROLLED FIXTURE lead — no snippet",
       link: "https://fixture-viewer-b.example.org/post/nosnippet",
-      thumbnail: DATA_URI_THUMB,
+      thumbnail: colorPng(200, 90, 24),
       date: "May 5, 2020",
     },
   ],
@@ -218,18 +291,129 @@ const serpapiEmpty: SearchProvider = {
   search: async (p: SerpapiParams) => empty(`fixture-empty-${p.engine}`),
 };
 
+/* ------------------------- paired divergence ---------------------------
+ *
+ * The product exposes a paired-divergence viewer entry, so the controlled
+ * boundary has to be able to produce one: a real `firstObservedContextDivergence`
+ * with two existing timeline endpoints, not a hand-written pair block.
+ *
+ * Four dated core occurrences make the three connector states distinguishable
+ * in ONE fixture:
+ *
+ *   2018-06-15  archive-c   start
+ *   2020-10-02  site-d      different_context   ← the divergence edge (pair)
+ *   2020-10-02  dupe-e      unexamined           ← same-day: NOT COMPARED
+ *   2023-08-01  four-h      uncertain            ← compared, INCONCLUSIVE
+ *
+ * `not compared` and `inconclusive` are different claims, so the fixture
+ * deliberately produces both and the contract suite keeps them apart.
+ */
+
+const lensExactPair = {
+  search_metadata: { id: "fixture-lens-exact-pair", status: "Success" },
+  exact_matches: [
+    {
+      position: 1,
+      title: "CONTROLLED FIXTURE pair copy — 2018 archive",
+      link: "https://fixture-archive-c.example.org/item/2018",
+      date: "Jun 15, 2018",
+      thumbnail: PAIR_IMG.archive,
+    },
+    {
+      position: 2,
+      title: "CONTROLLED FIXTURE pair copy — 2020 repost",
+      link: "https://fixture-site-d.example.org/page/2020",
+      date: "Oct 2, 2020",
+      thumbnail: PAIR_IMG.site,
+    },
+    {
+      position: 3,
+      title: "CONTROLLED FIXTURE pair copy — 2020 same-day duplicate",
+      link: "https://fixture-dupe-e.example.org/page/2020-again",
+      date: "Oct 2, 2020",
+      thumbnail: PAIR_IMG.dupe,
+    },
+    {
+      position: 4,
+      title: "CONTROLLED FIXTURE pair copy — 2023 follow-up",
+      link: "https://fixture-four-h.example.org/page/2023",
+      date: "Aug 1, 2023",
+      thumbnail: PAIR_IMG.four,
+    },
+  ],
+};
+
+const serpapiPair: SearchProvider = {
+  uploadImage: async () => "fixture-upload-id",
+  search: async (p: SerpapiParams) => {
+    if (p.engine === "google_lens" && p.type === "exact_matches") return lensExactPair;
+    if (p.engine === "google_lens" && p.type === "about_this_image") return aboutImage;
+    if (p.engine === "google_lens") return lensAll;
+    if (p.engine === "google_news") return googleNews;
+    return googleSearch;
+  },
+};
+
+/** Pairwise verdict keyed by the *later* occurrence's title — every controlled
+ *  host shares one registrable domain, so the title is the only honest key.
+ *  `DIFFERENT_CONTEXT` establishes the pair; `UNCLEAR` is a comparison that
+ *  really happened and really did not settle. */
+const PAIRWISE_BY_TITLE: Record<string, string> = {
+  "CONTROLLED FIXTURE pair copy — 2020 repost": "DIFFERENT_CONTEXT",
+  "CONTROLLED FIXTURE pair copy — 2023 follow-up": "UNCLEAR",
+};
+
+const pairwiseWinners = (state: unknown): Record<string, string> => {
+  const b = (state as { occurrence_b?: { title?: string } } | null | undefined)?.occurrence_b;
+  return { pairwise_context: PAIRWISE_BY_TITLE[b?.title ?? ""] ?? "UNCLEAR" };
+};
+
+/** Per-candidate relevance. The deep-read budget is spent on the strongest
+ *  judged candidates, so without a strict relevance order the four exact
+ *  matches would be selected by id order and three of them would never be
+ *  read — the pair could not exist. */
+const RELEVANCE_BY_TITLE: Record<string, number> = {
+  "CONTROLLED FIXTURE pair copy — 2018 archive": 0.96,
+  "CONTROLLED FIXTURE pair copy — 2020 repost": 0.93,
+  "CONTROLLED FIXTURE pair copy — 2020 same-day duplicate": 0.9,
+  "CONTROLLED FIXTURE pair copy — 2023 follow-up": 0.87,
+};
+
+const relevanceFor = (state: unknown): number => {
+  const title = (state as { result?: { title?: string } } | null | undefined)?.result?.title;
+  return RELEVANCE_BY_TITLE[title ?? ""] ?? 0.7;
+};
+
+const jevPair = {
+  ask: async (s: unknown, qs: Record<string, unknown>) => ({
+    answers: answers(
+      qs,
+      {
+        context_relation: "DIFFERENT_CONTEXT",
+        claim_relation: "NEUTRAL",
+        page_role: "REPORTING",
+        ...pairwiseWinners(s),
+      },
+      relevanceFor(s),
+    ),
+    model: "jev-1.13.0",
+    identity: { requested: "jev-1.13.0", reported: "jev-1.13.0", status: "verified", pinned: true },
+  }),
+} as unknown as JevClient;
+
 describe.skipIf(!GEN)("controlled fixture generation", () => {
   it.each([
-    ["controlled-trace", null, serpapi],
-    ["controlled-claim", "This controlled claim describes a fictional event today.", serpapi],
-    ["controlled-viewer", "This controlled claim describes a fictional event today.", serpapiViewer],
-    ["controlled-insufficient", "This controlled claim describes a fictional event today.", serpapiEmpty],
-  ])("writes %s.ndjson", async (name, claim, provider) => {
+    ["controlled-trace", null, serpapi, jev],
+    ["controlled-claim", "This controlled claim describes a fictional event today.", serpapi, jev],
+    ["controlled-viewer", "This controlled claim describes a fictional event today.", serpapiViewer, jev],
+    ["controlled-insufficient", "This controlled claim describes a fictional event today.", serpapiEmpty, jev],
+    ["controlled-pair", "This controlled claim describes a fictional event today.", serpapiPair, jevPair],
+  ])("writes %s.ndjson", async (name, claim, provider, jevClient) => {
     const events: unknown[] = [];
     await runInvestigation(
       { media: new Uint8Array([1, 2, 3]), claim, timezone: "UTC", locale: "en" },
       (e) => events.push(e),
-      { serpapi: provider, jev, fetchPage },
+      { serpapi: provider, jev: jevClient, fetchPage },
     );
     const file = path.join(OUT, `${name}.ndjson`);
     fs.writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
@@ -258,7 +442,12 @@ const CLAIM_STATUSES = [
   "INSUFFICIENT_EVIDENCE",
 ] as const;
 
-const CLAIM_FIXTURES = new Set(["controlled-claim", "controlled-viewer", "controlled-insufficient"]);
+const CLAIM_FIXTURES = new Set([
+  "controlled-claim",
+  "controlled-viewer",
+  "controlled-insufficient",
+  "controlled-pair",
+]);
 const TRACE_FIXTURES = new Set(["controlled-trace"]);
 const DATE_STATUSES = new Set(["usable", "approximate", "unknown", "absent"]);
 const DATE_PRECISIONS = new Set(["day", "month", "year", "unknown", "none"]);
@@ -346,8 +535,8 @@ const asArray = (v: unknown): Json[] =>
 const strs = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 
-const str = (o: Json, k: string): string | null =>
-  typeof o[k] === "string" ? (o[k] as string) : null;
+const str = (o: Json | null | undefined, k: string): string | null =>
+  o && typeof o[k] === "string" ? (o[k] as string) : null;
 
 const walk = (value: unknown, visit: (node: Json) => void) => {
   if (!value || typeof value !== "object") return;
@@ -639,11 +828,154 @@ describe("controlled fixture contract", () => {
       }
     });
     if (judgments === 0) return;
-    expect(models.size, `${name}: models observed: ${[...models].join(", ")}`).toBe(1);
-    const model = [...models][0];
-    expect(model).toMatch(/^jev-/);
+    // The EXACT configured pin, not "any jev-* string": a fixture relabelled
+    // jev-9.99.0 would otherwise sail through as internally consistent.
+    expect([...models], `${name}: models observed: ${[...models].join(", ")}`).toEqual([JEV_MODEL]);
     expect(schemas.size).toBeLessThanOrEqual(1);
   });
+
+  it.each(FIXTURE_FILES)("%s: every judged model is the configured pin, not a lookalike", (name) => {
+    const events = readEvents(name);
+    const seen = new Set<string>();
+    walk(events, (node) => {
+      for (const key of ["model", "jevModel", "modelIdentity"]) {
+        const v = node[key];
+        if (typeof v === "string") seen.add(v);
+      }
+      const identity = node["identity"] as Json | undefined;
+      if (identity && typeof identity === "object") {
+        for (const key of ["requested", "reported"]) {
+          const v = (identity as Json)[key];
+          if (typeof v === "string") seen.add(v);
+        }
+        if (identity["status"] === "verified" || identity["pinned"] === true) {
+          expect(identity["requested"], `${name}: verified identity requested`).toBe(JEV_MODEL);
+          expect(identity["reported"], `${name}: verified identity reported`).toBe(JEV_MODEL);
+          expect(identity["pinned"], `${name}: verified identity pinned`).toBe(true);
+        }
+      }
+    });
+    for (const model of seen) {
+      expect(model, `${name}: model ${model} is not the configured pin ${JEV_MODEL}`).toBe(JEV_MODEL);
+    }
+  });
+
+  it.each(FIXTURE_FILES)(
+    "%s: event chronology, ids and types are internally consistent",
+    (name) => {
+      const events = readEvents(name);
+      const discovered = new Set<string>();
+      const classified = new Map<string, number>();
+      const stagesStarted = new Set<string>();
+      const terminalTypes: string[] = [];
+      let currentStage: string | null = null;
+      let sawStarted = false;
+
+      for (const [i, ev] of events.entries()) {
+        const type = String(ev["type"] ?? "");
+        const id = str(ev, "id") ?? str((ev["evidence"] ?? null) as Json, "id");
+        const at = i;
+
+        if (type === "investigation.started") {
+          expect(sawStarted, `${name}: investigation.started appears twice`).toBe(false);
+          sawStarted = true;
+        }
+        if (type === "investigation.completed" || type === "investigation.failed") {
+          terminalTypes.push(type);
+          expect(
+            events.slice(i + 1).length,
+            `${name}: ${type} is not the last event`,
+          ).toBe(0);
+        }
+        if (type === "evidence.discovered") {
+          const evId = str(ev, "id") ?? str((ev["evidence"] ?? null) as Json, "id");
+          expect(evId, `${name}: evidence.discovered #${at} without an id`).toBeTruthy();
+          expect(discovered.has(evId as string), `${name}: ${evId} discovered twice`).toBe(false);
+          discovered.add(evId as string);
+        }
+        if (type === "evidence.classified") {
+          // `evidence.classified` carries the occurrence id at the top level;
+          // `evidence.discovered` nests the candidate under `evidence`.
+          const evId = str(ev, "id") ?? str((ev["evidence"] ?? null) as Json, "id");
+          expect(evId, `${name}: evidence.classified #${at} without an id`).toBeTruthy();
+          // A classification for an id that was never discovered is a phantom.
+          expect(
+            discovered.has(evId as string),
+            `${name}: evidence.classified references ${evId}, never discovered`,
+          ).toBe(true);
+          // A candidate may legitimately be classified again by REFINED_CLASSIFY
+          // after its page text arrives; nothing else may re-classify it.
+          const times = classified.get(evId as string) ?? 0;
+          if (times > 0) {
+            expect(
+              currentStage,
+              `${name}: ${evId} re-classified during ${String(currentStage)} rather than REFINED_CLASSIFY`,
+            ).toBe("REFINED_CLASSIFY");
+          }
+          classified.set(evId as string, times + 1);
+        }
+        if (type === "stage.started" || type === "stage.completed") {
+          const stage = str(ev, "stage");
+          expect(stage, `${name}: ${type} #${at} without a stage`).toBeTruthy();
+          if (type === "stage.started") {
+            expect(
+              stagesStarted.has(stage as string),
+              `${name}: stage ${stage} started twice`,
+            ).toBe(false);
+            stagesStarted.add(stage as string);
+            currentStage = stage as string;
+          } else {
+            // The terminal COMPLETE stage is reported as a completion only; no
+            // other stage may complete without having started.
+            if (!stagesStarted.has(stage as string)) {
+              expect(
+                stage,
+                `${name}: stage ${stage} completed before it started`,
+              ).toBe("COMPLETE");
+            }
+          }
+        }
+        expect(id === null || typeof id === "string", `${name}: #${at} id is not a string`).toBe(true);
+      }
+
+      expect(sawStarted, `${name}: no investigation.started`).toBe(true);
+      expect(terminalTypes, `${name}: exactly one terminal event`).toHaveLength(1);
+      expect(terminalTypes[0], `${name}: terminal event is a completion`).toBe(
+        "investigation.completed",
+      );
+      // Every terminal row is an evidence id this stream actually published.
+      const result = terminalResult(events);
+      const published = new Set([
+        ...asArray(result["timeline"]),
+        ...asArray(result["supportingEvidence"]),
+        ...asArray(result["contextualEvidence"]),
+        ...asArray(result["undatedEvidence"]),
+      ].map((o) => str(o, "evidenceId") ?? str(o, "occurrenceId")));
+      for (const o of [
+        ...asArray(result["timeline"]),
+        ...asArray(result["supportingEvidence"]),
+        ...asArray(result["contextualEvidence"]),
+        ...asArray(result["undatedEvidence"]),
+      ]) {
+        const id = str(o, "evidenceId") ?? str(o, "occurrenceId");
+        expect(
+          published.has(id as string),
+          `${name}: terminal row ${id} is not in the terminal collections`,
+        ).toBe(true);
+        expect(
+          discovered.has(id as string),
+          `${name}: terminal row ${id} was never discovered`,
+        ).toBe(true);
+      }
+      // Deliberately NOT asserted: that every announced classification survives
+      // into the terminal result, or that every published row was announced.
+      // Both directions are observed in practice (candidates are dropped after
+      // the deep read, and late candidates are published without an announced
+      // classification), so neither is a property this fixture may require. The
+      // identity that IS required — in both directions between discovered,
+      // classified and published ids — is asserted above.
+    },
+  );
 
   it.each(FIXTURE_FILES)("%s: no real hosts and no credential material", (name) => {
     const events = readEvents(name);
@@ -670,11 +1002,101 @@ describe("controlled fixture contract", () => {
       ...asArray(result["contextualEvidence"]),
       ...asArray(result["undatedEvidence"]),
     ];
+    // Data URIs count: identical 1×1 pixels render the same wherever they
+    // appear, so a duplicate would make attribution unrecoverable.
     const images = items
       .map((i) => str(i, "imageUrl") ?? str(i, "thumbnailUrl"))
-      .filter((u): u is string => !!u && !u.startsWith("data:"));
+      .filter((u): u is string => !!u);
     if (asArray(result["timeline"]).length > 0) expect(images.length).toBeGreaterThan(0);
     expect(new Set(images).size, `${name}: duplicate retrieved image urls`).toBe(images.length);
+  });
+
+  it("controlled-pair: a real paired divergence with two live endpoints", () => {
+    const result = terminalResult(readEvents("controlled-pair"));
+    const timeline = asArray(result["timeline"]);
+    const byId = new Map(timeline.map((t) => [str(t, "evidenceId") ?? str(t, "occurrenceId"), t]));
+    const div = (result["firstObservedContextDivergence"] ?? null) as Json | null;
+    expect(div, "controlled-pair must emit firstObservedContextDivergence").not.toBeNull();
+    const fromId = str(div as Json, "fromOccurrenceId") as string;
+    const toId = str(div as Json, "toOccurrenceId") as string;
+    expect(fromId).toBeTruthy();
+    expect(toId).toBeTruthy();
+    expect(fromId).not.toBe(toId);
+    // Both endpoints are occurrences this investigation actually displayed —
+    // a pair pointing at a missing id is not a pair.
+    const earlier = byId.get(fromId);
+    const later = byId.get(toId);
+    expect(earlier, `pair endpoint ${fromId} is not in the timeline`).toBeTruthy();
+    expect(later, `pair endpoint ${toId} is not in the timeline`).toBeTruthy();
+    expect(
+      (str(earlier as Json, "observedAt") as string) < (str(later as Json, "observedAt") as string),
+      "the earlier endpoint must be published before the later one",
+    ).toBe(true);
+    expect(str(div as Json, "observedAt")).toBe(str(later as Json, "observedAt"));
+    expect(div?.["earlierTransitionsUnresolved"]).toBe(false);
+
+    // The comparison that established the pair was really performed, and the
+    // later endpoint carries the decisive edge.
+    const coverage = (result["comparisonCoverage"] ?? null) as Json | null;
+    const comparedPairs = strs(coverage?.["comparedPairIds"]);
+    expect(comparedPairs).toContain(`${fromId}|${toId}`);
+    const decisive = timeline.filter(
+      (t) => str((t["incomingConnector"] ?? null) as Json, "kind") === "different_context",
+    );
+    expect(decisive.map((t) => str(t, "evidenceId")), "exactly one decisive edge").toEqual([toId]);
+    expect(str((decisive[0]["incomingConnector"] ?? null) as Json, "fromOccurrenceId")).toBe(fromId);
+    expect(later?.["isFirstObservedDivergencePoint"]).toBe(true);
+  });
+
+  it("controlled-pair: not-compared and inconclusive stay distinct claims", () => {
+    const result = terminalResult(readEvents("controlled-pair"));
+    const timeline = asArray(result["timeline"]);
+    const comparedPairs = new Set(strs((result["comparisonCoverage"] ?? null as Json)?.["comparedPairIds"]));
+    const byId = new Map(
+      timeline.map((t) => [str(t, "evidenceId") ?? str(t, "occurrenceId"), t]),
+    );
+    const kindOf = (t: Json) => str((t["incomingConnector"] ?? null) as Json, "kind");
+    const pairOf = (t: Json) => {
+      const from = str((t["incomingConnector"] ?? null) as Json, "fromOccurrenceId");
+      const id = str(t, "evidenceId") ?? str(t, "occurrenceId");
+      return from && id ? `${from}|${id}` : null;
+    };
+
+    const unexamined = timeline.filter((t) => kindOf(t) === "unexamined");
+    const uncertain = timeline.filter((t) => kindOf(t) === "uncertain");
+    expect(unexamined.length, "the fixture must contain a NOT COMPARED edge").toBeGreaterThan(0);
+    expect(uncertain.length, "the fixture must contain an INCONCLUSIVE edge").toBeGreaterThan(0);
+    // Not compared: the pair was never sent for comparison, so it must not
+    // appear in the compared-pair record.
+    for (const t of unexamined) {
+      expect(comparedPairs.has(pairOf(t) as string), `${pairOf(t)} must not be compared`).toBe(false);
+      expect(byId.has(str(t, "evidenceId") ?? "")).toBe(true);
+    }
+    // Inconclusive: the pair WAS compared and the judgment did not settle it.
+    for (const t of uncertain) {
+      expect(comparedPairs.has(pairOf(t) as string), `${pairOf(t)} must be compared`).toBe(true);
+    }
+    // Both edges break the decisive run, so no exact segment count may be
+    // claimed — an honest absence, not a zero.
+    expect(result["contextSegmentCount"]).toBeNull();
+    const kinds = timeline.map(kindOf);
+    expect(new Set(kinds)).toEqual(new Set(["start", "different_context", "unexamined", "uncertain"]));
+  });
+
+  it("controlled-pair: retrieved images are distinguishable from the submitted input", () => {
+    const result = terminalResult(readEvents("controlled-pair"));
+    const timeline = asArray(result["timeline"]);
+    const images = timeline.map((t) => str(t, "imageUrl") ?? str(t, "thumbnailUrl"));
+    for (const [i, uri] of images.entries()) {
+      expect(uri, `timeline item ${i} without an image`).toBeTruthy();
+      expect(uri, `timeline item ${i} reuses the submitted input image`).not.toContain(
+        SUBMITTED_1PX_BASE64,
+      );
+    }
+    // One image per core occurrence, and each one a different solid colour —
+    // the rendered <img> can therefore be attributed to a specific occurrence.
+    expect(new Set(images).size).toBe(timeline.length);
+    expect(timeline.length).toBeGreaterThanOrEqual(4);
   });
 
   it("the empty-collection fixture is genuinely empty", () => {

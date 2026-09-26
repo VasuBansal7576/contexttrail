@@ -74,9 +74,15 @@ turn red rather than report green.
   on desktop only.
 - `landing.anchor-scrolls-to-section` is skipped under `--fault`, because a
   faulted document is not a fair subject for a scroll assertion.
-- Current hero uses placeholders; requested fonts are not loaded. Initial
-  animation frames are not evidence of the final composition. No real sourced
-  demo example is currently provided.
+- Initial animation frames are not evidence of the final composition: this map
+  asserts rendered copy, anchors and CTAs, not the loading state. Web-font
+  loading and hero imagery are a design-review question, not an assertion this
+  map makes — the previously recorded "requested fonts are not loaded" note is
+  withdrawn, because nothing in this map tests fonts and the claim was never
+  measured.
+- The demo example is driven through its own CTA and asserted for destination
+  and selection; whether the example image is a real sourced photograph is not
+  something this map asserts.
 - Landing never posts to `/api/investigate` — that is asserted, not assumed.
 
 Keep screenshots, ARIA snapshots, action video, sanitized response/events and

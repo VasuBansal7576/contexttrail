@@ -58,8 +58,10 @@ assertion IDs):
   [--live] — every tab is asserted present; the selected panel is compared
   against the fixture's own counts; `--view` ends selected.
 - `viewer --entry timeline|sources|takeaway --case
-  image-load|image-fail|no-excerpt|pair` — `pair` is explicitly
-  NOT IMPLEMENTED (no controlled fixture emits a paired divergence endpoint).
+  image-load|image-fail|no-excerpt|pair` — `pair` replays `controlled-pair`,
+  whose terminal result carries a real `firstObservedContextDivergence` whose
+  two endpoints are displayed occurrences; if no fixture has one, the case
+  exits 2 naming the missing fixture.
 - `session --case refresh|back|new|cancel|fatal-retry`.
 - `accessibility --viewport desktop|mobile` — keyboard reachability, overflow
   and 44px targets fail closed; contrast and focus handling are asserted.
@@ -69,19 +71,33 @@ Every drive also accepts `--viewport desktop|mobile` and `--no-video`;
 withholds the controlled stub's first byte for that long (it is rejected
 elsewhere rather than silently ignored);
 `--fault` accepts `a11y-false-green|bad-selection|unexpected-request|
-anchor-broken|focus-removed|drop-timeline-item|group-mislabel`.
+anchor-broken|focus-removed|drop-timeline-item|group-mislabel|
+pair-endpoint-wrong|pair-note-wrong|focus-return-broken`, and each fault
+declares the drives it can sabotage — an inapplicable combination exits 2
+instead of passing as an inert fault.
 
 Controlled fixtures shipped: `controlled-trace`, `controlled-claim`,
-`controlled-viewer` (loadable data-URI thumbnails + a no-snippet item),
+`controlled-viewer` (per-occurrence loadable thumbnails + a no-snippet item),
+`controlled-pair` (four dated core occurrences carrying a real divergence pair,
+one never-compared edge and one compared-but-inconclusive edge),
 `controlled-insufficient` (provider-validated empties → INSUFFICIENT_EVIDENCE).
 `--case` accepts any fixture name present in `fixtures/`; unknown names fail.
+`viewer` and `session` cases map to the fixture that actually contains the
+evidence under test, and that fixture — with its bytes and hash — is recorded
+per drive.
 
 Each fixture is validated on every `npx vitest run` by an always-on contract
 suite in `fixtures/gen-fixtures.test.ts`: terminal event, mode/status
 coherence, `requestLog.durationMs`, policy/support/identity/date/origin
-fields, normalized probability distributions, pinned model identity,
-distinguishable retrieved images, and no real hosts or credential material.
-Generation itself is gated behind `CONTEXTTRAIL_GEN_FIXTURES=1`.
+fields, normalized probability distributions, the exact configured model pin,
+event chronology with discovered/classified/published id identity, decodable
+and distinguishable retrieved images, and no real hosts or credential
+material. Generation itself is gated behind `CONTEXTTRAIL_GEN_FIXTURES=1`.
+
+`live-ready --run-id <id> --manifest <path> --image <path> [--mode …]` validates
+a live input manifest with no browser, no provider request and no credential
+read, so live readiness is provable at zero credit; its record is sealed with
+the rest of the evidence.
 
 ## Negative controls
 
@@ -94,16 +110,26 @@ lists its own; the standing set is:
   per-command unsupported options, missing flag values,
   `--live` credit gate, `--image`/`--claim-text` without `--live`,
   `--fault` outside the supported set).
-- 7 fault injections → exit 1:
+- 10 fault injections → exit 1:
   `a11y-false-green` (accessibility), `focus-removed` (accessibility),
-  `anchor-broken` (landing), `unexpected-request` (landing/result),
+  `anchor-broken` (landing), `unexpected-request` (any drive),
   `bad-selection` (result), `drop-timeline-item` (result timeline),
   `group-mislabel` (result analysis — reintroduces the hardcoded
-  `Shared group of N occurrences` label that `f69ba92` removed).
+  `Shared group of N occurrences` label that `f69ba92` removed),
+  `pair-endpoint-wrong` (viewer pair — renders a wrong evidence id),
+  `pair-note-wrong` (viewer pair — rewrites the pair note into a same-context
+  claim), `focus-return-broken` (viewer — drops focus to `<body>` on close).
+- 1 schema rejection for an inert fault: `drive landing --fault bad-selection`
+  exits 2 naming the drives that fault applies to.
+- 6 live-readiness controls (exit 0/1, zero provider calls): a valid manifest
+  passes 11 rules; wrong image hash, a loopback `imageSource`, a provider URL
+  carrying a key, a claim that disagrees with the submitted text, a
+  non-decodable "image", and a claim supplied for a trace run each fail the
+  specific rule they break.
 
-PLANNED / NOT IMPLEMENTED: `pair` viewer case (no fixture emits a paired
-divergence), `rich-context-gaps` / `mixed-evidence` / `delayed-provider-fixture`
-fixture names (delay is a `--delay-ms` modifier instead), and
+PLANNED / NOT IMPLEMENTED: `rich-context-gaps` / `mixed-evidence` /
+`delayed-provider-fixture` fixture names (delay is a `--delay-ms` modifier
+instead), and
 `conflict` / `possible` / `no-conflict` as standalone fixture names — those
 statuses are produced by `controlled-claim` / `controlled-viewer` /
 `controlled-insufficient` and asserted through `result.fixture-status-agrees`.

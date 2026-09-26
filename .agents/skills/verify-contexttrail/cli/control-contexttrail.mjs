@@ -11,6 +11,9 @@
  *            --run-id <id> [--viewport desktop|mobile] [--case <n>] [--entry <n>]
  *            [--mode trace|claim] [--view <n>] [--delay-ms <n>] [--fault <n>]
  *            [--live] [--image <path>] [--claim-text <text>]
+ *            [--live-manifest <path>]
+ *   live-ready --run-id <id> --manifest <path> --image <path> [--mode trace|claim]
+ *            [--claim-text <text>]
  *   evidence --run-id <id> [--regenerate]
  *   cleanup  --run-id <id>
  *
@@ -26,7 +29,13 @@
  *  - Real provider runs require BOTH RUN_LIVE_TESTS=1 and --live, and a run
  *    launched with --live (which is the only way .env.local is linked).
  *  - Evidence is written per drive, hashed by `evidence`, and sealed: later
- *    drives in the same generation are refused.
+ *    drives in the same generation are refused. Each drive keeps the exact
+ *    fixture bytes and the finished, uncut recording it produced, and an
+ *    interrupted drive is reported as incomplete instead of being skipped.
+ *  - A live drive submits the operator's own --image/--claim-text under a
+ *    --live-manifest that names the public source, its sha256, the mode/claim
+ *    and the credit acknowledgement. `live-ready` validates that contract with
+ *    no provider call, so readiness is provable without spending credit.
  */
 
 import { spawn, execFileSync } from "node:child_process";
@@ -129,14 +138,37 @@ const COMMAND_FLAGS = {
     "fault",
     "image",
     "claim-text",
+    "live-manifest",
     "live",
     "no-video",
   ],
+  "live-ready": [...BASE_FLAGS, "manifest", "image", "claim-text", "mode"],
   evidence: [...BASE_FLAGS, "regenerate"],
   cleanup: [...BASE_FLAGS],
 };
 
-/* ------------------------------ run state ------------------------------- */
+/* ----------------------------- run state ------------------------------- */
+
+/**
+ * Every command's own schema, validated before ANY side effect: no manifest
+ * read, no port probe, no browser, no filesystem write. A command that accepts
+ * an option it does not implement is a silent success, so an unknown flag, a
+ * duplicated flag, a boolean given a value or an extra positional argument all
+ * exit 2 first.
+ */
+function enforceCommandSchema(command, { requiredOptions = [], positionalMax = 1 } = {}) {
+  const allowed = COMMAND_FLAGS[command];
+  if (!allowed) fail(`unknown command ${command}`);
+  const unknown = Object.keys(flags).filter((k) => !allowed.includes(k));
+  if (unknown.length) {
+    fail(`unsupported option(s) for ${command}: ${unknown.map((k) => `--${k}`).join(", ")}`);
+  }
+  if (positional.length > positionalMax) {
+    const extra = positional.slice(positionalMax);
+    fail(`unexpected argument(s) for ${command}: ${extra.map((a) => JSON.stringify(a)).join(", ")}`);
+  }
+  for (const opt of requiredOptions) required(opt);
+}
 
 /** Repo root derived from this file's own location — the stable anchor that
  *  lets doctor/drive/evidence/cleanup resolve a run without flags. */
@@ -416,12 +448,6 @@ function fixtureMode(name) {
   return "trace";
 }
 
-function fixtureHasPair(name) {
-  const r = fixtureResult(name);
-  if (!r) return false;
-  return /paired|pairEndpoint|divergenceEndpointId/i.test(JSON.stringify(r));
-}
-
 /* --------------------------- runner identity ---------------------------- */
 
 /** Identity of the *harness* that produced an artifact: the revision of the
@@ -477,19 +503,88 @@ const ENV_ALLOW_EXACT = new Set([
 ]);
 const ENV_ALLOW_PREFIX = ["npm_config_", "NPM_CONFIG_"];
 
+/**
+ * npm configuration that silently changes DEPENDENCY RESOLUTION rather than
+ * where packages come from. Inheriting these makes a launch depend on the
+ * caller's shell: `npm_config_include=dev` in the parent makes `npm ci` install
+ * the TypeScript/build toolchain even under NODE_ENV=production, so a
+ * documented minimal keyless launch only works on a machine that happens to
+ * export it. They are dropped from every child environment; registry/proxy
+ * settings are still inherited because they do not change which packages are
+ * installed.
+ */
+const ENV_DENY_NPM_RESOLUTION = new Set([
+  "npm_config_include",
+  "npm_config_omit",
+  "npm_config_only",
+  "npm_config_production",
+  "npm_config_dev",
+  "npm_config_legacy_peer_deps",
+  "npm_config_strict_peer_deps",
+  "npm_config_ignore_scripts",
+  "NPM_CONFIG_INCLUDE",
+  "NPM_CONFIG_OMIT",
+  "NPM_CONFIG_ONLY",
+  "NPM_CONFIG_PRODUCTION",
+  "NPM_CONFIG_DEV",
+  "NPM_CONFIG_LEGACY_PEER_DEPS",
+  "NPM_CONFIG_STRICT_PEER_DEPS",
+  "NPM_CONFIG_IGNORE_SCRIPTS",
+]);
+
 /** Names of the variables that were present but deliberately not forwarded. */
 function strippedEnvNames() {
   return Object.keys(process.env)
-    .filter((k) => !ENV_ALLOW_EXACT.has(k) && !ENV_ALLOW_PREFIX.some((p) => k.startsWith(p)))
+    .filter(
+      (k) =>
+        !ENV_ALLOW_EXACT.has(k) &&
+        !ENV_ALLOW_PREFIX.some((p) => k.startsWith(p)) &&
+        !ENV_DENY_NPM_RESOLUTION.has(k),
+    )
     .sort();
 }
 
-function cleanEnv(extra = {}) {
+/** Names of resolution-changing npm config present in THIS process. */
+function inheritedNpmResolutionKeys() {
+  return Object.keys(process.env)
+    .filter((k) => ENV_DENY_NPM_RESOLUTION.has(k))
+    .sort();
+}
+
+function inheritedEnv(extra = {}) {
   const out = {};
   for (const [k, v] of Object.entries(process.env)) {
+    if (ENV_DENY_NPM_RESOLUTION.has(k)) continue;
     if (ENV_ALLOW_EXACT.has(k) || ENV_ALLOW_PREFIX.some((p) => k.startsWith(p))) out[k] = v;
   }
-  return { ...out, NODE_ENV: "production", ...extra };
+  return { ...out, ...extra };
+}
+
+/**
+ * The three child environments are deliberately different.
+ *
+ *  - install: NO NODE_ENV at all. npm derives `omit=dev` from
+ *    NODE_ENV=production, so an install under it silently drops the TypeScript
+ *    and build toolchain and the build that follows cannot run. The install
+ *    also passes `--include=dev` explicitly, so the dependency set is a
+ *    property of the command rather than of an inherited variable.
+ *  - build:   NODE_ENV=production, the mode the bundle is compiled for.
+ *  - runtime: NODE_ENV=production, no dev dependencies loaded.
+ *
+ * Credential stripping is unchanged and applies to all three.
+ */
+function installEnv() {
+  const out = inheritedEnv();
+  delete out.NODE_ENV;
+  return out;
+}
+
+function buildEnv() {
+  return inheritedEnv({ NODE_ENV: "production" });
+}
+
+function runtimeEnv() {
+  return inheritedEnv({ NODE_ENV: "production" });
 }
 
 function snapshotEnvFiles(snapshotDir) {
@@ -503,13 +598,29 @@ function snapshotEnvFiles(snapshotDir) {
   }
 }
 
+/** Packages the production build cannot run without. Their absence is the
+ *  failure a production-mode `npm ci` causes, so it is checked explicitly. */
+const BUILD_DEPS = ["typescript", "next", "react", "react-dom"];
+const BUILD_DEPS_OPTIONAL = ["tailwindcss", "vitest"];
+
+function buildDependencyReport(snapshotDir) {
+  const mods = path.join(snapshotDir, "node_modules");
+  const present = (name) => fs.existsSync(path.join(mods, name, "package.json"));
+  const required = BUILD_DEPS.filter(present);
+  const missing = BUILD_DEPS.filter((n) => !present(n));
+  return {
+    complete: missing.length === 0,
+    required: BUILD_DEPS,
+    present: required,
+    missing,
+    optionalPresent: BUILD_DEPS_OPTIONAL.filter(present),
+  };
+}
+
 /* -------------------------------- launch -------------------------------- */
 
 async function launch() {
-  const allowed = COMMAND_FLAGS.launch;
-  const unknown = Object.keys(flags).filter((k) => !allowed.includes(k));
-  if (unknown.length) fail(`unsupported option(s) for launch: ${unknown.map((k) => `--${k}`).join(", ")}`);
-  if (positional.length > 1) fail(`unexpected argument ${JSON.stringify(positional[1])}`);
+  enforceCommandSchema("launch", { requiredOptions: ["checkout", "run-id"] });
 
   // Value formats are validated before any required-option lookup so a
   // malformed numeric or revision reports itself rather than a missing flag.
@@ -602,16 +713,44 @@ async function launch() {
     cliSha256: sha256(fs.readFileSync(CLI_PATH)),
     runnerRevision: runnerIdentity().runnerRevision,
     strippedEnvKeys: live ? [] : stripped,
+    // Names only — these were in the caller's environment and are dropped so
+    // the install does not depend on the caller's shell.
+    droppedNpmResolutionKeys: inheritedNpmResolutionKeys(),
     envFilesInSnapshot: envFiles,
     stage: "install",
     ready: false,
   });
 
   const installLog = fs.openSync(path.join(logDir, "install.log"), "w");
-  execFileSync("npm", ["ci"], { cwd: snap, stdio: ["ignore", installLog, installLog], env: cleanEnv() });
+  // `--include=dev` is explicit: the build toolchain is required by the build
+  // step and must not depend on NODE_ENV or on an inherited npm variable.
+  execFileSync("npm", ["ci", "--include=dev"], {
+    cwd: snap,
+    stdio: ["ignore", installLog, installLog],
+    env: installEnv(),
+  });
+  // A missing build dependency is otherwise discovered as an inscrutable
+  // "next build" failure; record the fact that the toolchain is present.
+  const buildDeps = buildDependencyReport(snap);
+  if (!buildDeps.complete) {
+    console.log(
+      JSON.stringify({
+        launched: false,
+        reason: "build dependencies missing after install",
+        buildDeps,
+        logDir,
+      }),
+    );
+    process.exit(EXIT_ASSERT);
+  }
+  writeManifest(runId, { buildDeps });
   writeManifest(runId, { stage: "build" });
   const buildLog = fs.openSync(path.join(logDir, "build.log"), "w");
-  execFileSync("npm", ["run", "build"], { cwd: snap, stdio: ["ignore", buildLog, buildLog], env: cleanEnv() });
+  execFileSync("npm", ["run", "build"], {
+    cwd: snap,
+    stdio: ["ignore", buildLog, buildLog],
+    env: buildEnv(),
+  });
   const buildId = fs.readFileSync(path.join(snap, ".next", "BUILD_ID"), "utf8").trim();
   writeManifest(runId, { buildId, stage: "start" });
 
@@ -620,7 +759,7 @@ async function launch() {
     cwd: snap,
     detached: true,
     stdio: ["ignore", serverLog, serverLog],
-    env: cleanEnv(),
+    env: runtimeEnv(),
   });
   child.unref();
   writeManifest(runId, { pid: child.pid, pidSig: pidSignature(child.pid), pgid: child.pid, stage: "started" });
@@ -657,9 +796,9 @@ function pidIsOwned(m) {
 }
 
 async function doctor() {
-  const allowed = COMMAND_FLAGS.doctor;
-  const unknown = Object.keys(flags).filter((k) => !allowed.includes(k));
-  if (unknown.length) fail(`unsupported option(s) for doctor: ${unknown.map((k) => `--${k}`).join(", ")}`);
+  // Schema first: `doctor extra-positional` and `doctor --nonsense` must be
+  // rejected before the run is inspected, not reported healthy.
+  enforceCommandSchema("doctor", { requiredOptions: ["run-id"] });
 
   const runId = required("run-id");
   const m = readManifest(runId);
@@ -688,6 +827,16 @@ async function doctor() {
   checks.envSurfaceMatchesLiveFlag = m.live ? envFiles.includes(".env.local") : envFiles.length === 0;
   if (!m.live) checks.credentialsStripped = Array.isArray(m.strippedEnvKeys) && m.strippedEnvKeys.length > 0;
 
+  // The build toolchain must be in the snapshot: an install that ran with
+  // NODE_ENV=production produces a served bundle from a missing-dependency
+  // build, and this is the check that would have caught it.
+  const buildDeps = fs.existsSync(m.snapshot) ? buildDependencyReport(m.snapshot) : null;
+  checks.buildDependenciesPresent = buildDeps ? buildDeps.complete : true;
+  if (buildDeps) {
+    checks.buildDepsMatchManifest =
+      m.buildDeps === undefined || m.buildDeps.complete === buildDeps.complete;
+  }
+
   if (flags["expect-revision"] !== undefined) {
     const want = flags["expect-revision"];
     if (!/^[A-Za-z0-9._/-]{1,120}$/.test(want)) {
@@ -711,6 +860,8 @@ async function doctor() {
       checks,
       envFilesInSnapshot: envFiles,
       strippedEnvKeyCount: (m.strippedEnvKeys ?? []).length,
+      droppedNpmResolutionKeys: m.droppedNpmResolutionKeys ?? [],
+      buildDeps,
       revision: m.revision,
       buildId: m.buildId,
       url: m.url,
@@ -768,6 +919,79 @@ function nextDriveDir(runId, feature, parts) {
 
 function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + "\n");
+}
+
+/** Videos retained inside per-drive evidence, counted from evidence itself. */
+function countEvidenceVideos(dir) {
+  const drives = path.join(dir, "drives");
+  let n = 0;
+  try {
+    for (const d of fs.readdirSync(drives)) {
+      const v = path.join(drives, d, "video");
+      if (!fs.existsSync(v)) continue;
+      n += fs.readdirSync(v).filter((f) => f.endsWith(".webm")).length;
+    }
+  } catch {
+    return n;
+  }
+  return n;
+}
+
+/**
+ * Playwright finalizes a context recording asynchronously *after* the context
+ * closes, so the file may not exist — or may still be growing — while the drive
+ * is running. Snapshot what exists now so a finished file can be recognised
+ * afterwards.
+ */
+function snapshotVideos(dir) {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".webm"))
+      .sort()
+      .map((f) => {
+        const st = fs.statSync(path.join(dir, f));
+        return { file: f, bytes: st.size };
+      });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Copy the ORIGINAL, uncut recordings into the drive's own evidence directory
+ * and index each with its exact provenance. Nothing is trimmed, re-encoded or
+ * synthesised: the bytes are the browser's own output, copied once it is
+ * complete. Videos that never finished are reported as missing rather than
+ * passed over silently.
+ */
+function collectVideos(staged, videoDir, driveDir) {
+  const final = snapshotVideos(videoDir);
+  const stagedByName = new Map(staged.map((s) => [s.file, s]));
+  const outDir = path.join(driveDir, "video");
+  const collected = [];
+  const missing = [];
+  for (const v of final) {
+    const before = stagedByName.get(v.file);
+    if (before && before.bytes === v.bytes) continue; // never grew: a stale partial
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    const dest = path.join(outDir, v.file);
+    fs.copyFileSync(path.join(videoDir, v.file), dest);
+    const buf = fs.readFileSync(dest);
+    collected.push({
+      file: `video/${v.file}`,
+      bytes: buf.length,
+      sha256: sha256(buf),
+      source: "playwright-context-recording",
+      copied: true,
+    });
+  }
+  for (const s of staged) {
+    if (!final.some((v) => v.file === s.file)) {
+      missing.push({ file: s.file, bytesAtSnapshot: s.bytes, reason: "discarded by the browser" });
+    }
+  }
+  return { collected, missing, staged: staged.length, finalized: collected.length };
 }
 
 /* ------------------------------ network boundary ------------------------ */
@@ -960,6 +1184,9 @@ function parseMultipart(buf, contentType) {
       filename: fn?.[1] ?? null,
       contentType: ct?.[1]?.trim() ?? null,
       bytes: Buffer.byteLength(body, "latin1"),
+      // A hash, never the value: the submitted claim can be compared with what
+      // the drive intended without the request body entering the evidence.
+      sha256: fn?.[1] ? null : sha256(Buffer.from(body, "latin1")),
     };
   }
   return out;
@@ -1120,6 +1347,204 @@ async function startStreamServer() {
   };
 }
 
+/* ---------------------------- live readiness ---------------------------- */
+
+/**
+ * A live run must name the public input it is about to submit. Nothing about
+ * a provider outcome is predicted here — this contract is entirely about
+ * INPUTS: which image, from which public source, with which hash, under which
+ * mode and claim, with provider credit explicitly acknowledged.
+ *
+ * It is validated locally, with no browser, no provider request and no
+ * credential read, so it can be exercised in a zero-provider run.
+ */
+const LIVE_MANIFEST_SCHEMA = "contexttrail-live-readiness.v1";
+
+function readLiveManifest(manifestPath) {
+  const p = path.resolve(manifestPath);
+  if (!fs.existsSync(p)) fail(`--live-manifest not found: ${manifestPath}`);
+  let raw;
+  try {
+    raw = JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (err) {
+    fail(`--live-manifest is not valid JSON: ${err.message}`);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    fail("--live-manifest must be a JSON object");
+  }
+  return { path: p, raw, sha256: sha256(fs.readFileSync(p)) };
+}
+
+function liveManifestValue(key) {
+  if (flags["live-manifest"] === undefined) return null;
+  const { raw } = readLiveManifest(flags["live-manifest"]);
+  return typeof raw[key] === "string" ? raw[key] : null;
+}
+
+/** A public input source: a real absolute http(s) URL, never a local path or
+ *  a loopback/private address standing in for "public". */
+function isPublicHttpUrl(value) {
+  let u;
+  try {
+    u = new URL(String(value));
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+  const h = u.hostname.toLowerCase();
+  if (!h || h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local")) return false;
+  if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h) || /^169\.254\./.test(h)) return false;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
+  if (h === "[::1]" || h === "::1") return false;
+  return true;
+}
+
+/**
+ * Per-rule readiness verdicts for one candidate live input set. Each entry is
+ * a claim about the INPUT contract only.
+ */
+function liveReadinessChecks({ manifest, imagePath, mode, claimText }) {
+  const raw = manifest.raw;
+  const checks = [];
+  const add = (id, cond, detail) => checks.push({ id, status: cond ? "PASS" : "FAIL", detail });
+
+  add("live-ready.schema", raw.schema === LIVE_MANIFEST_SCHEMA, `schema=${String(raw.schema)}`);
+  add(
+    "live-ready.image-source-public",
+    isPublicHttpUrl(raw.imageSource),
+    `imageSource=${String(raw.imageSource)}`,
+  );
+  add(
+    "live-ready.image-source-is-not-a-provider-call",
+    !/serpapi|typesafe\.ai|openai\.com|anthropic\.com/i.test(String(raw.imageSource)),
+    "the input source is a public page, not a provider endpoint",
+  );
+
+  const abs = path.resolve(imagePath);
+  if (!fs.existsSync(abs)) {
+    add("live-ready.image-exists", false, `image not found: ${imagePath}`);
+    add("live-ready.image-hash-matches", false, "no image to hash");
+    add("live-ready.image-bytes-match", false, "no image to measure");
+  } else {
+    add("live-ready.image-exists", true, path.basename(abs));
+    const bytes = fs.readFileSync(abs);
+    add("live-ready.image-hash-matches", raw.imageSha256 === sha256(bytes), `sha256=${sha256(bytes)}`);
+    add(
+      "live-ready.image-bytes-match",
+      typeof raw.imageBytes === "number" ? raw.imageBytes === bytes.length : false,
+      `bytes=${bytes.length} manifest=${String(raw.imageBytes)}`,
+    );
+    add(
+      "live-ready.image-is-a-real-image",
+      isRenderableImage(bytes),
+      `type=${mediaType(abs)} bytes=${bytes.length}`,
+    );
+  }
+
+  add("live-ready.mode-matches", raw.mode === mode, `manifest=${String(raw.mode)} requested=${mode}`);
+  if (mode === "claim") {
+    add("live-ready.claim-matches", typeof raw.claim === "string" && raw.claim === claimText,
+      `manifest claim length=${String(raw.claim ?? "").length} requested length=${String(claimText ?? "").length}`);
+  } else {
+    add(
+      "live-ready.claim-absent-in-trace-mode",
+      raw.claim === undefined || raw.claim === null || raw.claim === "",
+      "a trace run must not carry a claim",
+    );
+    // And the harness must not be about to submit one either.
+    add(
+      "live-ready.claim-not-submitted-in-trace-mode",
+      claimText === null || claimText === "",
+      `claimText length=${String(claimText ?? "").length}`,
+    );
+  }
+  add(
+    "live-ready.credit-acknowledged",
+    raw.acknowledgedProviderCredit === true,
+    `acknowledgedProviderCredit=${String(raw.acknowledgedProviderCredit)}`,
+  );
+  // A readiness manifest must not smuggle credential material into evidence.
+  const serialised = JSON.stringify(raw);
+  add(
+    "live-ready.no-credential-material",
+    !/[?&](?:key|api_key|apikey|token|secret)=/i.test(serialised) &&
+      !/\b(?:sk|pk|api)[-_][A-Za-z0-9]{8,}/.test(serialised) &&
+      !/Bearer\s+[A-Za-z0-9._-]{16,}/.test(serialised),
+    "manifest carries no key name=value or bearer material",
+  );
+  return checks;
+}
+
+/** Magic-number check — a "public image" that is not an image proves nothing. */
+function isRenderableImage(bytes) {
+  return (
+    (bytes.length > 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47) ||
+    (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    (bytes.length > 12 &&
+      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP") ||
+    (bytes.length > 3 && bytes.subarray(0, 3).toString("ascii") === "GIF")
+  );
+}
+
+/**
+ * Zero-provider control for the live INPUT contract. Never launches a
+ * browser, never contacts a provider, never reads a credential.
+ */
+async function liveReady() {
+  enforceCommandSchema("live-ready", { requiredOptions: ["run-id", "manifest", "image"] });
+
+  const runId = required("run-id");
+  const manifest = readLiveManifest(required("manifest"));
+  const imagePath = required("image");
+  const mode = flags.mode ?? "trace";
+  if (mode !== "trace" && mode !== "claim") {
+    fail(`unsupported --mode ${mode} (supported: trace|claim)`);
+  }
+  const claimText = flags["claim-text"] ?? null;
+  if (mode === "claim" && (claimText === null || claimText.trim() === "")) {
+    fail("--mode claim requires --claim-text (the claim actually under test)");
+  }
+
+  const checks = liveReadinessChecks({ manifest, imagePath, mode, claimText });
+  const base = path.join(evidenceDir(runId), "readiness");
+  fs.mkdirSync(base, { recursive: true });
+  const seq = fs.readdirSync(base).filter((e) => /^\d{3}-/.test(e)).length + 1;
+  const dir = path.join(base, `${String(seq).padStart(3, "0")}-live-ready`);
+  const rec = new Recorder(dir);
+  for (const c of checks) rec.push(c.id, c.status, c.detail);
+  rec.close();
+
+  const record = {
+    control: "live-ready",
+    // Truthful label: this proves the live INPUT contract only. No provider
+    // call was made and no provider outcome is claimed.
+    tier: "public-contract-boundary",
+    providerAttempted: 0,
+    note: "validates live input manifest; performs no provider call and makes no live claim",
+    manifestPath: manifest.path,
+    manifestSha256: manifest.sha256,
+    imagePath: path.resolve(imagePath),
+    imageSha256: fs.existsSync(path.resolve(imagePath))
+      ? sha256(fs.readFileSync(path.resolve(imagePath)))
+      : null,
+    mode,
+    claimProvided: typeof claimText === "string" && claimText.trim().length > 0,
+    checks,
+    pass: checks.filter((c) => c.status === "PASS").length,
+    fail: checks.filter((c) => c.status === "FAIL").length,
+    command: process.argv.slice(2),
+    at: new Date().toISOString(),
+  };
+  writeJson(path.join(dir, "readiness.json"), record);
+  console.log(JSON.stringify({ runId, ...record, dir }));
+  process.exit(record.fail === 0 ? 0 : EXIT_ASSERT);
+}
+
 /* -------------------------------- faults -------------------------------- */
 
 const FAULTS = {
@@ -1131,6 +1556,9 @@ const FAULTS = {
   "focus-removed": "remove the claim textarea from the tab order",
   "drop-timeline-item": "delete one rendered timeline occurrence so counts stop matching the fixture",
   "group-mislabel": "rewrite the neutral reporting-group headline back to the hardcoded Shared label",
+  "pair-endpoint-wrong": "render a wrong evidence id in the open viewer while a paired-divergence note is shown",
+  "pair-note-wrong": "rewrite the paired-divergence note into a same-context claim",
+  "focus-return-broken": "drop focus to <body> as soon as the viewer dialog closes",
 };
 
 const FAULT_SCRIPT = `window.__ctFault = (mode) => {
@@ -1168,6 +1596,25 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         const m = /^Reporting group of (\\d+) occurrence/.exec(t);
         if (m) p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length);
       });
+    } else if (mode === "pair-endpoint-wrong" || mode === "pair-note-wrong") {
+      // Both faults only apply while a paired-divergence note is on screen, so
+      // they are a no-op on an ordinary occurrence and cannot silently corrupt
+      // an unrelated assertion.
+      document.querySelectorAll('[role="dialog"] p').forEach((p) => {
+        const t = (p.textContent || "").trim();
+        if (!/^Observed divergence pair/.test(t)) return;
+        if (mode === "pair-note-wrong") {
+          if (!/same context as previous/.test(t)) {
+            p.textContent = "Observed divergence pair \\u2014 same context as previous occurrence.";
+          }
+          return;
+        }
+        document.querySelectorAll('[role="dialog"] p').forEach((q) => {
+          const u = (q.textContent || "").trim();
+          const m = /^Evidence ID:\\s*(\\S+)/.exec(u);
+          if (m && m[1] !== "ev-wrong-endpoint") q.textContent = "Evidence ID: ev-wrong-endpoint";
+        });
+      });
     }
   };
   new MutationObserver(alter).observe(document, { childList: true, subtree: true, attributes: true });
@@ -1184,6 +1631,27 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
       if (li) li.remove();
     };
     const timer = setInterval(drop, 50);
+    setTimeout(() => clearInterval(timer), 30000);
+  }
+
+  // Focus return is not a DOM mutation, so it cannot ride the observer: poll
+  // for the dialog's disappearance and then blur whatever holds focus, which is
+  // exactly the lost-focus state a keyboard user lands in.
+  if (mode === "focus-return-broken") {
+    let seenDialog = false;
+    const steal = () => {
+      if (document.querySelector('[role="dialog"]')) {
+        seenDialog = true;
+        return;
+      }
+      // Never before the viewer has been open: stealing focus during the
+      // upload phase would fail an unrelated assertion.
+      if (!seenDialog) return;
+      const el = document.activeElement;
+      if (el && el !== document.body) el.blur();
+      window.__ctFaultDone = true;
+    };
+    const timer = setInterval(steal, 20);
     setTimeout(() => clearInterval(timer), 30000);
   }
 };`;
@@ -1236,6 +1704,27 @@ const FEATURE_SPECS = {
 };
 
 const FEATURE_LIST = Object.keys(FEATURE_SPECS);
+
+/**
+ * Which drive each fault can actually sabotage. A fault outside this set is
+ * rejected with exit 2 instead of being accepted and silently inert: an
+ * accepted fault that cannot fire is a false green, which is exactly what
+ * `drive landing --fault bad-selection` used to be.
+ */
+const FAULT_FEATURES = {
+  "a11y-false-green": ["accessibility"],
+  "focus-removed": ["accessibility"],
+  "anchor-broken": ["landing"],
+  "bad-selection": ["result"],
+  "drop-timeline-item": ["result"],
+  "group-mislabel": ["result"],
+  "pair-endpoint-wrong": ["viewer"],
+  "pair-note-wrong": ["viewer"],
+  "focus-return-broken": ["viewer"],
+  // Fires a provider-shaped request from any loaded page; the boundary
+  // counters are what turn it into a red.
+  "unexpected-request": FEATURE_LIST,
+};
 
 /**
  * Full schema validation. Runs before any side effect: no manifest read, no
@@ -1296,11 +1785,16 @@ function parseDriveOptions() {
     if (spec.anyFixtureCase && !fixtureNames().includes(flags.case)) {
       fail(`unknown fixture case ${flags.case} (available: ${fixtureNames().join(", ") || "none"})`);
     }
-    if (feature === "viewer" && flags.case === "pair" && !fixtureNames().some(fixtureHasPair)) {
-      fail(
-        "NOT IMPLEMENTED: --case pair — the product exposes a paired-divergence viewer entry, " +
-          "but no controlled fixture emits a paired divergence endpoint yet, so the case cannot be driven",
-      );
+    if (feature === "viewer" && flags.case === "pair") {
+      // The case is drivable only when a controlled fixture really emits a
+      // paired divergence with two existing endpoints. Anything less is
+      // reported as a missing fixture, never silently skipped.
+      if (!fixtureNames().some((f) => fixtureDivergence(f) !== null)) {
+        fail(
+          "no controlled fixture emits a paired divergence: the pair viewer case needs a fixture " +
+            "whose terminal result carries firstObservedContextDivergence with two displayed endpoints",
+        );
+      }
     }
   } else if (spec.defaultCase) {
     flags.case = typeof spec.defaultCase === "function" ? spec.defaultCase(flags.mode ?? spec.defaultMode) : spec.defaultCase;
@@ -1319,10 +1813,20 @@ function parseDriveOptions() {
       fail(`unsupported --fault ${flags.fault} (supported: ${Object.keys(FAULTS).join("|")})`);
     }
     if (live) fail("--fault sabotages a controlled run and is not valid with --live");
+    const applicable = FAULT_FEATURES[flags.fault] ?? [];
+    if (!applicable.includes(feature)) {
+      fail(
+        `--fault ${flags.fault} cannot be applied to the ${feature} drive ` +
+          `(it sabotages: ${applicable.join(", ") || "nothing"}) — an inert fault is a false green`,
+      );
+    }
   }
 
   for (const k of LIVE_ONLY) {
     if (flags[k] !== undefined && !live) fail(`--${k} is only valid with --live`);
+  }
+  if (flags["live-manifest"] !== undefined && !live) {
+    fail("--live-manifest is only valid with --live");
   }
 
   // Mode agreement: `--mode` and the fixture's terminal result must describe
@@ -1337,9 +1841,10 @@ function parseDriveOptions() {
     }
   }
 
-  // Live drives need an image input; controlled drives use the generated set.
-  // The credit gate is checked first among live requirements: it is a safety
-  // property and must be reported before any run-state or input detail.
+  // Live drives need an explicit public input, an explicit claim for claim
+  // mode, and a live-readiness manifest that names the source and hash of the
+  // image about to be submitted. Fixture pacing is a controlled-stub concept
+  // and is refused here.
   if (live && process.env.RUN_LIVE_TESTS !== "1") {
     fail("--live requires RUN_LIVE_TESTS=1 (provider credit gate)");
   }
@@ -1348,6 +1853,28 @@ function parseDriveOptions() {
       fail("--live requires --image <path> (the submitted media for the provider run)");
     }
     if (!fs.existsSync(path.resolve(flags.image))) fail(`--image not found: ${flags.image}`);
+    if (flags["live-manifest"] === undefined) {
+      fail(
+        "--live requires --live-manifest <path> (a readiness manifest naming the public " +
+          "imageSource, its sha256, the mode/claim under test and the credit acknowledgement)",
+      );
+    }
+    const manifest = readLiveManifest(flags["live-manifest"]);
+    const mode = liveMode(spec);
+    const claimText = flags["claim-text"] ?? null;
+    const readiness = liveReadinessChecks({
+      manifest,
+      imagePath: flags.image,
+      mode,
+      claimText,
+    });
+    const failed = readiness.filter((c) => c.status === "FAIL");
+    if (failed.length) {
+      fail(
+        `--live-manifest failed the live input contract: ` +
+          failed.map((c) => `${c.id} (${c.detail})`).join("; "),
+      );
+    }
   }
 
   return { feature, spec, live, delayMs };
@@ -1420,6 +1947,103 @@ function classifyConsoleSet(entries, streamOrigin) {
 }
 
 /* ------------------------------- upload io ------------------------------ */
+
+/**
+ * The mode a LIVE run will actually run in. A feature with an explicit `--mode`
+ * uses it; otherwise the mode follows the claim that is really being submitted,
+ * because a claim is what selects claim mode in the product.
+ */
+function liveMode(spec) {
+  if (spec.modes) return flags.mode ?? "trace";
+  const claimText = flags["claim-text"];
+  return typeof claimText === "string" && claimText.trim() !== "" ? "claim" : "trace";
+}
+
+/** Media type from the file extension, for the multipart capture record. */
+function mediaType(file) {
+  const ext = path.extname(file).toLowerCase();
+  return (
+    {
+      ".png": "image/png",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".webp": "image/webp",
+      ".gif": "image/gif",
+    }[ext] ?? "application/octet-stream"
+  );
+}
+
+const CONTROLLED_CLAIM = "controlled claim text";
+
+/**
+ * The fixture a drive actually replays, resolved in ONE place so the recorded
+ * provenance, the submitted claim and the assertions all agree. `viewer` and
+ * `session` cases are names, not fixtures, and used to record no fixture at
+ * all.
+ */
+function driveFixture(feature, caseName) {
+  if (feature === "viewer") {
+    if (caseName === "pair") return "controlled-pair";
+    if (caseName === "image-load" || caseName === "no-excerpt") return "controlled-viewer";
+    return "controlled-claim";
+  }
+  if (feature === "session") return "controlled-claim";
+  if (feature === "investigation" || feature === "result") return caseName ?? null;
+  return null;
+}
+
+/**
+ * The exact media and claim a drive submits, resolved once and recorded as
+ * evidence.
+ *
+ * A live run submits the operator's own `--image` and `--claim-text`; the
+ * generated 1×1 PNG is never substituted for them, so a live drive cannot
+ * quietly re-run the controlled input. A controlled run submits the generated
+ * file and the fixed controlled claim, labelled as such.
+ */
+function resolveInput(runId, { live, mode, fixture, spec = null }) {
+  if (live) {
+    const image = path.resolve(required("image"));
+    const claimText = flags["claim-text"] ?? null;
+    mode = spec ? liveMode(spec) : mode === "claim" ? "claim" : "claim";
+    if (mode === "claim" && (claimText === null || claimText.trim() === "")) {
+      fail("--live with --mode claim requires --claim-text (the claim actually under test)");
+    }
+    if (mode !== "claim" && typeof claimText === "string" && claimText.trim() !== "") {
+      fail(
+        `--live --mode ${mode ?? "trace"} must not carry --claim-text: a claim selects claim mode, ` +
+          "so submitting one would run a different investigation than requested",
+      );
+    }
+    return {
+      kind: "live",
+      file: { path: image, mime: mediaType(image), name: path.basename(image) },
+      claim: claimText,
+      claimProvided: typeof claimText === "string" && claimText.trim().length > 0,
+      imageName: path.basename(image),
+      imageBytes: fs.statSync(image).size,
+      imageSha256: sha256(fs.readFileSync(image)),
+      imageSource: liveManifestValue("imageSource"),
+      fixtureMode: null,
+    };
+  }
+  const file = uploadFileSet(runId)["upload.png"];
+  // The fixture's own terminal mode decides whether a claim is submitted: a
+  // Trace fixture is driven with an empty claim, so a Trace result can never be
+  // the product of a claim-carrying request.
+  const fixtureClaimMode = fixture ? fixtureMode(fixture) === "claim" : mode === "claim";
+  return {
+    kind: "controlled",
+    file,
+    claim: fixtureClaimMode ? flags["claim-text"] ?? CONTROLLED_CLAIM : null,
+    claimProvided: fixtureClaimMode,
+    fixtureMode: fixture ? fixtureMode(fixture) : null,
+    imageName: "upload.png",
+    imageBytes: fs.statSync(file.path).size,
+    imageSha256: sha256(fs.readFileSync(file.path)),
+    imageSource: "generated-controlled-1x1-png",
+  };
+}
 
 async function shot(page, dir, name) {
   const p = path.join(dir, `${name}.png`);
@@ -1575,18 +2199,66 @@ async function expectUploadError(page, rec, pattern, id) {
 
 /**
  * Terminal result = the completed report, not progressive copy. Requires the
- * result tablist and the overview section, then asserts the headline matches
- * the fixture's own terminal status so a wrong-mode result cannot pass.
+ * result tablist and the overview section.
+ *
+ * Controlled: the fixture's own terminal status is compared with the rendered
+ * headline, so a wrong-mode result cannot pass.
+ *
+ * Live: there is no fixture, so nothing is compared with a known value. What is
+ * asserted is what the harness itself controls — that the submitted claim
+ * decided the mode — plus the absence of credential material and provider query
+ * URLs in the rendered page. The observed status is recorded as an observation.
  */
-async function waitForTerminalResult(page, rec, { timeoutMs = 30_000, fixture = null } = {}) {
+async function waitForTerminalResult(
+  page,
+  rec,
+  { timeoutMs = 30_000, fixture = null, live = false, input = null } = {},
+) {
   await page.waitForSelector('[aria-label="Result views"]', { timeout: timeoutMs });
   await page.waitForSelector('[aria-label="Investigation result"]', { timeout: timeoutMs });
   rec.check("result.terminal-surface", true, "tablist + overview section present");
+  const body = await page.locator("body").innerText();
+
+  // Applies to every run: the rendered report must never carry a provider key
+  // name=value pair, a bearer token, or a provider query URL.
+  rec.check(
+    "result.no-credential-or-provider-url-leak",
+    !/[?&](?:key|api_key|apikey|token|secret)=/i.test(body) &&
+      !/\b(?:sk|pk|api)[-_][A-Za-z0-9]{8,}/.test(body) &&
+      !/serpapi\.com\/search|typesafe\.ai/i.test(body),
+    "no provider credential or query URL in the rendered report",
+  );
+
+  if (live) {
+    const claimMode = Boolean(input?.claimProvided);
+    const CLAIM_HEADLINES =
+      /Context conflict found|Possible context conflict|No conflict found in retrieved evidence|Insufficient evidence/;
+    const TRACE_HEADLINES = /Media history reconstructed|Limited media history found/;
+    const observed = CLAIM_HEADLINES.test(body)
+      ? "claim"
+      : TRACE_HEADLINES.test(body)
+        ? "trace"
+        : "unknown";
+    rec.note("result.live-observed-mode", `observed=${observed} submittedClaim=${claimMode}`);
+    rec.note(
+      "result.live-observed-status-headline",
+      (body.split("\n").find((l) => CLAIM_HEADLINES.test(l)) ?? "(no claim headline)").slice(0, 160),
+    );
+    // The only mode claim the harness can make honestly: the claim it submitted
+    // is what selected the mode.
+    rec.check(
+      "result.live-mode-agrees-with-submitted-claim",
+      observed !== "unknown" && (claimMode ? observed === "claim" : observed === "trace"),
+      `observed=${observed} claimSubmitted=${claimMode}`,
+    );
+    rec.check("result.live-terminal-recorded", true, "live run recorded, not compared to a fixture");
+    return;
+  }
+
   if (fixture) {
     const r = fixtureResult(fixture);
     const status = r?.status ?? null;
     const mode = fixtureMode(fixture);
-    const body = await page.locator("body").innerText();
     if (mode === "claim" && status) {
       const HEADLINES = {
         CONTEXT_CONFLICT: "Context conflict found",
@@ -1598,11 +2270,27 @@ async function waitForTerminalResult(page, rec, { timeoutMs = 30_000, fixture = 
       if (want) rec.check("result.status-headline", body.includes(want), `${status} → "${want}"`);
       else rec.note("result.status-headline", `no headline mapping for ${status}`);
     } else if (mode === "trace") {
-      rec.check(
-        "result.mode-is-trace",
-        /Media history reconstructed|Limited media history found/.test(body),
-        "trace headline present",
-      );
+      // The fixture's own terminal headline, not "one of the trace headlines":
+      // accepting either would let a different reconstruction pass.
+      // The backend sends a headline TOKEN; the view renders the copy that token
+      // maps to. Compare the fixture's token against the exact rendered copy, so
+      // "either trace headline" can no longer pass.
+      const TRACE_TOKEN_COPY = {
+        MEDIA_HISTORY_RECONSTRUCTED: "Media history reconstructed",
+        LIMITED_MEDIA_HISTORY_FOUND: "Limited media history found",
+      };
+      const want =
+        typeof r?.headline === "string" ? (TRACE_TOKEN_COPY[r.headline] ?? null) : null;
+      if (want) {
+        rec.check("result.trace-headline-exact", body.includes(want), `fixture headline="${want}"`);
+      } else {
+        rec.check(
+          "result.mode-is-trace",
+          /Media history reconstructed|Limited media history found/.test(body),
+          "trace headline present (fixture carries no headline to compare)",
+        );
+      }
+      rec.check("result.trace-fixture-carries-no-claim", !r?.claim, `claim=${JSON.stringify(r?.claim ?? null)}`);
     }
     rec.check("result.fixture-status-agrees", true, `fixture status=${status ?? "n/a"} mode=${mode}`);
   }
@@ -1633,6 +2321,109 @@ async function activeElement(page) {
   });
 }
 
+/** The occurrence the open viewer is showing, read from its rendered
+ *  "Evidence ID: <id>" line. Compared with the fixture's own ids, so a viewer
+ *  showing the wrong occurrence cannot pass. */
+async function viewerEvidenceId(dialog) {
+  const text = await dialog.innerText();
+  const m = /Evidence ID:\s*(\S+)/.exec(text);
+  return m ? m[1] : null;
+}
+
+/** Press Tab until an element whose text/label matches `pattern` has focus.
+ *  Real sequential navigation — not a programmatic focus() — so "reachable by
+ *  keyboard" means reachable by the keyboard. */
+async function tabWalkTo(page, pattern, max = 40) {
+  const seen = [];
+  for (let i = 0; i < max; i++) {
+    const el = await activeElement(page);
+    const label = el ? `${el.text ?? ""} ${el.label ?? ""}` : "";
+    seen.push(el ? `${el.tag}:${label.trim().slice(0, 48)}` : "body");
+    if (el && pattern.test(label)) return { matched: true, steps: i + 1, seen };
+    await page.keyboard.press("Tab");
+    await delay(60);
+  }
+  return { matched: false, steps: max, seen };
+}
+
+/**
+ * Focus restoration is applied after the dialog has left the DOM, so reading
+ * `document.activeElement` the instant the dialog disappears races the
+ * product. Wait for focus to leave <body>, bounded: if it never does, the
+ * honest answer is null and the focus-return assertion fails.
+ */
+async function settledActiveElement(page, timeoutMs = 1500) {
+  const t0 = Date.now();
+  let last = await activeElement(page);
+  while (last === null && Date.now() - t0 < timeoutMs) {
+    await delay(50);
+    last = await activeElement(page);
+  }
+  return last;
+}
+
+/** The focus-stealing fault is asynchronous; give it a bounded moment to land
+ *  so the focus assertion reads the sabotaged state, not a race. */
+async function settleFocusFault(page) {
+  if (flags.fault !== "focus-return-broken") return;
+  await page
+    .waitForFunction(() => window.__ctFaultDone === true, { timeout: 3000 })
+    .catch(() => {});
+}
+
+/** Divergence endpoints a fixture actually ships, or null. */
+function fixtureDivergence(name) {
+  const r = fixtureResult(name);
+  if (!r) return null;
+  const d = r.firstObservedContextDivergence ?? r.divergence ?? null;
+  if (!d || typeof d !== "object") return null;
+  const fromId = d.fromOccurrenceId;
+  const toId = d.toOccurrenceId;
+  if (typeof fromId !== "string" || typeof toId !== "string") return null;
+  return {
+    fromId,
+    toId,
+    observedAt: d.observedAt ?? null,
+    earlierTransitionsUnresolved: d.earlierTransitionsUnresolved === true,
+  };
+}
+
+/** Flat viewer order the product must expose: dated, supporting, contextual,
+ *  undated — the same order the result view groups them in. */
+function fixtureViewerOrder(name) {
+  const r = fixtureResult(name);
+  if (!r) return [];
+  return [...(r.timeline ?? []), ...(r.supportingEvidence ?? []), ...(r.contextualEvidence ?? []), ...(
+    r.undatedEvidence ?? []
+  )].map((o) => o.evidenceId ?? o.occurrenceId ?? null);
+}
+
+function escapeRe(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Title a terminal result gives an evidence id, for member-link assertions. */
+function titleOf(terminal, id) {
+  const all = [
+    ...(terminal.timeline ?? []),
+    ...(terminal.supportingEvidence ?? []),
+    ...(terminal.contextualEvidence ?? []),
+    ...(terminal.undatedEvidence ?? []),
+  ];
+  const row = all.find((o) => (o.evidenceId ?? o.occurrenceId) === id);
+  return typeof row?.title === "string" ? row.title : String(id);
+}
+
+/** Retrieved image URL the viewer should render for each occurrence, in the
+ *  same flat order as {@link fixtureViewerOrder}. */
+function fixtureViewerImages(name) {
+  const r = fixtureResult(name);
+  if (!r) return [];
+  return [...(r.timeline ?? []), ...(r.supportingEvidence ?? []), ...(r.contextualEvidence ?? []), ...(
+    r.undatedEvidence ?? []
+  )].map((o) => o.imageUrl ?? o.thumbnailUrl ?? null);
+}
+
 /* --------------------------------- drive -------------------------------- */
 
 async function drive() {
@@ -1660,8 +2451,19 @@ async function drive() {
 
   const viewport = flags.viewport ?? "desktop";
   const fault = flags.fault ?? null;
-  const tier = live ? "live" : fixtureDrives.has(feature) ? "public-contract-boundary" : "real-ui";
+  const fixtureDrivesThisRun = featureDrivesTier(feature);
+  const tier = live ? "live" : fixtureDrivesThisRun ? "public-contract-boundary" : "real-ui";
   const caseName = flags.case ?? null;
+
+  // Resolved before any browser work: a live drive submits the operator's own
+  // image/claim, a controlled drive the generated set.
+  const fixtureName = live ? null : driveFixture(feature, caseName);
+  const input = resolveInput(runId, {
+    live,
+    mode: flags.mode ?? null,
+    fixture: fixtureName,
+    spec,
+  });
 
   const { dir: driveDir, seq } = nextDriveDir(runId, feature, [
     flags.entry,
@@ -1670,9 +2472,60 @@ async function drive() {
     viewport,
   ]);
   const rec = new Recorder(driveDir);
-
   const runner = runnerIdentity();
   const t0 = Date.now();
+
+  // Per-drive fixture retention: the exact bytes this drive was shown, copied
+  // into the drive's own evidence directory and hashed. Sealing later hashes
+  // whatever is in the fixtures directory at that moment, so a mid-generation
+  // regeneration would otherwise re-attribute a drive to different bytes.
+  const fixtureUsed = fixtureName && fixtureNames().includes(fixtureName) ? fixtureName : null;
+  let fixtureBytesSha = null;
+  if (fixtureUsed) {
+    const bytes = fs.readFileSync(fixturePath(fixtureUsed));
+    fs.writeFileSync(path.join(driveDir, `fixture-${fixtureUsed}.ndjson`), bytes);
+    fixtureBytesSha = sha256(bytes);
+  }
+
+  // An in-progress record exists from the moment the drive directory does, so
+  // a killed, timed-out or crashed drive is still reported instead of leaving
+  // an unaccounted directory that sealing silently skips.
+  const initialRecord = {
+    driveId: path.basename(driveDir),
+    seq,
+    runId,
+    generation: generation(runId),
+    feature,
+    viewport,
+    case: caseName,
+    entry: flags.entry ?? null,
+    mode: flags.mode ?? null,
+    view: flags.view ?? null,
+    fault,
+    live,
+    tier,
+    fixture: fixtureUsed,
+    fixtureBytes: fixtureUsed ? fs.statSync(path.join(driveDir, `fixture-${fixtureUsed}.ndjson`)).size : null,
+    fixtureSha256: fixtureBytesSha,
+    generator: fixtureUsed ? "contexttrail-fixtures" : null,
+    appRevision: m.revision,
+    buildId: m.buildId,
+    runnerRevision: runner.runnerRevision,
+    cliSha256: runner.cliSha256,
+    startedAt: new Date(t0).toISOString(),
+    outcome: "INCOMPLETE",
+    complete: false,
+    command: process.argv.slice(2),
+  };
+  writeJson(path.join(driveDir, "drive.json"), initialRecord);
+
+  // Video evidence: Playwright finalizes the recording asynchronously after the
+  // context closes, so it cannot be copied before then. The context is closed
+  // first, then the finished file is collected into the drive directory and
+  // hashed — never trimmed, never re-encoded, never regenerated.
+  const videoStageDir = path.join(runDir(runId), "video");
+  const videoStaged = flags["no-video"] ? [] : snapshotVideos(videoStageDir);
+
   let stream = null;
   let session = null;
   let outcome = "PASS";
@@ -1718,6 +2571,8 @@ async function drive() {
       stream,
       boundary,
       caseName,
+      // The exact media/claim this drive submits, resolved once and recorded.
+      input,
     });
 
     if (session.syncBoundary) session.syncBoundary();
@@ -1756,6 +2611,19 @@ async function drive() {
     rec.close();
   }
 
+  // Collect the finished recordings into the drive's evidence directory, after
+  // the browser has released them and before anything can delete them. A
+  // failure here must still finalize the drive record rather than leave an
+  // unaccounted directory behind.
+  let videoCollected = { collected: [], missing: [], staged: videoStaged.length, finalized: 0 };
+  try {
+    videoCollected = collectVideos(videoStaged, videoStageDir, driveDir);
+  } catch (err) {
+    outcome = "FAIL";
+    failure = failure ?? `video collection failed: ${String(err?.message ?? err)}`;
+    rec.push("drive.videos-collected", "FAIL", String(err?.message ?? err));
+  }
+
   const counts = rec.counts();
   const driveRecord = {
     driveId: path.basename(driveDir),
@@ -1771,8 +2639,26 @@ async function drive() {
     fault,
     live,
     tier,
-    fixture: caseName && fixtureNames().includes(caseName) ? caseName : null,
-    generator: caseName && fixtureNames().includes(caseName) ? "contexttrail-fixtures" : null,
+    fixture: fixtureUsed,
+    fixtureBytes: fixtureUsed ? fs.statSync(path.join(driveDir, `fixture-${fixtureUsed}.ndjson`)).size : null,
+    fixtureSha256: fixtureBytesSha,
+    generator: fixtureUsed ? "contexttrail-fixtures" : null,
+    // The exact submitted input, so a drive cannot be re-attributed to a
+    // different image or claim.
+    input: input
+      ? {
+          kind: input.kind,
+          imageName: input.imageName,
+          imageBytes: input.imageBytes,
+          imageSha256: input.imageSha256,
+          imageSource: input.imageSource,
+          claimProvided: input.claimProvided,
+          claimSha256:
+            typeof input.claim === "string" ? sha256(Buffer.from(input.claim, "utf8")) : null,
+        }
+      : null,
+    liveManifestSha256:
+      live && flags["live-manifest"] ? readLiveManifest(flags["live-manifest"]).sha256 : null,
     appRevision: m.revision,
     buildId: m.buildId,
     runnerRevision: runner.runnerRevision,
@@ -1782,11 +2668,13 @@ async function drive() {
     finishedAt: new Date().toISOString(),
     durationMs: Date.now() - t0,
     outcome,
+    complete: true,
     failure,
     failureStack: failureStack || null,
     assertions: counts,
     boundary: session?.boundary ?? null,
     command: process.argv.slice(2),
+    videos: videoCollected,
     artifacts: fs.readdirSync(driveDir).sort(),
   };
   writeJson(path.join(driveDir, "drive.json"), driveRecord);
@@ -1819,9 +2707,15 @@ async function drive() {
   process.exit(outcome === "PASS" ? 0 : EXIT_ASSERT);
 }
 
-/** Features whose evidence is produced at the controlled public-contract
- *  boundary rather than against the untouched product surface. */
-const fixtureDrives = new Set(["investigation", "result", "viewer"]);
+/** Drives that reach the controlled fixture boundary. `session` is included:
+ *  its cases submit a real request that the boundary redirects into the
+ *  in-process fixture stream, so its evidence is contract-boundary evidence
+ *  even though it also exercises real UI controls. */
+const fixtureDrives = new Set(["investigation", "result", "viewer", "session"]);
+
+function featureDrivesTier(feature) {
+  return fixtureDrives.has(feature);
+}
 
 function apiModeFor(feature, caseName) {
   if (feature === "session" && caseName === "fatal-retry") return "fail";
@@ -1990,9 +2884,8 @@ const DRIVE_CASES = {
     await aria(page, driveDir, `upload-${entry}-${uc}`);
   },
 
-  async investigation({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName }) {
+  async investigation({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName, input }) {
     const mode = flags.mode ?? "trace";
-    const claim = mode === "claim" ? (flags["claim-text"] ?? "controlled claim text") : null;
     if (!live && stream) {
       const plan =
         delayMs > 0
@@ -2000,7 +2893,7 @@ const DRIVE_CASES = {
           : stream.plan(caseName, { holds: 3 });
       rec.note("stream.plan", JSON.stringify(plan));
     }
-    await submitUpload(page, m, runId, { claim, rec });
+    await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
     const tSubmit = Date.now();
     await submitButton(page).click();
 
@@ -2070,6 +2963,8 @@ const DRIVE_CASES = {
     await waitForTerminalResult(page, rec, {
       timeoutMs: live ? 95_000 : 45_000,
       fixture: live ? null : caseName,
+      live,
+      input,
     });
     if (!live && delayMs > 0) {
       const elapsed = Date.now() - tSubmit;
@@ -2077,13 +2972,61 @@ const DRIVE_CASES = {
     }
     await shot(page, driveDir, "02-investigation-result");
     await aria(page, driveDir, "investigation-result");
-    if (stream) rec.check("stream.request-captured", stream.state.captured !== null, JSON.stringify({ fields: stream.state.captured?.fields ?? null }));
+    if (stream) {
+      rec.check("stream.request-captured", stream.state.captured !== null, JSON.stringify({ fields: stream.state.captured?.fields ?? null }));
+      const captured = stream.state.captured;
+      if (captured && captured.fields) {
+        const fields = captured.fields;
+        // The client normalizes the multipart part name to "investigation-image"
+        // and submits its own preprocessed encoding, so the harness's file name
+        // is deliberately NOT what travels. What must hold: a media part is
+        // present, it is an image, it is non-empty, and the normalized name is
+        // the product's own.
+        const media = fields.image ?? fields.media ?? fields.file ?? null;
+        rec.check(
+          "stream.submitted-media-present",
+          media !== null,
+          `media part=${media === null ? "absent" : "present"}`,
+        );
+        rec.check(
+          "stream.submitted-media-is-an-image",
+          media !== null && /^image\//.test(media.contentType ?? ""),
+          `contentType=${String(media?.contentType)}`,
+        );
+        rec.check(
+          "stream.submitted-media-non-empty",
+          media !== null && media.bytes > 0,
+          `${media?.bytes ?? 0}B submitted, harness file ${input.imageName} was ${input.imageBytes}B before client preprocessing`,
+        );
+        rec.check(
+          "stream.submitted-media-name-is-normalized",
+          media !== null && media.filename === "investigation-image",
+          `filename=${String(media?.filename)}`,
+        );
+        // Claim presence follows the fixture's own mode: a Trace request must
+        // carry no claim at all.
+        const claimField = fields.claim ?? fields.text ?? null;
+        const wantClaim = Boolean(input.claimProvided);
+        rec.check(
+          "stream.submitted-claim-presence-matches-mode",
+          wantClaim ? claimField !== null && (claimField.bytes ?? 0) > 0 : claimField === null || (claimField.bytes ?? 0) === 0,
+          `claimField=${claimField ? `${claimField.bytes}B` : "absent"} expected=${wantClaim ? "present" : "absent"}`,
+        );
+        if (wantClaim && claimField && typeof input.claim === "string") {
+          rec.check(
+            "stream.submitted-claim-matches-intended-text",
+            claimField.sha256 === sha256(Buffer.from(input.claim, "utf8")),
+            `submitted sha256=${claimField.sha256 ?? "none"}`,
+          );
+        }
+      }
+    }
   },
 
-  async result({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName }) {
+  async result({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName, input }) {
     const view = flags.view ?? "overview";
     if (!live && stream) stream.plan(caseName, { holds: delayMs > 0 ? 0 : 1, paceMs: delayMs });
-    await submitUpload(page, m, runId, { claim: flags["claim-text"] ?? "controlled claim text", rec });
+    await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
     await submitButton(page).click();
     if (!live && stream && delayMs === 0) {
       await stream.reached(0);
@@ -2101,7 +3044,12 @@ const DRIVE_CASES = {
     } else if (stream) {
       stream.releaseAll();
     }
-    await waitForTerminalResult(page, rec, { timeoutMs: live ? 95_000 : 45_000, fixture: live ? null : caseName });
+    await waitForTerminalResult(page, rec, {
+      timeoutMs: live ? 95_000 : 45_000,
+      fixture: live ? null : caseName,
+      live,
+      input,
+    });
 
     for (const name of RESULT_TABS) await selectTab(page, rec, name);
 
@@ -2149,8 +3097,77 @@ const DRIVE_CASES = {
         ? terminal.timeline.filter((t) => t && t["dateStatus"] === "usable").length
         : 0;
       if (dated > 0) {
-        const years = (panelText.match(/\b20\d{2}\b/g) ?? []).length;
-        rec.check("result.timeline-shows-dates", years >= 1, `${years} year token(s) for ${dated} dated occurrence(s)`);
+        // Actual dates, in actual order: each fixture occurrence's own date must
+        // appear in the rendered rows, in the fixture's chronological order.
+        const rows = await panel.locator("ol > li").allInnerTexts();
+        const expectedDates = terminal.timeline
+          .filter((t) => t && typeof t.observedAt === "string")
+          .map((t) => String(t.observedAt).slice(0, 4));
+        const missing = expectedDates.filter(
+          (y) => !rows.some((r) => r.includes(y)),
+        );
+        rec.check(
+          "result.timeline-shows-every-fixture-date",
+          missing.length === 0,
+          `missing year(s) ${missing.join(",") || "none"} of ${expectedDates.join(",") || "none"}`,
+        );
+        let ordered = true;
+        let previous = null;
+        for (const t of terminal.timeline) {
+          const at = typeof t?.observedAt === "string" ? t.observedAt : null;
+          if (at === null) continue;
+          if (previous !== null && at < previous) ordered = false;
+          previous = at;
+        }
+        const rendered = rows.map((r) => (/(20\d{2}-\d{2}-\d{2})/.exec(r) ?? [])[1] ?? null);
+        const renderedOrdered = rendered.every(
+          (d, i) => d === null || i === 0 || rendered[i - 1] === null || d >= rendered[i - 1],
+        );
+        rec.check(
+          "result.timeline-rendered-in-chronological-order",
+          ordered && renderedOrdered,
+          `fixture ordered=${ordered}; rendered=${JSON.stringify(rendered)}`,
+        );
+        // Connectors are the substantive claim of the chronology: the rendered
+        // copy must carry each connector the fixture recorded, and never
+        // present an unexamined edge as compared.
+        const CONNECTOR_COPY = [
+          [/same context as previous · compared/i, "same_context"],
+          [/different context from previous · compared/i, "different_context"],
+          [/comparison inconclusive — performed but not established/i, "uncertain"],
+          [/not compared in this investigation/i, "unexamined"],
+        ];
+        for (const [pattern, kind] of CONNECTOR_COPY) {
+          const inFixture = terminal.timeline.some(
+            (t) => String(t?.incomingConnector?.kind ?? "") === kind,
+          );
+          const renderedCopy = pattern.test(panelText);
+          if (inFixture) {
+            rec.check(
+              `result.timeline-connector-${kind}`,
+              renderedCopy,
+              `fixture has a ${kind} edge and the view ${renderedCopy ? "shows" : "omits"} its copy`,
+            );
+          } else {
+            rec.check(
+              `result.timeline-no-invented-connector-${kind}`,
+              !renderedCopy,
+              `fixture has no ${kind} edge and the view ${renderedCopy ? "shows it anyway" : "does not show it"}`,
+            );
+          }
+        }
+        // "Not compared" and "compared but inconclusive" are different claims
+        // and must not be collapsed into one another.
+        const saysNotCompared = /not compared in this investigation/i.test(panelText);
+        const saysInconclusive = /comparison inconclusive — performed but not established/i.test(panelText);
+        rec.check(
+          "result.timeline-distinguishes-not-compared-from-inconclusive",
+          !(saysNotCompared && saysInconclusive && !(
+            terminal.timeline.some((t) => String(t?.incomingConnector?.kind ?? "") === "unexamined") &&
+            terminal.timeline.some((t) => String(t?.incomingConnector?.kind ?? "") === "uncertain")
+          )),
+          `notCompared=${saysNotCompared} inconclusive=${saysInconclusive}`,
+        );
       }
       for (const label of ["Supporting visual leads", "Contextual web results", "Evidence with unknown dates"]) {
         const sec = panel.locator(`section[aria-label="${label}"]`);
@@ -2191,6 +3208,73 @@ const DRIVE_CASES = {
         panelText.length > 0 && /comparison|coverage|policy|basis|limitation/i.test(panelText),
         panelText.slice(0, 160).replace(/\s+/g, " "),
       );
+      // Numeric equality, not vocabulary: every counter the view reports must
+      // equal the fixture's own value, and the coverage sentence must carry
+      // the fixture's real pair/occurrence counts.
+      if (terminal) {
+        const coverage = terminal.comparisonCoverage ?? null;
+        if (coverage && typeof coverage === "object") {
+          const pairs = typeof coverage.comparedPairs === "number" ? coverage.comparedPairs : null;
+          const selected = typeof coverage.selected === "number" ? coverage.selected : null;
+          const eligible = typeof coverage.eligible === "number" ? coverage.eligible : null;
+          if (pairs !== null && selected !== null) {
+            rec.check(
+              "result.analysis-coverage-pair-count",
+              new RegExp(`${pairs} ${pairs === 1 ? "pair" : "pairs"} compared`).test(panelText),
+              `fixture comparedPairs=${pairs}`,
+            );
+          }
+          if (selected !== null && eligible !== null) {
+            rec.check(
+              "result.analysis-coverage-selection-counts",
+              new RegExp(`${selected} selected( of| ·)? ${eligible} eligible|${selected} selected occurrences`).test(
+                panelText,
+              ) || (eligible === 0 && /No occurrences were selected/.test(panelText)),
+              `fixture selected=${selected} eligible=${eligible}`,
+            );
+          }
+        }
+        // Every reporting group the fixture declares must be rendered with its
+        // real member count, and every declared policy gate must be rendered
+        // with its real pass/fail — numeric equality, not vocabulary.
+        const groups = Array.isArray(terminal.reportingGroups) ? terminal.reportingGroups : [];
+        for (const [i, g] of groups.entries()) {
+          const members = Array.isArray(g.memberIds) ? g.memberIds.length : null;
+          if (members === null) continue;
+          const headline = new RegExp(
+            `Reporting group of ${members} occurrence${members === 1 ? "" : "s"}`,
+          );
+          rec.check(
+            `result.analysis-reporting-group-${i}-member-count`,
+            headline.test(panelText),
+            `fixture group ${g.groupId} has ${members} member(s)`,
+          );
+          for (const id of Array.isArray(g.memberIds) ? g.memberIds : []) {
+            rec.check(
+              `result.analysis-reporting-group-${i}-member-link`,
+              panelText.includes(id) || new RegExp(escapeRe(titleOf(terminal, id))).test(panelText),
+              `member ${id} is listed in the group`,
+            );
+          }
+        }
+        const renderedGroups = panelText.match(/Reporting group of \d+ occurrences?/g) ?? [];
+        rec.check(
+          "result.analysis-reporting-group-count-matches",
+          renderedGroups.length === groups.length &&
+            groups.length ===
+              (typeof terminal.reportingGroupCount === "number" ? terminal.reportingGroupCount : groups.length),
+          `rendered ${renderedGroups.length} group headline(s), fixture groups=${groups.length}, reportingGroupCount=${String(terminal.reportingGroupCount)}`,
+        );
+        for (const gate of Array.isArray(terminal.policyReasons) ? terminal.policyReasons : []) {
+          const label = String(gate.gate ?? "").replace(/_/g, " ");
+          const pattern = new RegExp(`${escapeRe(label)}[^.]*${gate.passed === true ? "passed" : "not passed"}`, "i");
+          rec.check(
+            `result.analysis-policy-gate-${String(gate.gate).replace(/_/g, "-")}`,
+            pattern.test(panelText),
+            `fixture gate ${gate.gate} passed=${String(gate.passed)}`,
+          );
+        }
+      }
 
       // Reporting-group headline must be neutral (R4 residual): a resolved
       // group is described by its member count, never hardcoded as "Shared".
@@ -2213,15 +3297,20 @@ const DRIVE_CASES = {
     }
   },
 
-  async viewer({ page, rec, m, runId, driveDir, viewport, stream, caseName, spec, delayMs }) {
+  async viewer({ page, rec, m, runId, driveDir, viewport, stream, caseName, spec, delayMs, live, input }) {
     const entry = flags.entry ?? spec.defaultEntry;
     const vcase = flags.case ?? spec.defaultCase;
-    const fixture = vcase === "image-load" || vcase === "no-excerpt" || vcase === "pair" ? "controlled-viewer" : "controlled-claim";
+    // Each case is driven by the fixture that actually contains the evidence it
+    // is about: the viewer fixture ships loadable, no-snippet and
+    // per-occurrence images, and the pair fixture ships a real paired
+    // divergence. Same resolver the drive record uses, so the retained bytes
+    // and the asserted surface are the same fixture.
+    const fixture = driveFixture("viewer", vcase);
     if (stream) stream.planFast(fixture, delayMs);
-    await submitUpload(page, m, runId, { claim: "controlled claim text", rec });
+    await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
     await submitButton(page).click();
     if (stream) stream.releaseAll();
-    await waitForTerminalResult(page, rec, { fixture });
+    await waitForTerminalResult(page, rec, { fixture, live, input });
 
     let entryBtn;
     if (entry === "timeline") {
@@ -2245,23 +3334,77 @@ const DRIVE_CASES = {
     await dialog.waitFor({ timeout: 10_000 });
     rec.check("viewer.dialog-open", true, "role=dialog");
     rec.check("viewer.back-to-timeline", (await dialog.getByText(/back to timeline/i).count()) > 0, "close control present");
+    // The open state is evidence in its own right: a screenshot taken only after
+    // the close proves nothing about what the dialog rendered.
+    await shot(page, driveDir, `00-viewer-open-${entry}-${vcase}`);
 
-    const retrievedImg = dialog.locator('img[alt^="Retrieved image"]');
+    // Bounded, NON-WAITING image inspection. A locator that auto-waits for a
+    // missing <img> burns a full timeout per navigation step, which is how a
+    // drive over several unavailable predecessors used to exceed any sane
+    // bound. This reads the current state once and never waits.
+    const imageState = () =>
+      page.evaluate(() => {
+        const dlg = document.querySelector('[role="dialog"]');
+        if (!dlg) return { dialog: false };
+        const img = dlg.querySelector('img[alt^="Retrieved image"]');
+        const fallback = [...dlg.querySelectorAll("p")].some((p) =>
+          /retrieved image unavailable/i.test(p.textContent || ""),
+        );
+        const submitted = dlg.querySelector('img[alt^="The image submitted"]');
+        return {
+          dialog: true,
+          hasImg: !!img,
+          fallback,
+          complete: img ? img.complete : null,
+          naturalWidth: img ? img.naturalWidth : null,
+          src: img ? (img.getAttribute("src") || "").slice(0, 400) : null,
+          submittedSrc: submitted ? (submitted.getAttribute("src") || "").slice(0, 400) : null,
+        };
+      });
+
     const fallback = dialog.getByText(/retrieved image unavailable/i);
-    await Promise.race([
-      retrievedImg.waitFor({ timeout: 15_000 }).catch(() => {}),
-      fallback.waitFor({ timeout: 15_000 }).catch(() => {}),
-    ]);
+    const retrievedImg = dialog.locator('img[alt^="Retrieved image"]');
 
     if (vcase === "image-load") {
+      // Deterministic search for a decodable image: step through the fixture's
+      // occurrences under a hard wall-clock budget, inspecting state without
+      // waiting, and attribute whatever loaded back to the fixture row.
       const nextBtn = page.getByRole("button", { name: "Next evidence" });
-      let loaded = await retrievedImg.evaluate((el) => el.complete && el.naturalWidth > 0).catch(() => false);
-      for (let i = 0; i < 20 && !loaded && (await nextBtn.isEnabled()); i++) {
+      const order = fixtureViewerOrder(fixture);
+      const images = fixtureViewerImages(fixture);
+      const budgetMs = 25_000;
+      const t0 = Date.now();
+      let state = await imageState();
+      let steps = 0;
+      let loadedAt = -1;
+      while (!(state.hasImg && state.complete && state.naturalWidth > 0)) {
+        if (Date.now() - t0 > budgetMs) break;
+        if (!(await nextBtn.isEnabled())) break;
         await nextBtn.click();
-        await delay(300);
-        loaded = await retrievedImg.evaluate((el) => el.complete && el.naturalWidth > 0).catch(() => false);
+        steps++;
+        await delay(250);
+        state = await imageState();
+        if (state.hasImg && state.complete && state.naturalWidth > 0) loadedAt = steps;
       }
-      rec.check("viewer.image-load", loaded, `loaded=${loaded}`);
+      rec.check(
+        "viewer.image-load",
+        state.hasImg === true && state.complete === true && state.naturalWidth > 0,
+        `loaded=${state.complete === true && state.naturalWidth > 0} after ${steps} step(s), ${Date.now() - t0}ms, naturalWidth=${state.naturalWidth}`,
+      );
+      // Attribution: the pixels on screen must be the ones the FIXTURE shipped
+      // for this occurrence, and must not be the submitted image.
+      const wantSrc = images[loadedAt === -1 ? 0 : loadedAt] ?? null;
+      rec.check(
+        "viewer.image-matches-fixture-source",
+        wantSrc !== null && state.src === wantSrc,
+        `rendered=${state.src === null ? "none" : `${state.src.slice(0, 48)}…`} fixture=${wantSrc === null ? "none" : `${wantSrc.slice(0, 48)}…`} at #${loadedAt === -1 ? 0 : loadedAt} of ${order.length}`,
+      );
+      rec.check(
+        "viewer.image-is-not-the-submitted-image",
+        state.src !== null && state.submittedSrc !== null && state.src !== state.submittedSrc,
+        `retrieved=${state.src === null ? "none" : "present"} submitted=${state.submittedSrc === null ? "none" : "present"} same=${state.src === state.submittedSrc}`,
+      );
+      rec.note("viewer.image-state-observed", JSON.stringify(state));
     } else if (vcase === "image-fail") {
       await fallback.waitFor({ timeout: 15_000 });
       const stillRendered = (await dialog.locator('img[alt^="Retrieved image"]').count()) > 0;
@@ -2276,8 +3419,130 @@ const DRIVE_CASES = {
       }
       rec.check("viewer.no-excerpt-state", found > 0, `found=${found}`);
     } else if (vcase === "pair") {
-      const pair = dialog.getByRole("button", { name: /paired divergence/i });
-      rec.check("viewer.pair-entry-present", (await pair.count()) > 0, `count=${await pair.count()}`);
+      // A real paired divergence: the fixture ships a genuine
+      // `firstObservedContextDivergence` whose two endpoints are occurrences
+      // this investigation displayed, and the viewer must offer the pair,
+      // label each side honestly, jump between them by keyboard, and CLEAR
+      // the pair as soon as ordinary navigation leaves it.
+      const div = fixtureDivergence(fixture);
+      rec.check("viewer.pair-fixture-has-endpoints", div !== null, JSON.stringify(div));
+      const next = page.getByRole("button", { name: "Next evidence" });
+      const prev = page.getByRole("button", { name: "Previous evidence" });
+      if (div) {
+        const order = fixtureViewerOrder(fixture);
+        const fromIdx = order.indexOf(div.fromId);
+        const toIdx = order.indexOf(div.toId);
+        rec.check(
+          "viewer.pair-endpoints-are-shown-occurrences",
+          fromIdx >= 0 && toIdx >= 0,
+          `from=${div.fromId}#${fromIdx} to=${div.toId}#${toIdx}`,
+        );
+        rec.check(
+          "viewer.pair-endpoints-are-adjacent",
+          toIdx === fromIdx + 1,
+          `fromIdx=${fromIdx} toIdx=${toIdx}`,
+        );
+
+        // Home: walk back to the first occurrence so the navigation order can
+        // be compared with the fixture's own order, whatever entry was used.
+        for (let i = 0; i < 30 && (await prev.isEnabled()); i++) {
+          await prev.click();
+          await delay(120);
+        }
+        rec.check(
+          "viewer.order-starts-at-first-fixture-occurrence",
+          (await viewerEvidenceId(dialog)) === order[0],
+          `rendered=${await viewerEvidenceId(dialog)} fixture[0]=${order[0]}`,
+        );
+
+        // Step forward one occurrence at a time and compare every rendered id
+        // with the fixture's flat viewer order.
+        const walked = [await viewerEvidenceId(dialog)];
+        for (let step = 1; step <= toIdx; step++) {
+          if (!(await next.isEnabled())) break;
+          await next.click();
+          await delay(220);
+          walked.push(await viewerEvidenceId(dialog));
+        }
+        rec.check(
+          "viewer.order-matches-fixture",
+          JSON.stringify(walked) === JSON.stringify(order.slice(0, walked.length)),
+          `${JSON.stringify(walked)} vs ${JSON.stringify(order.slice(0, walked.length))}`,
+        );
+        rec.check("viewer.pair-opens-earlier-endpoint", walked[fromIdx] === div.fromId,
+          `at #${fromIdx} rendered=${walked[fromIdx]} fixture.from=${div.fromId}`);
+
+        // Back to the earlier endpoint to inspect the pair affordance there.
+        for (let i = walked.length - 1; i > fromIdx; i--) {
+          await prev.click();
+          await delay(180);
+        }
+        const earlierId = await viewerEvidenceId(dialog);
+        rec.check("viewer.pair-earlier-id", earlierId === div.fromId, `rendered=${earlierId} expected=${div.fromId}`);
+        const dialogTextEarlier = await dialog.innerText();
+        rec.check(
+          "viewer.pair-earlier-note",
+          /Observed divergence pair — earlier occurrence/.test(dialogTextEarlier),
+          "earlier-occurrence note present",
+        );
+        const pairBtn = dialog.getByRole("button", { name: /View paired divergence occurrence/i });
+        rec.check("viewer.pair-entry-present", (await pairBtn.count()) > 0, `count=${await pairBtn.count()}`);
+        rec.check("viewer.pair-entry-visible", (await pairBtn.count()) > 0 && (await pairBtn.isVisible()), "pair entry visible");
+        const box = await pairBtn.boundingBox().catch(() => null);
+        rec.check("viewer.pair-entry-touch-target", box !== null && box.height >= 44, `height=${box?.height ?? "n/a"}`);
+
+        // Keyboard reachability, then keyboard activation.
+        const reach = await tabWalkTo(page, /View paired divergence occurrence/i, 40);
+        rec.check("viewer.pair-entry-keyboard-reachable", reach.matched, `${reach.steps} tab(s): ${reach.seen.slice(0, 8).join(" → ")}`);
+        await shot(page, driveDir, "01-viewer-pair-earlier");
+        await page.keyboard.press("Enter");
+        await delay(350);
+        const laterId = await viewerEvidenceId(dialog);
+        rec.check("viewer.pair-keyboard-jumps-to-later-endpoint", laterId === div.toId,
+          `rendered=${laterId} expected=${div.toId}`);
+        const dialogTextLater = await dialog.innerText();
+        rec.check(
+          "viewer.pair-later-note",
+          /Observed divergence pair — later occurrence \(first observed divergence\)/.test(dialogTextLater),
+          "later-occurrence note present",
+        );
+        rec.check(
+          "viewer.pair-back-entry-present",
+          (await dialog.getByRole("button", { name: /View paired divergence occurrence/i }).count()) > 0,
+          "the later endpoint can jump back",
+        );
+        await shot(page, driveDir, "02-viewer-pair-later");
+
+        // Ordinary Next past the pair must clear the pair attribution: the
+        // note and the pair entry follow the CURRENT occurrence, so stale pair
+        // copy is a defect.
+        let clearedAt = null;
+        for (let i = 0; i < 6 && clearedAt === null; i++) {
+          if (!(await next.isEnabled())) break;
+          await next.click();
+          await delay(220);
+          const id = await viewerEvidenceId(dialog);
+          if (id !== div.fromId && id !== div.toId) clearedAt = id;
+        }
+        rec.check("viewer.pair-cleared-outside-pair-reachable", clearedAt !== null,
+          `navigated to ${clearedAt ?? "no occurrence outside the pair"}`);
+        if (clearedAt !== null) {
+          const outsideText = await dialog.innerText();
+          rec.check("viewer.pair-note-cleared-outside-pair", !/Observed divergence pair/.test(outsideText),
+            `at ${clearedAt}: ${/Observed divergence pair[^.]*\./.exec(outsideText)?.[0] ?? "no pair note"}`);
+          rec.check(
+            "viewer.pair-entry-cleared-outside-pair",
+            (await dialog.getByRole("button", { name: /View paired divergence occurrence/i }).count()) === 0,
+            `at ${clearedAt}`,
+          );
+          await shot(page, driveDir, "03-viewer-pair-cleared");
+        }
+        // Back to the first occurrence for the remaining shared assertions.
+        for (let i = 0; i < 30 && (await prev.isEnabled()); i++) {
+          await prev.click();
+          await delay(120);
+        }
+      }
     }
 
     const next = page.getByRole("button", { name: "Next evidence" });
@@ -2321,11 +3586,27 @@ const DRIVE_CASES = {
 
     // A plain close, with no in-dialog interaction, must hand focus back out
     // of the dialog — focus landing on <body> is lost focus.
-    const trigger = await activeElement(page);
+    //
+    // Focus is first placed on a live in-dialog control: the harness's own last
+    // click may have landed on a control that then became disabled (navigating
+    // back to the first occurrence disables Previous), which would measure the
+    // harness rather than the product's focus return.
+    let trigger = await activeElement(page);
+    for (let i = 0; i < 5 && (trigger === null || trigger.inDialog !== true); i++) {
+      await page.keyboard.press("Tab");
+      await delay(80);
+      trigger = await activeElement(page);
+    }
+    rec.check(
+      "viewer.focus-inside-dialog-before-close",
+      trigger !== null && trigger.inDialog === true,
+      JSON.stringify(trigger),
+    );
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "hidden", timeout: 10_000 });
     rec.check("viewer.escape-closes", true, "dialog hidden");
-    const focusAfter = await activeElement(page);
+    await settleFocusFault(page);
+    const focusAfter = await settledActiveElement(page);
     const backOnEntry = await entryBtn.evaluate((el) => document.activeElement === el).catch(() => false);
     rec.check(
       "viewer.focus-not-left-in-hidden-dialog",
@@ -2353,28 +3634,105 @@ const DRIVE_CASES = {
       sourceLabels.join(", ").slice(0, 200),
     );
 
-    // Closing after an in-dialog interaction: record where focus lands, but
-    // do not abort the drive on it — the plain-close assertion above is the
-    // contract check, this one is the diagnostic for the disclosure path.
+    // Actual values, compared with the fixture's own row — not just "some dd
+    // exists somewhere in the dialog". The open occurrence is the first item of
+    // the fixture's flat viewer order at this point in the drive.
+    const order = fixtureViewerOrder(fixture);
+    const currentId = await viewerEvidenceId(dialog);
+    const idx = order.indexOf(currentId);
+    const rows = (fixtureResult(fixture) ?? null);
+    const occurrenceRow =
+      idx >= 0 && rows
+        ? [
+            ...(rows.timeline ?? []),
+            ...(rows.supportingEvidence ?? []),
+            ...(rows.contextualEvidence ?? []),
+            ...(rows.undatedEvidence ?? []),
+          ][idx] ?? null
+        : null;
+    const detailLabels = await dialog.locator("dt").allTextContents();
+    const detailValues = await dialog.locator("dd").allTextContents();
+    const pairs = detailLabels.map((label, i) => [label.replace(/:\s*$/, ""), detailValues[i] ?? ""]);
+    // Model version must be the configured pin, rendered verbatim.
+    if (occurrenceRow && typeof occurrenceRow.jevModel === "string") {
+      const modelRow = pairs.find(([label]) => /model version/i.test(label));
+      rec.check(
+        "viewer.technical-details-model-value",
+        modelRow !== undefined && modelRow[1] === occurrenceRow.jevModel,
+        `rendered=${modelRow ? modelRow[1] : "absent"} fixture=${occurrenceRow.jevModel}`,
+      );
+    }
+    // Retrieval timestamp, when the fixture ships one, must match exactly.
+    if (occurrenceRow && typeof occurrenceRow.retrievedAt === "string") {
+      const tsRow = pairs.find(([label]) => /retrieval timestamp/i.test(label));
+      rec.check(
+        "viewer.technical-details-retrieved-at-value",
+        tsRow !== undefined && tsRow[1] === occurrenceRow.retrievedAt,
+        `rendered=${tsRow ? tsRow[1] : "absent"} fixture=${occurrenceRow.retrievedAt}`,
+      );
+    }
+    // Every rendered value must be non-empty: a label with a blank value is a
+    // field that says nothing.
+    rec.check(
+      "viewer.technical-details-values-non-empty",
+      pairs.length > 0 && pairs.every(([, v]) => v.trim().length > 0),
+      pairs.map(([l, v]) => `${l}=${v.slice(0, 28)}`).join(" | ").slice(0, 300),
+    );
+    // The remaining identity fields must equal the fixture's own values too.
+    if (occurrenceRow && typeof occurrenceRow.canonicalUrl === "string") {
+      const urlRow = pairs.find(([label]) => /canonical url/i.test(label));
+      rec.check(
+        "viewer.technical-details-canonical-url-value",
+        urlRow !== undefined && urlRow[1] === occurrenceRow.canonicalUrl,
+        `rendered=${urlRow ? urlRow[1] : "absent"} fixture=${occurrenceRow.canonicalUrl}`,
+      );
+    }
+    if (occurrenceRow && occurrenceRow.serpPosition !== undefined) {
+      const posRow = pairs.find(([label]) => /result position/i.test(label));
+      rec.check(
+        "viewer.technical-details-result-position-value",
+        posRow !== undefined && posRow[1].trim() === String(occurrenceRow.serpPosition),
+        `rendered=${posRow ? posRow[1] : "absent"} fixture=${String(occurrenceRow.serpPosition)}`,
+      );
+    }
+    // The disclosure may name engines and result types — that is its purpose —
+    // but it must never render an absent value as a token.
+    rec.check(
+      "viewer.technical-details-no-empty-or-undefined-values",
+      !pairs.some(([l, v]) => /^(undefined|null|NaN|-)$/i.test(v.trim())),
+      pairs.map(([l, v]) => `${l}=${v}`).join(" | ").slice(0, 240),
+    );
+
+    // Closing after an in-dialog interaction must ALSO hand focus back to the
+    // entry control. Expanding a disclosure is an ordinary in-dialog
+    // interaction, so the modal return property applies to it exactly as it
+    // does to a plain close: a focus left on <body> is lost focus, and it is
+    // asserted rather than observed.
     const triggerAfterDetails = await activeElement(page);
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "hidden", timeout: 10_000 });
-    const focusAfterDetails = await activeElement(page);
-    rec.note(
-      "viewer.focus-after-details-close",
-      JSON.stringify({ triggerAfterDetails, focusAfterDetails }),
+    await delay(200);
+    await settleFocusFault(page);
+    const focusAfterDetails = await settledActiveElement(page);
+    const backOnEntryAfterDetails = await entryBtn
+      .evaluate((el) => document.activeElement === el)
+      .catch(() => false);
+    rec.check(
+      "viewer.focus-return-after-disclosure-close",
+      focusAfterDetails !== null && backOnEntryAfterDetails,
+      JSON.stringify({ triggerAfterDetails, focusAfterDetails, backOnEntryAfterDetails }),
     );
 
     await shot(page, driveDir, `01-viewer-${entry}-${vcase}`);
     await aria(page, driveDir, `viewer-${entry}-${vcase}`);
   },
 
-  async session({ page, rec, m, runId, driveDir, delayMs, stream, caseName }) {
+  async session({ page, rec, m, runId, driveDir, delayMs, stream, caseName, input }) {
     const scase = caseName ?? "refresh";
     switch (scase) {
       case "new": {
         if (stream) stream.planFast("controlled-claim", delayMs);
-        await submitUpload(page, m, runId, { claim: "controlled claim text", rec });
+        await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
         await submitButton(page).click();
         if (stream) stream.releaseAll();
         await waitForTerminalResult(page, rec, { fixture: "controlled-claim" });
@@ -2397,7 +3755,7 @@ const DRIVE_CASES = {
       }
       case "refresh": {
         if (stream) stream.planFast("controlled-claim", delayMs);
-        await submitUpload(page, m, runId, { claim: "controlled claim text", rec });
+        await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
         await submitButton(page).click();
         if (stream) stream.releaseAll();
         await waitForTerminalResult(page, rec, { fixture: "controlled-claim" });
@@ -2468,7 +3826,7 @@ const DRIVE_CASES = {
 
         // Discard path: repopulate the cache, refresh, then discard it.
         if (stream) stream.planFast("controlled-claim", delayMs);
-        await submitUpload(page, m, runId, { claim: "controlled claim text", rec });
+        await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
         await submitButton(page).click();
         if (stream) stream.releaseAll();
         await waitForTerminalResult(page, rec, { fixture: "controlled-claim" });
@@ -2490,7 +3848,7 @@ const DRIVE_CASES = {
       }
       case "cancel": {
         if (stream) stream.plan("controlled-claim", { holds: 1, paceMs: delayMs });
-        await submitUpload(page, m, runId, { claim: "claim kept through cancel", rec });
+        await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
         await submitButton(page).click();
         await page.getByRole("button", { name: /cancel investigation/i }).click();
         await page.getByText(/investigation cancelled/i).waitFor({ timeout: 15_000 });
@@ -2504,7 +3862,7 @@ const DRIVE_CASES = {
         break;
       }
       case "fatal-retry": {
-        await submitUpload(page, m, runId, { claim: "claim kept through failure", rec });
+        await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
         await submitButton(page).click();
         await expectUploadError(page, rec, /investigation interrupted/i, "session.fatal-shown");
         await shot(page, driveDir, "01-session-fatal");
@@ -2678,11 +4036,15 @@ const DRIVE_CASES = {
   },
 };
 
-async function submitUpload(page, m, runId, { claim, rec }) {
-  const files = uploadFileSet(runId);
+async function submitUpload(page, m, runId, { claim, rec, file }) {
+  // The file is always the one the caller resolved: the generated set for a
+  // controlled run, the operator's own --image for a live run. Never a
+  // hardcoded generated upload.
+  const chosen = file ?? uploadFileSet(runId)["upload.png"];
+  const fileName = path.basename(chosen.path);
   await page.goto(`${m.url}/investigate`, { waitUntil: "domcontentloaded" });
-  await applyUploadEntry(page, "setinputfiles", files["upload.png"]);
-  await expectSelectedPreview(page, rec, "upload.png");
+  await applyUploadEntry(page, "setinputfiles", chosen);
+  await expectSelectedPreview(page, rec, fileName);
   if (claim) await page.locator("#ct-claim").fill(claim);
   else await page.locator("#ct-claim").fill("");
 }
@@ -2690,6 +4052,10 @@ async function submitUpload(page, m, runId, { claim, rec }) {
 /* ------------------------------- evidence ------------------------------- */
 
 async function evidence() {
+  // Validated before the manifest is read and before anything is written:
+  // `evidence --nonsense 1` must not seal a run.
+  enforceCommandSchema("evidence", { requiredOptions: ["run-id"] });
+
   const runId = required("run-id");
   const m = readManifest(runId);
   if (!m) fail(`no manifest for run-id ${runId}`);
@@ -2707,16 +4073,54 @@ async function evidence() {
 
   const drivesRoot = path.join(dir, "drives");
   const drives = [];
+  const incomplete = [];
   if (fs.existsSync(drivesRoot)) {
     for (const name of fs.readdirSync(drivesRoot).sort()) {
       const p = path.join(drivesRoot, name, "drive.json");
-      if (!fs.existsSync(p)) continue;
+      if (!fs.existsSync(p)) {
+        // A drive directory with assertions but no finalized record is an
+        // unfinished attempt. It is reported, never silently dropped.
+        const assertionsPath = path.join(drivesRoot, name, "assertions.jsonl");
+        incomplete.push({
+          driveId: name,
+          reason: fs.existsSync(assertionsPath)
+            ? "no drive.json: the drive ended without finalizing its record"
+            : "empty drive directory",
+          assertionsRecorded: fs.existsSync(assertionsPath)
+            ? fs
+                .readFileSync(assertionsPath, "utf8")
+                .split("\n")
+                .filter(Boolean).length
+            : 0,
+          artifacts: fs.existsSync(path.join(drivesRoot, name))
+            ? fs.readdirSync(path.join(drivesRoot, name)).sort()
+            : [],
+        });
+        continue;
+      }
       const d = JSON.parse(fs.readFileSync(p, "utf8"));
+      if (d.complete !== true) {
+        incomplete.push({
+          driveId: d.driveId,
+          reason: "record was never finalized (interrupted drive)",
+          outcome: d.outcome,
+          startedAt: d.startedAt,
+          command: d.command,
+        });
+      }
       const assertions = fs
         .readFileSync(path.join(drivesRoot, name, "assertions.jsonl"), "utf8")
         .split("\n")
         .filter(Boolean)
         .map((l) => JSON.parse(l));
+      // The fixture bytes kept with the drive are hashed here too, so the seal
+      // records what was actually shown even if the fixtures directory changed
+      // afterwards.
+      const keptFixture = d.fixture
+        ? path.join(drivesRoot, name, `fixture-${d.fixture}.ndjson`)
+        : null;
+      const keptFixtureSha =
+        keptFixture && fs.existsSync(keptFixture) ? sha256(fs.readFileSync(keptFixture)) : null;
       drives.push({
         driveId: d.driveId,
         feature: d.feature,
@@ -2726,9 +4130,20 @@ async function evidence() {
         tier: d.tier,
         generator: d.generator,
         fixture: d.fixture,
+        fixtureBytes: d.fixtureBytes ?? null,
+        fixtureSha256: d.fixtureSha256 ?? null,
+        // Recomputed from the retained copy: equal to fixtureSha256 unless the
+        // retained bytes were altered after the drive.
+        fixtureSha256FromRetainedBytes: keptFixtureSha,
+        fixtureBytesIntact:
+          keptFixtureSha === null ? null : keptFixtureSha === (d.fixtureSha256 ?? null),
+        input: d.input ?? null,
+        liveManifestSha256: d.liveManifestSha256 ?? null,
         fault: d.fault,
         live: d.live,
         outcome: d.outcome,
+        complete: d.complete === true,
+        videos: d.videos ?? null,
         assertions: {
           pass: assertions.filter((a) => a.status === "PASS").length,
           fail: assertions.filter((a) => a.status === "FAIL").length,
@@ -2760,6 +4175,48 @@ async function evidence() {
   };
   walk("");
 
+  // Recordings that exist in the generation staging directory but belong to no
+  // drive record (an attempt that died before collecting them) are hashed and
+  // reported, never quietly dropped by the next cleanup.
+  const claimedVideos = new Set(
+    drives.flatMap((d) => (d.videos?.collected ?? []).map((v) => path.basename(v.file))),
+  );
+  const unclaimedRecordings = [];
+  const stagingDir = path.join(runDir(runId), "video");
+  for (const v of snapshotVideos(stagingDir)) {
+    if (claimedVideos.has(v.file)) continue;
+    const buf = fs.readFileSync(path.join(stagingDir, v.file));
+    unclaimedRecordings.push({
+      file: `video/${v.file}`,
+      bytes: buf.length,
+      sha256: sha256(buf),
+      reason: "belongs to no finalized drive record (interrupted attempt)",
+      preserved: false,
+    });
+  }
+
+  // Zero-provider live-input controls are evidence too: they prove the live
+  // INPUT contract without a provider call.
+  const readinessRoot = path.join(dir, "readiness");
+  const readinessControls = [];
+  if (fs.existsSync(readinessRoot)) {
+    for (const name of fs.readdirSync(readinessRoot).sort()) {
+      const p = path.join(readinessRoot, name, "readiness.json");
+      if (!fs.existsSync(p)) continue;
+      const r = JSON.parse(fs.readFileSync(p, "utf8"));
+      readinessControls.push({
+        controlId: name,
+        pass: r.pass,
+        fail: r.fail,
+        manifestSha256: r.manifestSha256,
+        imageSha256: r.imageSha256,
+        mode: r.mode,
+        note: r.note,
+        checks: r.checks,
+      });
+    }
+  }
+
   const summary = {
     runId,
     generation: generation(runId),
@@ -2775,6 +4232,13 @@ async function evidence() {
     strippedEnvKeyCount: (m.strippedEnvKeys ?? []).length,
     envFilesInSnapshot: m.envFilesInSnapshot ?? [],
     driveCount: drives.length,
+    incompleteDriveCount: incomplete.length,
+    incompleteDrives: incomplete,
+    videosCollected: drives.reduce((n, d) => n + (d.videos?.collected?.length ?? 0), 0),
+    videosMissing: drives.reduce((n, d) => n + (d.videos?.missing?.length ?? 0), 0),
+    unclaimedRecordings,
+    readinessControlCount: readinessControls.length,
+    readinessControls,
     tierCounts: drives.reduce((acc, d) => ((acc[d.tier] = (acc[d.tier] ?? 0) + 1), acc), {}),
     assertionTotals: drives.reduce(
       (acc, d) => ({
@@ -2796,6 +4260,11 @@ async function evidence() {
       generation: summary.generation,
       sealedAt: summary.sealedAt,
       driveCount: summary.driveCount,
+      incompleteDriveCount: summary.incompleteDriveCount,
+      videosCollected: summary.videosCollected,
+      videosMissing: summary.videosMissing,
+      unclaimedRecordings: summary.unclaimedRecordings.length,
+      readinessControlCount: summary.readinessControlCount,
       tierCounts: summary.tierCounts,
       assertionTotals: summary.assertionTotals,
       artifactCount: summary.artifactCount,
@@ -2807,6 +4276,10 @@ async function evidence() {
 /* -------------------------------- cleanup ------------------------------- */
 
 async function cleanup() {
+  // Validated before any process is signalled: `cleanup --nonsense 1` must not
+  // stop a server.
+  enforceCommandSchema("cleanup", { requiredOptions: ["run-id"] });
+
   const runId = required("run-id");
   const m = readManifest(runId);
   if (!m) fail(`no manifest for run-id ${runId}`);
@@ -2851,16 +4324,28 @@ async function cleanup() {
   const ev = fs.existsSync(path.join(runDir(runId), "evidence"))
     ? fs.readdirSync(path.join(runDir(runId), "evidence")).length
     : 0;
-  console.log(JSON.stringify({ cleaned: runId, killed, evidenceArtifacts: ev }));
+  // Recordings live inside each drive's evidence directory, so removing the
+  // generation-level staging directory must not remove any video. Count the
+  // survivors from evidence itself rather than from the staging directory.
+  const survives = countEvidenceVideos(evidenceDir(runId));
+  console.log(JSON.stringify({
+    cleaned: runId,
+    killed,
+    evidenceArtifacts: ev,
+    evidenceVideosSurviving: survives,
+    videoStagingRemoved: !fs.existsSync(video),
+  }));
 }
 
 /* --------------------------------- main --------------------------------- */
 
-const handlers = { launch, doctor, drive, evidence, cleanup };
+const handlers = { launch, doctor, drive, "live-ready": liveReady, evidence, cleanup };
 if (!command || !handlers[command]) {
   console.error(
-    "usage: control-contexttrail <launch|doctor|drive|evidence|cleanup> [args]\n" +
-      "  drive <landing|upload|investigation|result|viewer|session|accessibility> --run-id <id>",
+    "usage: control-contexttrail <launch|doctor|drive|live-ready|evidence|cleanup> [args]\n" +
+      "  drive <landing|upload|investigation|result|viewer|session|accessibility> --run-id <id>\n" +
+      "  live-ready --run-id <id> --manifest <path> --image <path> [--mode claim --claim-text <t>]\n" +
+      "    zero-provider validation of a live input manifest; makes no provider call",
   );
   process.exit(EXIT_SCHEMA);
 }

@@ -23,7 +23,25 @@ bin/control-contexttrail launch \
 
 Launch snapshots the pinned revision (`git archive` into
 `<checkout>/.verify/<run-id>/checkout`), runs `npm ci` + `npm run build` in the
-snapshot, then starts `npm start -- -p <port> -H 127.0.0.1`. It never builds or
+snapshot, then starts `npm start -- -p <port> -H 127.0.0.1`.
+
+The three child environments are deliberately different, because a production
+`NODE_ENV` during install silently drops the TypeScript/build toolchain and the
+build that follows cannot run:
+
+| step | environment | dependency set |
+| --- | --- | --- |
+| install | no `NODE_ENV` at all, plus explicit `npm ci --include=dev` | dev dependencies present |
+| build | `NODE_ENV=production` | as installed |
+| runtime | `NODE_ENV=production` | as installed |
+
+npm configuration that changes dependency *resolution* (`npm_config_include`,
+`_omit`, `_only`, `_production`, `_dev`, `_ignore_scripts`, the peer-dep flags)
+is dropped from every child environment instead of being inherited, so the
+dependency set is a property of the command and not of the caller's shell. A
+launch that finds the toolchain missing after install fails immediately and
+says so, and `doctor` re-checks it in the running snapshot. Credential
+stripping is unchanged and applies to all three. It never builds or
 runs dev against a live server's `.next`, and never against the interactive
 `:3100` instance. The run manifest (`.verify/<run-id>/manifest.json`) records
 the owned PID, port, source SHA, lockfile SHA, Next BUILD_ID, browser-visible
@@ -84,12 +102,22 @@ Implemented drives (seven):
   fixture's own counts (takeaways, timeline occurrences, source rows) and
   fails on any placeholder token (`undefined`/`null`/`NaN`/`Invalid Date`).
 - `viewer --entry timeline|sources|takeaway --case
-  image-load|image-fail|no-excerpt` — opens the evidence dialog from each
+  image-load|image-fail|no-excerpt|pair` — opens the evidence dialog from each
   entry point and asserts media load or honest fallback, position
   counter/next/previous, source-link safety (`rel` containing `noopener`),
-  technical-details fields, viewport-correct visibility of the image-mode
-  group, and focus restoration after Escape. `--case pair` is explicitly
-  NOT IMPLEMENTED (exit 2): no controlled fixture emits a paired divergence.
+  technical-details **values** against the fixture's own row, viewport-correct
+  visibility of the image-mode group, and focus restoration after Escape —
+  including after the `Technical details` disclosure was used.
+  - `--case image-load` additionally attributes the rendered pixels: the
+    `src` must equal the image the **fixture** shipped for that occurrence and
+    must differ from the submitted image's `src`, so non-substitution is proved
+    rather than assumed. Media state is read with a bounded, non-waiting DOM
+    read.
+  - `--case pair` replays `controlled-pair` and asserts a real paired
+    divergence: both endpoints exist and are adjacent, the rendered navigation
+    order equals the fixture's flat viewer order, each side shows its own id
+    and note, the pair control is keyboard-reachable and activates with Enter,
+    and ordinary Next outside the pair clears both the note and the control.
 - `session --case refresh|back|new|cancel|fatal-retry` — refresh restore
   offer / restore / discard, browser Back, New investigation, cancellation and
   fatal-interruption surfaces, including that the claim and image survive and
@@ -114,9 +142,23 @@ CSS or coordinates.
 ### Fault injection (red runs)
 
 `--fault a11y-false-green|bad-selection|unexpected-request|anchor-broken|
-focus-removed|drop-timeline-item|group-mislabel` sabotages the page under
-test and the drive must exit 1. These prove the assertions are not vacuous;
-they are part of the evidence set, and `--fault` is refused with `--live`.
+focus-removed|drop-timeline-item|group-mislabel|pair-endpoint-wrong|
+pair-note-wrong|focus-return-broken` sabotages the page under test and the
+drive must exit 1. These prove the assertions are not vacuous; they are part of
+the evidence set, and `--fault` is refused with `--live`.
+
+Each fault declares which drives it can actually sabotage. A fault outside that
+set exits 2 naming the drives it applies to: an accepted fault that cannot fire
+is a false green, which is exactly what `drive landing --fault bad-selection`
+used to be.
+
+| fault | applies to |
+| --- | --- |
+| `a11y-false-green`, `focus-removed` | `accessibility` |
+| `anchor-broken` | `landing` |
+| `bad-selection`, `drop-timeline-item`, `group-mislabel` | `result` |
+| `pair-endpoint-wrong`, `pair-note-wrong`, `focus-return-broken` | `viewer` |
+| `unexpected-request` | any drive |
 
 `--delay-ms <ms>` is accepted only by `investigation`, `result` and `viewer`:
 it withholds the controlled stub's first byte so the running screen is
@@ -124,14 +166,59 @@ observable, and is rejected with exit 2 elsewhere instead of being ignored.
 
 ## Evidence
 
-Artifacts land in `<checkout>/.verify/<run-id>/evidence/` — screenshots,
-`*.aria.txt` snapshots, browser video, `actions.jsonl` (action → resulting
-state with feature ID, entry, case and evidence tier), and
-`*-console.json` (page/console errors). Tiers stay distinct: `real-ui`,
-`public-contract-boundary`, `live`. `bin/control-contexttrail evidence
---run-id <id>` writes `evidence-manifest.json` listing every artifact with the
-revision/build it was captured against. Proof standard: capture the action and
-the resulting state; an unreachable path is reported, never silently skipped.
+Artifacts land in `<checkout>/.verify/<run-id>/evidence/drives/<nnn>-<slug>/` —
+screenshots, `*.aria.txt` snapshots, `fixture-<name>.ndjson`, `video/*.webm`,
+`assertions.jsonl`, `console.json`, `boundary.json`, `request-capture.json` and
+`drive.json`. Tiers stay distinct: `real-ui`, `public-contract-boundary`,
+`live`. `bin/control-contexttrail evidence --run-id <id>` writes
+`evidence-manifest.json` listing every artifact with its sha256 plus both
+revisions. Proof standard: capture the action and the resulting state; an
+unreachable path is reported, never silently skipped.
+
+Provenance is per drive, not per run:
+
+- `drive.json` records the app revision/BUILD_ID, the runner revision and CLI
+  sha256, the **exact** command and options, the replayed `fixture` with its
+  `fixtureSha256`/`fixtureBytes`, the resolved `input` (image name, bytes,
+  sha256, claim presence and claim sha256 — never a claim value), the
+  `--live-manifest` sha256 for live drives, and the collected videos with their
+  own hashes.
+- The exact fixture bytes are copied into the drive directory, so a mid-run
+  regeneration cannot re-attribute a drive to different bytes. `evidence`
+  re-hashes that retained copy and reports `fixtureBytesIntact`.
+- Video is the browser's own uncut recording. It is finalized asynchronously
+  after the context closes, so it is snapshotted before the drive and copied
+  into the drive directory afterwards, hashed, and indexed. `cleanup` removes
+  only the generation-level staging directory and prints how many recordings
+  survive inside evidence.
+- A drive writes an `outcome: "INCOMPLETE"` record the moment its directory
+  exists, and finalizes it on completion. `evidence` lists unfinished attempts
+  (`incompleteDrives`) and any recording that belongs to no finalized drive
+  (`unclaimedRecordings`) instead of counting only what succeeded.
+
+## Live input contract
+
+A live run submits the operator's own input, never a generated fixture, and
+names it in a readiness manifest:
+
+```
+bin/control-contexttrail live-ready --run-id <id> \
+  --manifest <readiness.json> --image <public image> \
+  [--mode trace|claim --claim-text "<text>"]
+```
+
+The manifest declares `schema`, a public `imageSource` (an `http(s)` URL that is
+not a provider endpoint), `imageSha256`, `imageBytes`, `mode`, `claim` and
+`acknowledgedProviderCredit`. `live-ready` validates that contract with **no
+browser, no provider request and no credential read**, so live readiness is
+provable at zero credit; its record is kept in `evidence/readiness/` and
+counted in the seal. `drive --live` requires the same manifest and refuses
+before any side effect when a rule fails. A live drive asserts only what the
+harness controls — that the submitted claim is what selected the mode, and that
+the report carries no credential material or provider query URL; the observed
+status is recorded as an observation, never compared with a fixture.
+
+`--delay-ms`, `--fault` and the fixture options are refused with `--live`.
 
 ## Cleanup
 
@@ -165,9 +252,14 @@ are never wired into production, and are labeled in evidence as
     validates every checked-in fixture: terminal `investigation.completed`
     event, mode/status coherence, `requestLog.durationMs`, policy /
     support / identity / date / origin fields with resolvable cross
-    references, normalized probability distributions, pinned `jev-*` model
-    identity, distinguishable retrieved images, and no real hosts or
-    credential material;
+    references, normalized probability distributions, the **exact** configured
+    model pin (not any `jev-*` lookalike), event chronology with discovered /
+    classified / published id identity in both directions, distinguishable
+    decodable retrieved images (data URIs included, since identical 1×1 pixels
+    make attribution unrecoverable), and no real hosts or credential material.
+    Nullable unknown fields stay valid; a re-classification is only allowed
+    during `REFINED_CLASSIFY`, and the terminal `COMPLETE` stage is the single
+    stage allowed to complete without a start;
   - a **generation block** gated behind `CONTEXTTRAIL_GEN_FIXTURES=1 npx
     vitest run .agents/skills/verify-contexttrail/fixtures/gen-fixtures.test.ts`,
     which re-runs the real orchestrator with controlled provider mocks and
@@ -177,3 +269,6 @@ are never wired into production, and are labeled in evidence as
   design.
 - `evidence --run-id <id>` seals the run: after sealing, further `drive`
   calls exit 2 until a new run-id (or `evidence --regenerate`) is used.
+- Every command validates its own flags and positional arity **before** any
+  side effect, so `evidence --nonsense 1`, `cleanup --nonsense 1` and
+  `doctor extra-positional` exit 2 instead of doing their work.
