@@ -2522,6 +2522,11 @@ function fixtureViewerOrder(name) {
  * "Comparison coverage" summary paragraph and the "Comparisons performed" list
  * (or its explicit "none" sentence). Structure-tolerant: it reads whatever
  * element follows each heading rather than assuming a tag.
+ *
+ * Each performed comparison renders its own nested probability list, so a plain
+ * `li` count would report cards *and* their option rows. Only the DIRECT rows
+ * are comparisons; the nested ones are read separately so probability values
+ * keep their own assertion.
  */
 async function analysisCoverageSurface(page) {
   return page.evaluate(() => {
@@ -2532,11 +2537,19 @@ async function analysisCoverageSurface(page) {
       const h = heads.find((x) => (x.textContent || "").trim() === title);
       if (!h) return null;
       const sib = h.nextElementSibling;
-      if (!sib) return { tag: null, text: "", items: [] };
+      if (!sib) return { tag: null, text: "", items: [], nested: [], nestedTotal: 0 };
+      const direct = sib.tagName.toLowerCase() === "ul" ? [...sib.children].filter((el) => el.tagName.toLowerCase() === "li") : [];
+      const all = [...sib.querySelectorAll("li")];
+      const nested = all
+        .filter((li) => !direct.includes(li))
+        .map((li) => (li.textContent || "").trim());
       return {
         tag: sib.tagName.toLowerCase(),
         text: (sib.textContent || "").trim(),
-        items: [...sib.querySelectorAll("li")].map((li) => (li.textContent || "").trim()),
+        items: direct.map((li) => (li.textContent || "").trim()),
+        nested,
+        nestedTotal: nested.length,
+        allRows: all.length,
       };
     };
     return { panel: true, coverage: after("Comparison coverage"), performed: after("Comparisons performed") };
@@ -3618,6 +3631,105 @@ const DRIVE_CASES = {
       // is never allowed to contradict the run.
       if (terminal) {
         const coverage = terminal.comparisonCoverage ?? null;
+        // The additive `comparisons` field is validated on its own, whether or
+        // not a coverage summary exists: the absence of one optional field must
+        // never disable validation of the other (C7-R2).
+        const comparisons = Array.isArray(terminal.comparisons) ? terminal.comparisons : null;
+        const analysisSurface = await analysisCoverageSurface(page);
+        {
+          const surface = analysisSurface;
+          const performedItems = surface.performed?.items ?? [];
+          const nested = surface.performed?.nested ?? [];
+          rec.note(
+            "result.analysis-performed-surface",
+            JSON.stringify({
+              comparisonsField: comparisons === null ? "absent" : comparisons.length,
+              directRows: performedItems.length,
+              nestedProbabilityRows: nested.length,
+              allListRows: surface.performed?.allRows ?? 0,
+            }),
+          );
+          const displayed = new Map(
+            [
+              ...(terminal.timeline ?? []),
+              ...(terminal.supportingEvidence ?? []),
+              ...(terminal.contextualEvidence ?? []),
+              ...(terminal.undatedEvidence ?? []),
+            ]
+              .map((o) => [o.evidenceId ?? o.occurrenceId, typeof o.title === "string" ? o.title : null])
+              .filter(([id, title]) => typeof id === "string" && title !== null),
+          );
+          if (comparisons === null) {
+            rec.check(
+              "result.analysis-performed-list-not-invented",
+              performedItems.length === 0 &&
+                /No context comparison was performed/.test(surface.performed?.text ?? ""),
+              `no comparisons field in the result and ${performedItems.length} comparison row(s) rendered`,
+            );
+            rec.note(
+              "result.analysis-performed-field-absent",
+              "this result carries no `comparisons` field: the performed list is reported as not performed, not counted as zero",
+            );
+          } else {
+            rec.check(
+              "result.analysis-performed-list-count",
+              performedItems.length === comparisons.length,
+              `result records ${comparisons.length} performed comparison(s), the view renders ${performedItems.length} comparison row(s)`,
+            );
+            const recordedPairs = comparisons
+              .map((c) => [c?.fromOccurrenceId, c?.toOccurrenceId])
+              .filter(([a, b]) => typeof a === "string" && typeof b === "string");
+            rec.check(
+              "result.analysis-performed-pairs-are-displayed",
+              recordedPairs.length === comparisons.length &&
+                recordedPairs.every(([a, b]) => displayed.has(a) && displayed.has(b)),
+              `every performed pair must name two displayed occurrences (${recordedPairs.length} pair(s), ${displayed.size} occurrence(s) displayed)`,
+            );
+            rec.check(
+              "result.analysis-performed-list-identity",
+              performedItems.length === recordedPairs.length &&
+                recordedPairs.every(([a, b], i) => {
+                  const item = performedItems[i] ?? "";
+                  return (
+                    item.includes(displayed.get(a) ?? "\u0000") && item.includes(displayed.get(b) ?? "\u0000")
+                  );
+                }),
+              "each rendered comparison must name the two occurrences the result recorded, in order",
+            );
+            // Probability values are their own contract, kept separate from the
+            // comparison count (C7-R1).
+            const withDistributions = comparisons.filter(
+              (c) => c && typeof c.distribution === "object" && c.distribution !== null,
+            );
+            if (withDistributions.length > 0) {
+              const optionRows = nested.length;
+              const expectedRows = withDistributions.reduce(
+                (n, c) => n + Object.keys(c.distribution).length,
+                0,
+              );
+              rec.check(
+                "result.analysis-performed-probability-rows",
+                optionRows === expectedRows,
+                `${withDistributions.length} comparison(s) carry ${expectedRows} probability option(s); the view renders ${optionRows} nested row(s)`,
+              );
+              rec.check(
+                "result.analysis-performed-probabilities-normalized",
+                withDistributions.every((c) => {
+                  const values = Object.values(c.distribution).filter((v) => typeof v === "number");
+                  const sum = values.reduce((a, b) => a + b, 0);
+                  return values.length > 0 && values.every((v) => v >= 0 && v <= 1) && Math.abs(sum - 1) < 1e-6;
+                }),
+                `every returned probability distribution sums to 1: ${withDistributions.length} comparison(s)`,
+              );
+              rec.check(
+                "result.analysis-performed-probabilities-not-comparison-rows",
+                nested.every((row) => !/between two retrieved occurrences/.test(row)),
+                "a probability row is never counted as a comparison",
+              );
+            }
+          }
+        }
+
         if (coverage === null || typeof coverage !== "object") {
           rec.check(
             "result.analysis-coverage-not-reported",
@@ -3630,7 +3742,7 @@ const DRIVE_CASES = {
           const selected = count("selected");
           const compared = count("comparedPairs");
           const comparedIds = Array.isArray(coverage.comparedPairIds) ? coverage.comparedPairIds : [];
-          const surface = await analysisCoverageSurface(page);
+          const surface = analysisSurface;
           const summary = surface.coverage?.text ?? "";
           const pairSentence = /(\d+) pairs? compared/.exec(summary);
           const selectionSentence = /(\d+) selected(?: of (\d+))?/.exec(summary);
@@ -3638,76 +3750,6 @@ const DRIVE_CASES = {
           const nothingPerformed = /No context comparison was performed/.test(
             surface.performed?.text ?? "",
           );
-          // Performed comparisons come from their OWN additive field on the
-          // result, not from the coverage counters. An absent `comparisons`
-          // array is "not reported", never "zero performed", and the two fields
-          // are only cross-checked when the result actually carries both.
-          const comparisons = Array.isArray(terminal.comparisons) ? terminal.comparisons : null;
-          const performedItems = surface.performed?.items ?? [];
-          rec.note(
-            "result.analysis-coverage-surface",
-            JSON.stringify({
-              fixture: {
-                eligible,
-                selected,
-                compared,
-                comparedPairIds: comparedIds.length,
-                comparisonsField: comparisons === null ? "not reported" : comparisons.length,
-              },
-              summary,
-              performedListed: performedItems.length,
-            }),
-          );
-
-          if (comparisons === null) {
-            rec.check(
-              "result.analysis-performed-list-not-invented",
-              nothingPerformed && performedItems.length === 0,
-              `the result reported no performed comparisons and the view says so (${performedItems.length} listed)`,
-            );
-            rec.note(
-              "result.analysis-performed-field-absent",
-              "this result carries no `comparisons` field: the performed list is reported as not performed, not counted as zero",
-            );
-          } else {
-            rec.check(
-              "result.analysis-performed-list-count",
-              performedItems.length === comparisons.length,
-              `result records ${comparisons.length} performed comparison(s), the view lists ${performedItems.length}`,
-            );
-            const recordedPairs = comparisons
-              .map((c) => [c?.fromOccurrenceId, c?.toOccurrenceId])
-              .filter(([a, b]) => typeof a === "string" && typeof b === "string");
-            // Occurrences this result actually displayed, with the titles the
-            // view names them by. A performed pair that names anything else is a
-            // phantom, checked against the fixture rather than against the view.
-            const displayed = new Map(
-              [
-                ...(terminal.timeline ?? []),
-                ...(terminal.supportingEvidence ?? []),
-                ...(terminal.contextualEvidence ?? []),
-                ...(terminal.undatedEvidence ?? []),
-              ]
-                .map((o) => [o.evidenceId ?? o.occurrenceId, typeof o.title === "string" ? o.title : null])
-                .filter(([id, title]) => typeof id === "string" && title !== null),
-            );
-            rec.check(
-              "result.analysis-performed-pairs-are-displayed",
-              recordedPairs.length === comparisons.length &&
-                recordedPairs.every(([a, b]) => displayed.has(a) && displayed.has(b)),
-              `every performed pair must name two displayed occurrences (${recordedPairs.length} pair(s), ${displayed.size} occurrence(s) displayed)`,
-            );
-            rec.check(
-              "result.analysis-performed-list-identity",
-              performedItems.length === recordedPairs.length &&
-                recordedPairs.every(([a, b], i) => {
-                  const item = performedItems[i] ?? "";
-                  return item.includes(displayed.get(a) ?? "\u0000") && item.includes(displayed.get(b) ?? "\u0000");
-                }),
-              "each listed comparison must name the two occurrences the result recorded, in order",
-            );
-          }
-
           // The summary, against the three states the product can be in.
           if (eligible === 0 && selected === 0 && (compared === 0 || compared === null)) {
             rec.check(
@@ -3755,9 +3797,29 @@ const DRIVE_CASES = {
             );
           }
 
-          // Whatever was claimed must be internally possible: you cannot have
-          // compared more pairs than you selected occurrences, and an empty
-          // eligible set can never have produced a comparison.
+          // A KNOWN count is checked against the separately supplied performed
+          // list even when the summary used the empty-state sentence instead of
+          // a numeric one (C7-R3). An absent/null count is never invented.
+          if (compared !== null) {
+            const performedCount = comparisons === null ? null : comparisons.length;
+            if (performedCount !== null) {
+              rec.check(
+                "result.analysis-coverage-count-matches-performed-list",
+                compared === performedCount,
+                `coverage reports ${compared} compared pair(s) while the result supplies ${performedCount} performed comparison(s)`,
+              );
+            } else {
+              rec.note(
+                "result.analysis-coverage-performed-cross-check-skipped",
+                `no \`comparisons\` field, so the reported ${compared} pair(s) cannot be cross-checked against a list`,
+              );
+            }
+          }
+
+          // Whatever was claimed must be internally possible: adjacent pairs in
+          // one selected sequence are at most max(0, selected - 1) — fewer are
+          // valid for imprecise/equal-date gaps — and an empty eligible set can
+          // never have produced a comparison.
           if (pairSentence) {
             const claimed = Number(pairSentence[1]);
             // The summary and the performed list are two projections of one run.
@@ -3776,14 +3838,17 @@ const DRIVE_CASES = {
                 `no \`comparisons\` field in this result, so the summary's ${claimed} pair(s) cannot be cross-checked against a list`,
               );
             }
+            const adjacencyMax = selected === null ? null : Math.max(0, selected - 1);
             rec.check(
               "result.analysis-coverage-not-contradictory",
               !(
                 (eligible === 0 && claimed > 0) ||
-                (selected !== null && claimed > selected) ||
+                (adjacencyMax !== null && claimed > adjacencyMax) ||
                 (compared !== null && claimed !== compared)
               ),
-              `view claims ${claimed} pair(s) against eligible=${eligible} selected=${selected} compared=${compared}`,
+              `view claims ${claimed} adjacent pair(s) against eligible=${eligible} selected=${selected} (at most ${
+                adjacencyMax ?? "unknown"
+              } adjacent pair(s) exist) compared=${compared}`,
             );
           }
         }
