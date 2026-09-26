@@ -56,16 +56,27 @@ central promise — a reliable, inspectable history of the *same* image with def
 changes — has **not yet been demonstrated on a strong live case**. Several evidence-integrity
 defects were reproduced with controlled inputs.
 
-What does pass today, on this revision:
+What does pass today — **unit and contract checks only**:
 
 | Check | Command | Result |
 | --- | --- | --- |
-| Unit / contract tests | `npm test` | 143 tests in 20 files, all passing, no external API calls |
-| Types | `npm run typecheck` | clean (`tsc --noEmit`) |
+| Unit / contract tests | `npm test` | Green and fully offline — no external API calls. Independently re-run: **baseline 143 passed / 20 files**; **current backend head 161 passed + 2 skipped / 22 files (163 collected)**. |
+| Types | `npm run typecheck` | clean (`tsc --noEmit`) at both heads |
 | Production build | `npm run build` | succeeds |
 
-See [`docs/release.md`](docs/release.md) for the open blockers and what must be proven before
-any release claim.
+Those numbers are *not* acceptance. They do not include integrated browser verification, and
+they do not include any gated live run. Those are separate gates, listed in
+[`docs/release.md`](docs/release.md).
+
+**Which revision these docs describe:** the release candidate — the audited baseline plus the
+backend repair head. Behavior statements below are written against that candidate; where a
+number differs between the two heads, both are given above so nothing is silently rounded up.
+If your checkout predates the repair, expect the baseline counts.
+
+Backend repairs for the evidence-integrity findings (F01–F03, F05–F11) have landed, and the
+regression gates that were written to *reproduce* those defects now pass. That is repair
+progress, **not** release acceptance: only four of the nine verification-map drives exist, and
+the remaining findings, the strong live milestone cases and deployment are all still open.
 
 ---
 
@@ -196,7 +207,8 @@ npm run build      # production build
 Browser walkthroughs are also zero-credit when `.env.local` is absent: with no
 `SERPAPI_API_KEY` the server reports an honest configuration failure before any search is
 dispatched, so you can exercise upload, validation, streaming, error recovery and layout
-without spending anything.
+without spending anything. The verification harness's normal (non-`--live`) drives are
+zero-credit for the same reason.
 
 ### Gated live verification (spends credits)
 
@@ -205,32 +217,56 @@ checks — never for routine testing or CI.
 
 - Requires a real `.env.local`. Run **one case at a time, sequentially**, inside the budgets
   above.
+- The credit gate is explicit in the harness: `--live` refuses to run unless `RUN_LIVE_TESTS=1`
+  is set in the environment. That gate lives in the harness CLI, **not** in `npm test` — no
+  test in `npm test` can reach a provider.
 - Record **attempted / returned / retained** counts separately; a large returned count is not
   the same as independent sources.
 - Do not re-run an identical input just to capture a screenshot.
-- Note: the `RUN_LIVE_TESTS=1` gate specified by the PRD is **not wired in this revision**, so
-  treat every live run as manually gated. Do not wire live calls into `npm test`.
 
-### Fixture tiers
+### Evidence tiers
 
-| Tier | Credit | Proves | Does not prove |
-| --- | --- | --- | --- |
-| **Deterministic unit fixtures** (`src/**/*.test.ts`) | 0 | budgets, contracts, policy invariants, normalization, failure boundaries | anything about the live web |
-| **Controlled / boundary fixtures** (result or stream contract delivered at the HTTP boundary) | 0 | rendering, recovery, keyboard and layout behavior | provenance truth — a fixture that renders `CONTEXT_CONFLICT` is not a fact check |
-| **Real live runs** (configured providers, real SerpApi responses) | spends | what the product actually returned for that input | completeness of web coverage, or the identity of the original upload |
+The project keeps five tiers distinct and labels every artifact with the one it came from:
+
+| Tier | Where it happens | Credit | Proves | Does not prove |
+| --- | --- | --- | --- | --- |
+| `source/unit` and `function-probe` | `npm test` (Vitest, imported production functions) | 0 | budgets, contracts, policy invariants, normalization, failure boundaries | anything about the live web |
+| `real-ui` | the harness driving a real built app in a browser, no provider interception | 0 | landing, upload, layout, keyboard, error states | provenance truth |
+| `public-contract-boundary` | the harness intercepts `POST /api/investigate` and delivers a controlled NDJSON stream | 0 | rendering, recovery, all four report tabs | provenance truth — a fixture that renders `CONTEXT_CONFLICT` is not a fact check |
+| `live` | real SerpApi + Jev through the production route (`RUN_LIVE_TESTS=1` and `--live`) | spends | what the product actually returned for that input | completeness of web coverage, or the identity of the original upload |
 
 Keep the tiers visibly distinct in any evidence you publish. Fixtures are legitimate for tests,
-development and deterministic local verification; they must never be presented as live retrieval.
+development and deterministic local verification; they must never be presented as live
+retrieval, and browser-controlled exceptional states do not certify provenance accuracy — both
+the function layer and the browser layer are required before a finding can be called closed.
 
-### Project verification harness (in progress)
+### Project verification harness
 
-A project-owned browser harness — isolated `launch` / `doctor` / `drive` / `evidence` /
-`cleanup` around a pinned production build, plus a nine-feature product map — is under
-development and is **not part of this revision yet**. When it lands it lives at
-`.agents/skills/verify-contexttrail/` with the CLI at
-`.agents/skills/verify-contexttrail/bin/control-contexttrail`. Its creation gate has passed
-(one mapped landing feature, 26 evidence artifacts surviving cleanup); full nine-feature
-coverage is still pending. Normal runs of that harness spend **zero provider credit**.
+A project-owned browser harness lives at `.agents/skills/verify-contexttrail/` on the
+integration branch — confirm the directory exists in your checkout before running it — with
+the CLI at `.agents/skills/verify-contexttrail/bin/control-contexttrail`:
+
+```bash
+.agents/skills/verify-contexttrail/bin/control-contexttrail <launch|doctor|drive|evidence|cleanup> [args]
+```
+
+- **`launch`** snapshots a pinned revision into its own directory, runs `npm ci` + `npm run
+  build` there, and starts `npm start` on an isolated port. It never builds against a live
+  server's `.next` and never touches the interactive server.
+- **`doctor`** is a read-only health check (owned PID, port, BUILD_ID, revision match, landing
+  identity) and consumes no credit.
+- **`drive <feature>`** exercises real ARIA roles/names. Implemented drives: `landing`,
+  `upload`, `investigation`, `result` (desktop and mobile). Unimplemented ones report
+  `unknown drive feature` instead of passing — missing coverage is recorded as **NOT VERIFIED**.
+- **`evidence`** writes screenshots, ARIA snapshots, browser video, action logs and a manifest
+  under `.verify/<run-id>/evidence/`; **`cleanup`** kills only the PIDs it created and removes
+  the snapshot while the evidence survives.
+
+Its **creation gate has passed** — one mapped landing feature with 26 evidence artifacts
+surviving cleanup — which proves the harness runs, not that the product is accepted. The
+map at `.agents/skills/verify-contexttrail/features/README.md` covers nine features; **only
+four drives exist today, so entry coverage is pending**. Normal harness runs spend **zero
+provider credit**.
 
 ---
 
@@ -245,11 +281,23 @@ ContextTrail is built to preserve uncertainty rather than manufacture confidence
   disabled** until a local spatial verifier passes its held-out acceptance gate — the result
   surfaces `near_match_verifier_disabled`, and no spatial confirmation is claimed anywhere in
   the UI.
-- **Dates.** Unknown and disputed dates never enter the dated timeline. The result states
-  `unknown_dates_present`, `disputed_dates_present` and `insufficient_dated_occurrences`
-  rather than guessing.
+- **Only core occurrences may assert media history.** The result keeps four separate buckets
+  and never merges them: `timeline` holds dated **core** occurrences only
+  (`EXACT_MATCH` / verified `NEAR_MATCH`); `supportingEvidence` holds dated non-core visual
+  leads; `contextualEvidence` holds dated web/news rows with no media identity (identity basis
+  `contextual`); `undatedEvidence` holds everything without a usable date. A contextual or
+  lead row can never be read as "this image appeared there".
+- **Dates.** Unknown and disputed dates never enter the dated timeline. Publication dates are
+  bound to article/posting entities — a container's generic creation date cannot become a
+  publication date — and impossible calendar dates are rejected. Claim-relative dates resolve
+  on the browser's IANA wall clock. The result states `unknown_dates_present`,
+  `disputed_dates_present` and `insufficient_dated_occurrences` rather than guessing.
+- **Takeaways are gated.** A historical-reuse takeaway requires a *core* occurrence with a
+  usable date that predates the claim; an undated or contextual lead cannot assert media
+  history.
 - **Reporting origins.** Cross-domain corroboration requires separately evidenced reporting
-  origins. Unresolved origins surface as `reporting_origins_unresolved`, and the
+  origins — positive attribution in a non-negated sentence, not a bare mention of staff or
+  reporters. Unresolved origins surface as `reporting_origins_unresolved`, and the
   source-domain count is never labeled "independent sources".
 - **Comparison coverage.** Gaps are labeled, not smoothed over — `comparison_coverage_incomplete`
   is shown, and the observed-context count is `null` unless the displayed dated sequence has
@@ -267,9 +315,18 @@ ContextTrail is built to preserve uncertainty rather than manufacture confidence
 ## Where to inspect sources and comparisons
 
 **In the app:** after an investigation, use the **Overview / Timeline / Sources / Analysis**
-tabs. **Inspect evidence** opens the comparison viewer — submitted image beside retrieved
-image, match basis, date source, excerpt and reporting origin, with **Open original source**
-and previous/next navigation. **Technical details** holds the lower-level identifiers.
+tabs. The Timeline view is an occurrence ledger: dated **core** occurrences sit on the line,
+and **supporting leads** and **undated evidence** are rendered as visibly separate sections so
+they cannot be read as confirmed media history. **Inspect evidence** opens the comparison
+viewer — submitted image beside retrieved image, match basis, date source, excerpt and
+reporting origin, with **Open original source** and previous/next navigation. **Technical
+details** holds the lower-level identifiers.
+
+**On the wire:** `POST /api/investigate` streams `application/x-ndjson`. `evidence.discovered`
+events are emitted as each search job settles rather than after the slowest one, and
+`investigation.completed` carries the final result with four evidence buckets
+(`timeline`, `supportingEvidence`, `contextualEvidence`, `undatedEvidence`). The stream is
+plain newline-delimited JSON — capture the response body to replay or diff it.
 
 **In the code:**
 
@@ -286,19 +343,27 @@ and previous/next navigation. **Technical details** holds the lower-level identi
 
 ---
 
-## Illustrative assets and attribution
+## Illustrative assets, credits and attribution
 
 - The landing hero uses **abstract placeholder motifs, not photographs**, and is labeled
   *"Illustrative example — not retrieved evidence."* The static walkthrough below it is
   explicitly marked illustrative, uses generic sample labels rather than real publisher names,
   and states that it runs no investigation and implies no live API calls.
-- **No third-party photographs, publisher logos or licensed artwork are bundled in this
-  repository.** The only shipped static assets are `src/app/icon.svg` and
+- **No third-party photographs, publisher logos or licensed artwork are bundled in the
+  application.** The only assets the app ships are `src/app/icon.svg` and
   `src/app/favicon.ico`.
+- **Design boards — credit: AI-generated.** `contexttrail-designs/screen-designs.png` was
+  produced from `contexttrail-designs/design-prompt.txt`, which is recorded as an
+  *"Initial design prompt (built-in image-generation tool)"*. The prompt itself forbids real
+  publisher logos, fake partnerships and statistics presented as live. These are design
+  references, not product output, and this is part of the AI-tool disclosure for the project.
+- **`contexttrail-designs/original-reference.png` has no recorded provenance.** It is the
+  "supplied image" the design prompt refers to as a visual reference; it carries no embedded
+  credit, license or source text, and no attribution file exists for it. **Do not redistribute
+  it as a project asset until its source and license are established.**
 - **No LICENSE file and no third-party asset attribution document exist in this revision.**
-  If an illustrative photograph is ever added to the landing page, its license and attribution
-  must be committed alongside it in a frontend attribution document — do not ship an
-  attributed-or-unattributed image without one.
+  Any photograph, illustration or borrowed visual added later must be committed together with
+  its license and attribution record — do not ship an unattributed image.
 
 ---
 

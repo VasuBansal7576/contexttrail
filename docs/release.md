@@ -32,26 +32,40 @@ definition of done:
 - **18 findings — 8 P1, 10 P2, no P0.** The P1s are evidence-integrity defects (reporting-origin
   inference, timeline membership, dropped adaptive evidence, comparison gaps, sampled context
   counts, entity-agnostic publication dates, an ungated historical-reuse takeaway) plus the
-  release-evidence gap itself: no top-level run/demo guide, no project-owned browser harness,
-  no proven strong live provenance case.
+  release-evidence gap itself: at audit time there was no top-level run/demo guide, no
+  project-owned browser harness, and no proven strong live provenance case.
 - Grouped PRD coverage: **23 PASS / 61 PARTIAL / 26 FAIL / 4 NOT VERIFIED** across 114
   requirement rows covering all 4,193 PRD lines.
 - **No strong live Trace/divergence case and no strong live claim case has been demonstrated.**
   The two real runs that exist stayed conservative (`LIMITED_MEDIA_HISTORY_FOUND` and
   `INSUFFICIENT_EVIDENCE`), which is an honest outcome, not a proven flagship result.
 
-Repairs are in progress. **Do not describe the release as passed, and do not treat a synthetic
-or fixture-rendered status as real proof.**
+Repairs have partly landed (below). **Do not describe the release as passed, and do not treat a
+synthetic or fixture-rendered status as real proof.**
+
+### What each "pass" number actually means
+
+Three different things get called "tests pass". Keep them apart:
+
+| Tier | What ran | Result | What it does **not** cover |
+| --- | --- | --- | --- |
+| **Baseline checks** — the audited baseline this documentation was drafted against | `npm test`, `npm run typecheck`, `npm run build` | **143 tests / 20 files**, typecheck clean, build succeeds (independently re-run) | browser behavior, live providers, any release gate |
+| **Backend repair head** — reported by the backend lane and independently re-run here | the same three commands plus the Phase 0 regression gates | **161 passed + 2 skipped / 22 files (163 collected)**, typecheck clean | browser behavior, live providers; backend full-suite validation still in progress |
+| **Integrated browser + gated live acceptance** | the project harness driving a built app in a real browser, then gated live runs against real providers | **not run** | — |
+
+Only the third tier could ever support a release claim, and it has not happened.
 
 ### Current blockers
 
 | Blocker | State |
 | --- | --- |
-| **Evidence-integrity repairs (P1)** | In progress. Phase 0 regression gates encoding the findings exist to *demonstrate* each defect; against the un-repaired implementation most of them fail by design. They must pass before any release claim. |
+| **Evidence-integrity repairs (P1)** | **Partly landed.** Backend repairs for F01–F03 and F05–F11 are in, and the Phase 0 regression gates — which were written to *reproduce* each defect and failed before the repair — now pass (161 passed, 2 skipped on the repair head). Remaining findings and UI-side work are not closed, so this is repair progress, not acceptance. |
+| **Integrated browser verification** | Not run against the repaired build. The audit's browser coverage predates the repair. |
 | **Strong live milestone cases** | Not run. PRD requires at minimum one strong Trace, one strong claim conflict, one limited/uncertain, and one failure/degradation case. |
-| **Verification harness** | Creation gate passed (one mapped landing feature, 26 evidence artifacts surviving cleanup). The nine-feature map's entry coverage is **still pending** and must not be described as complete. |
+| **Verification harness** | Creation gate passed (one mapped landing feature, 26 evidence artifacts surviving cleanup); the doctor records an identity proof for the build it launched. **Four of nine drives exist** (`landing`, `upload`, `investigation`, `result`); the rest report `unknown drive feature` and are recorded as NOT VERIFIED, never silently passed. CLI expansion to all nine mapped features is **underway** — nine-map entry coverage stays marked **pending** until its expansion commit lands, and must not be described as complete. |
 | **Observability** | Structured success telemetry is absent; only sanitized failure warnings exist. |
 | **Browsers** | Chrome only. Edge, Safari, Firefox and real mobile engines are unverified. |
+| **Asset credits / licensing** | No `LICENSE` and no attribution document exist. `contexttrail-designs/screen-designs.png` is AI-generated and credited in the README; `contexttrail-designs/original-reference.png` has **no recorded provenance or license** and must not be redistributed until that is established. |
 | **Account / auth for deployment** | Vercel CLI is not installed, there is no stored Vercel login state, and this repository is not linked to a Vercel project. Deployment prerequisites are unmet — this says nothing about whether an account exists. No login is performed from this repository or this document. |
 | **Publication / merge** | The public repository exists and is seeded; product branches are still local-only and the merge into `main` is pending. |
 
@@ -173,6 +187,12 @@ investigation. Keep the raw recording; do not submit it as-is.
 - [ ] No secrets anywhere in the tree, in commit history, in screenshots or in the recording.
 - [ ] No `.env.local`, no credential values, no provider URLs carrying keys.
 - [ ] No copyrighted demo input committed (see input **C** above).
+- [ ] **Asset credits are complete.** Design boards are credited as AI-generated (see the
+      README); `contexttrail-designs/original-reference.png` is either credited with a source
+      and license or removed before publication — it currently has neither.
+- [ ] **AI-tool disclosure is written for the submission form** (this project uses AI coding
+      assistance and an image-generation tool for the design boards; the form's own wording is
+      the authority — fill it there, not here).
 - [ ] Merge of the product branches into `main` completed and the public tree matches what the
       video shows.
 
@@ -185,6 +205,9 @@ Not represented as passed anywhere in this repository:
 - a real strong Trace/divergence; a real `CONTEXT_CONFLICT` or `NO_CONFLICT_FOUND`;
 - separate reporting-origin evidence across real corroborating sources;
 - a complete real dated core chain;
+- **any browser verification of the repaired build** — the recorded browser coverage predates
+  the evidence-integrity repairs, and the two real live runs predate them too, so no live case
+  yet demonstrates the repaired behavior;
 - near-match verification (promotion is disabled pending its acceptance gate);
 - real provider-specific cancellation/failure accounting;
 - the 55-second partial cutoff and 90-second client watchdog observed end-to-end;
