@@ -42,6 +42,7 @@ import {
   getRequestLog,
   getStatusBasis,
   getUnresolvedCandidateIds,
+  focusTargetState,
   identityBasis,
   isRestorableFocusTarget,
   occurrenceRole,
@@ -218,13 +219,13 @@ export default function ResultView({
   /**
    * Put focus back where the user left it: the control that opened the viewer.
    * When that control can no longer take focus — removed by a re-render, a tab
-   * switch, a restored result, a click that never focused it, or simply never
-   * recorded — the current view's tab keeps the keyboard user inside the page
-   * instead of dropping them on <body>.
+   * switch, a restored result, hidden with CSS, a click that never focused it,
+   * or simply never recorded — the current view's tab keeps the keyboard user
+   * inside the page instead of dropping them on <body>.
    */
   const restoreViewerFocus = useCallback(() => {
     const trigger = triggerRef.current;
-    if (isRestorableFocusTarget(trigger)) {
+    if (isRestorableFocusTarget(focusTargetState(trigger))) {
       trigger!.focus();
       return;
     }

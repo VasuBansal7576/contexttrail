@@ -79,21 +79,27 @@ function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="flex gap-2">
       <dt className="shrink-0 font-medium text-white/60">{label}:</dt>
-      <dd className="break-all">{value}</dd>
+      <dd className="min-w-0 break-all">{value}</dd>
     </div>
   );
 }
 
+/**
+ * One question's actual per-option probabilities.
+ *
+ * Both the option label and its value are AA on this surface: the viewer sits
+ * on `bg-deep` under `bg-white/5`, where a dimmed value measured 3.75:1 and
+ * read as an afterthought next to its own label. The value is the data, so it
+ * is never the dimmer of the two, and it is exposed to assistive technology
+ * as ordinary text rather than duplicated for it.
+ */
 function DistributionList({ options }: { options: Array<{ label: string; value: number }> }) {
   return (
     <ul className="mt-1 space-y-0.5">
       {options.map((o) => (
-        <li key={o.label} className="flex gap-2 text-xs text-white/70">
-          <span className="shrink-0">{o.label}</span>
-          <span aria-hidden="true" className="text-white/40">
-            {o.value.toFixed(3)}
-          </span>
-          <span className="sr-only">{o.value.toFixed(3)}</span>
+        <li key={o.label} className="flex flex-wrap items-baseline gap-x-2 text-xs">
+          <span className="text-white/70">{o.label}</span>
+          <span className="tabular-nums text-white/80">{o.value.toFixed(3)}</span>
         </li>
       ))}
     </ul>
@@ -149,13 +155,13 @@ function PageMetadataBlock({ metadata }: { metadata: PageMetadataView }) {
       {metadata.entities.length > 0 ? (
         <ul className="mt-1 space-y-1">
           {metadata.entities.map((entity, i) => (
-            <li key={i} className="text-xs text-white/60">
+            <li key={i} className="min-w-0 text-xs text-white/60">
               <span className="text-white/70">Structured data {entity.binding}:</span>
               <dl className="mt-0.5 space-y-0.5">
                 {entity.fields.map((f) => (
                   <div key={f.label} className="flex gap-2">
                     <dt className="shrink-0 text-white/50">{f.label}:</dt>
-                    <dd className="break-words">{f.value}</dd>
+                    <dd className="min-w-0 break-words">{f.value}</dd>
                   </div>
                 ))}
               </dl>
@@ -166,9 +172,9 @@ function PageMetadataBlock({ metadata }: { metadata: PageMetadataView }) {
       {metadata.openGraph.length > 0 ? (
         <dl className="mt-1 space-y-0.5">
           {metadata.openGraph.map((pair) => (
-            <div key={pair.property} className="flex gap-2 text-xs text-white/60">
+            <div key={pair.property} className="flex min-w-0 gap-2 text-xs text-white/60">
               <dt className="shrink-0 text-white/50">{pair.property}:</dt>
-              <dd className="break-all">{pair.value}</dd>
+              <dd className="min-w-0 break-all">{pair.value}</dd>
             </div>
           ))}
         </dl>
@@ -385,7 +391,7 @@ function TechnicalDetails({
 
       {pageMetadata ? <PageMetadataBlock metadata={pageMetadata} /> : null}
 
-      <p className="mt-3 text-xs text-white/60">Occurrence ID: {occurrenceKey}</p>
+      <p className="mt-3 break-all text-xs text-white/60">Occurrence ID: {occurrenceKey}</p>
     </details>
   );
 }
@@ -462,9 +468,13 @@ export default function EvidenceViewer({
             e.preventDefault();
             onRestoreFocus();
           }}
-          className="fixed inset-0 z-50 overflow-y-auto bg-deep text-white"
+          // `overflow-x-hidden` is a backstop, not the fix: every long value
+          // below wraps on its own, so nothing is clipped or dropped. It stops
+          // one unbreakable token from turning the whole dialog into a
+          // horizontally scrolling surface.
+          className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-deep text-white"
         >
-          <div className="mx-auto max-w-[1280px] px-5 py-5 sm:px-8">
+          <div className="mx-auto w-full min-w-0 max-w-[1280px] px-5 py-5 sm:px-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Dialog.Close asChild>
                 <button
@@ -500,9 +510,9 @@ export default function EvidenceViewer({
             </div>
 
             {occurrence ? (
-              <div className="mt-6 grid gap-8 lg:grid-cols-[2fr_1fr]">
+              <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 {/* Image comparison */}
-                <div>
+                <div className="min-w-0">
                   <div role="group" aria-label="Choose image to inspect" className="mb-3 flex gap-2 lg:hidden">
                     {(["submitted", "retrieved"] as const).map((tab) => (
                       <button
@@ -562,10 +572,12 @@ export default function EvidenceViewer({
                 </div>
 
                 {/* Source details */}
-                <div>
-                  <Dialog.Title className="font-serif text-3xl leading-tight">{title}</Dialog.Title>
-                  {domain ? <p className="mt-1 text-sm text-white/60">{domain}</p> : null}
-                  <p className="mt-2 text-sm text-white/60">
+                <div className="min-w-0">
+                  <Dialog.Title className="font-serif text-3xl leading-tight break-words">
+                    {title}
+                  </Dialog.Title>
+                  {domain ? <p className="mt-1 break-all text-sm text-white/60">{domain}</p> : null}
+                  <p className="mt-2 break-words text-sm text-white/60">
                     {shownDate
                       ? `Published ${shownDate}${shownPrecision ? ` · ${shownPrecision} precision` : ""} · ${shownDateSource ?? "date source unknown"}`
                       : "Date unknown"}
@@ -601,7 +613,7 @@ export default function EvidenceViewer({
                   </div>
 
                   {entryNote ? (
-                    <p className="mt-3 rounded-lg bg-white/5 px-3 py-2 text-xs leading-relaxed text-white/65 ring-1 ring-white/10">
+                    <p className="mt-3 rounded-lg bg-white/5 px-3 py-2 text-xs leading-relaxed break-words text-white/65 ring-1 ring-white/10">
                       {entryNote}
                     </p>
                   ) : null}
@@ -620,7 +632,7 @@ export default function EvidenceViewer({
                   </h3>
                   {span ? (
                     <figure className="mt-2">
-                      <blockquote className="border-l-2 border-white/20 pl-3 text-[15px] leading-relaxed text-white/85">
+                      <blockquote className="border-l-2 border-white/20 pl-3 text-[15px] leading-relaxed break-words text-white/85">
                         “{span.text}”
                       </blockquote>
                       {showFullText ? (
@@ -651,8 +663,8 @@ export default function EvidenceViewer({
                       {originSup && originSup.spans.length > 0 ? (
                         <ul className="mt-2 space-y-2">
                           {originSup.spans.map((s, i) => (
-                            <li key={i} className="border-l-2 border-white/20 pl-3">
-                              <p className="text-sm leading-relaxed text-white/80">“{s.text}”</p>
+                            <li key={i} className="min-w-0 border-l-2 border-white/20 pl-3">
+                              <p className="text-sm leading-relaxed break-words text-white/80">“{s.text}”</p>
                               <p className="mt-1 text-xs text-white/50">{s.relation}</p>
                             </li>
                           ))}
@@ -675,7 +687,7 @@ export default function EvidenceViewer({
                   ) : null}
 
                   {claim ? (
-                    <p className="mt-3 text-sm text-white/60">
+                    <p className="mt-3 break-words text-sm text-white/60">
                       Submitted claim: <span className="text-white/85">“{claim}”</span>
                     </p>
                   ) : null}
