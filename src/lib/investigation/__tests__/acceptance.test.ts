@@ -476,6 +476,38 @@ describe("I3 — §19.1 conservative claim dates", () => {
     }
   });
 
+  it("punctuation-equivalent day ranges are refused, never first-day (Astra's en-dash repro)", () => {
+    // The exact accepted-run claim shape: en dash + stated year +
+    // America/Los_Angeles reference — previously resolved 2027-03-05,
+    // silently losing the stated 2026.
+    for (const text of [
+      "the photo was taken March 5–8, 2026", // U+2013 en dash
+      "the photo was taken March 5—8, 2026", // em dash
+      "the photo was taken March 5‑8, 2026", // non-breaking hyphen
+      "the photo was taken March 5−8, 2026", // minus sign
+      "the photo was taken March 5th through 8th, 2026",
+      "the photo was taken March 5–8", // the range alone, no year
+    ]) {
+      const r = parseClaimDate(text, {
+        referenceInstant: REF,
+        timezone: "America/Los_Angeles",
+      });
+      expect(r.claimDate, text).toBeNull();
+      expect(r.ambiguous, text).toBe(true);
+    }
+  });
+
+  it("a supplied year is never silently lost into next-year inference", () => {
+    // Whatever chrono yields inside the ignored range tail, a stated
+    // 2026 may never resolve to 2027.
+    const r = parseClaimDate("the photo was taken March 5–8, 2026", {
+      referenceInstant: REF,
+      timezone: "America/Los_Angeles",
+    });
+    expect(r.claimDate).toBeNull(); // refused outright — never 2027
+    if (r.claimDate !== null) expect(r.claimDate).not.toMatch(/^2027/);
+  });
+
   it("an ambiguous two-number date is refused rather than guessed", () => {
     const r = parseClaimDate("the photo was taken on 03/04/2026", opts);
     expect(r.claimDate).toBeNull();

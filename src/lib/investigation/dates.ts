@@ -243,25 +243,55 @@ function zonedReference(instant: Date, timezone?: string): Date {
   }
 }
 
+/** Dash-family separators — a "5–8" range means the same in every dash
+ *  punctuation (en/em/nb-hyphen/figure/minus), not just ASCII "-". */
+const DASH_SEP = "[\\-–—‑‒―−]";
+
 /** §19.1 — a numeric date whose two leading components are both ≤12 is
  *  ambiguous (MM/DD vs DD/MM) with nothing to disambiguate it. Bare
- *  hyphen pairs ("5-8") are day ranges, handled by endpoint comparison;
- *  ISO year-first values can't match (no leading boundary inside a
- *  4-digit run). */
-const NUMERIC_DATE_FORM =
-  /\b(\d{1,2})\s*([/.-])\s*(\d{1,2})(\s*[/.-]\s*\d{2,4})?\b/g;
+ *  dash pairs ("5-8", "5–8") are day ranges, handled by the range
+ *  guards; ISO year-first values can't match (no leading boundary
+ *  inside a 4-digit run). */
+const NUMERIC_DATE_FORM = new RegExp(
+  `\\b(\\d{1,2})\\s*([/.]|${DASH_SEP})\\s*(\\d{1,2})(\\s*(?:[/.]|${DASH_SEP})\\s*\\d{2,4})?\\b`,
+  "g",
+);
 
 function hasAmbiguousNumericDate(text: string): boolean {
   for (const m of text.matchAll(NUMERIC_DATE_FORM)) {
-    // A bare "a-b" hyphen pair without a year is a range, not a date —
-    // endpoint comparison already covers it when a date is asserted.
-    if (m[2] === "-" && m[4] === undefined) continue;
+    // A bare "a<dash>b" without a year is a range, not a numeric date —
+    // the range guards cover it when a date is actually asserted.
+    if (m[2] !== "/" && m[2] !== "." && m[4] === undefined) continue;
     // Year-first forms ("2026-03-05", "2026.03.05") are unambiguous —
     // the matched pair follows a 4-digit year, not a missing century.
     if (/\d{4}\s*[/.-]\s*$/.test(text.slice(0, m.index))) continue;
     if (Number(m[1]) <= 12 && Number(m[3]) <= 12) return true;
   }
   return false;
+}
+
+/** §19.1 — "March 5–8[,] 2026" spells a multi-day range in every dash
+ *  family or connector word. The endpoint check only sees ranges chrono
+ *  itself parsed; Unicode-dash and "through" forms parse as one date
+ *  with the tail silently ignored, so the text is checked directly. */
+const MONTH_DAY_RANGE = new RegExp(
+  `\\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|` +
+    `jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|` +
+    `dec(?:ember)?)\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?` +
+    `\\s*(?:${DASH_SEP}|to|through|thru|and)\\s*\\d{1,2}(?:st|nd|rd|th)?\\b`,
+  "i",
+);
+
+function hasDayRange(text: string): boolean {
+  return MONTH_DAY_RANGE.test(text);
+}
+
+/** Every 4-digit year the claim states — a parse asserting a different
+ *  year has silently lost supplied information (e.g. a range fragment
+ *  inferred as "next March"). Refuse rather than assert a year the
+ *  claim never gave. */
+function statedYears(text: string): Set<string> {
+  return new Set(text.match(/\b\d{4}\b/g) ?? []);
 }
 
 /**
@@ -284,7 +314,7 @@ export function parseClaimDate(
     timezone?: string;
   },
 ): ClaimDateResult {
-  if (hasAmbiguousNumericDate(claim)) {
+  if (hasAmbiguousNumericDate(claim) || hasDayRange(claim)) {
     return { claimDate: null, precision: "unknown", ambiguous: true };
   }
 
@@ -315,6 +345,13 @@ export function parseClaimDate(
     return { claimDate: null, precision: "unknown", ambiguous: false };
   }
   if (distinct.size > 1) {
+    return { claimDate: null, precision: "unknown", ambiguous: true };
+  }
+  // A stated 4-digit year the parse contradicts is silently lost
+  // information — e.g. "March 5–8, 2026" surviving as a single inferred
+  // "next March". Refuse rather than assert a year the claim never gave.
+  const years = statedYears(claim);
+  if (years.size > 0 && !years.has(values[0].value.slice(0, 4))) {
     return { claimDate: null, precision: "unknown", ambiguous: true };
   }
   return {
