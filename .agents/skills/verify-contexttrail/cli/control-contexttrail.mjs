@@ -1459,6 +1459,10 @@ async function startStreamServer() {
         const raw = fs.readFileSync(fixturePath(p.fixture));
         const bytes = raw.length;
         const sha256 = crypto.createHash("sha256").update(raw).digest("hex");
+        // The EXACT buffer, kept for the life of the run: the titles and the
+        // retained per-drive copy are both derived from these bytes, so neither can
+        // drift from what the stream was actually served from.
+        const buffer = raw;
         const id = (() => {
           for (const l of lines) {
             try {
@@ -1468,7 +1472,7 @@ async function startStreamServer() {
           }
           return null;
         })();
-        return { fixture: p.fixture, segments, holds, id, bytes, sha256, generator: GENERATOR_IDENTITY };
+        return { fixture: p.fixture, segments, holds, id, bytes, sha256, buffer, generator: GENERATOR_IDENTITY };
       });
       state.paceMs = Math.max(0, plans[0]?.paceMs ?? 0);
       return { plans: state.sequence.map((p) => ({ fixture: p.fixture, id: p.id, segments: p.segments.length })) };
@@ -3326,7 +3330,7 @@ async function settledActiveElement(page, timeoutMs = 1500) {
 async function settleFocusFault(page) {
   if (flags.fault !== "focus-return-broken") return;
   await page
-    .waitForFunction(() => window.__ctFaultDone === true, { timeout: 3000 })
+    .waitForFunction(() => window.__ctFaultDone === true, undefined, { timeout: 3000 })
     .catch(() => {});
 }
 
@@ -3604,12 +3608,33 @@ async function drive(opts = {}) {
   const fixtureName = live ? null : driveFixture(feature, caseName);
   // Truthful label for the intercepted live handler: production handler code,
   // locally declared result, zero provider calls, no real-data claim.
-  const input = resolveInput(runId, {
+  let input = resolveInput(runId, {
     live,
     mode: flags.mode ?? null,
     fixture: fixtureName,
     spec,
   });
+  // The two-stream recipe submits TWO different claims, so the single-input record
+  // (claimProvided:false, no claims) understated it. The real per-request claim
+  // identities are written by the drive into request-inputs.json; the top-level
+  // record says so explicitly rather than claiming one claim.
+  if (feature === "stream-ownership" && !live) {
+    input = {
+      kind: "controlled-multi-stream",
+      claimProvided: true,
+      claimCount: 2,
+      claimNote: "two distinct claims, one per request; identities in request-inputs.json",
+      image: input.kind === "controlled" ? input.image : null,
+      imageBytes: input.kind === "controlled" ? input.imageBytes : null,
+      imageSha256: input.kind === "controlled" ? input.imageSha256 : null,
+      imageSource: "generated-controlled-1x1-png (harness input, 70B)",
+      imageOnWire:
+        "the app re-encodes the input; B's request carried investigation-image 560B. The exact wire " +
+        "bytes are NOT retained, so no wire image hash is claimed — only the harness input hash above.",
+      imageEntryMethod: "setInputFiles",
+    };
+  }
+
 
   const { dir: driveDir, seq } = nextDriveDir(runId, feature, [
     flags.entry,
@@ -5591,6 +5616,22 @@ const DRIVE_CASES = {
     // Both consumed streams, identified by their exact bytes, recorded before the
     // first request: name, byte length, sha256 and generator, plus the viewport and
     // the entry method the harness used to attach the image.
+    // Durable copies of the exact buffers actually read, one file per request,
+    // named and linked to the request that consumed them.
+    const retained = plan.plans.map((pl, i) => {
+      const st = stream.state.sequence[i];
+      const file = `stream-request-${i}-${pl.fixture}.ndjson`;
+      fs.writeFileSync(path.join(driveDir, file), st.buffer);
+      return {
+        request: i,
+        fixture: pl.fixture,
+        file,
+        bytes: st.bytes,
+        sha256: st.sha256,
+        generator: st.generator,
+        capturedAt: "planSequence (the buffer this request is served from)",
+      };
+    });
     const streamsConsumed = plan.plans.map((pl, i) => ({
       request: i,
       fixture: pl.fixture,
@@ -5602,6 +5643,7 @@ const DRIVE_CASES = {
     rec.note("ownership.streams-consumed", JSON.stringify(streamsConsumed));
     writeJson(path.join(driveDir, "ownership-plan.json"), {
       streamsConsumed,
+      retainedStreams: retained,
       viewport,
       imageEntryMethod: "setInputFiles",
       imagePath: path.basename(uploadFileSet(runId)["upload.png"].path),
@@ -5628,7 +5670,10 @@ const DRIVE_CASES = {
     // come from the fixture data.
     const fixtureTitles = (name) => {
       const out = new Set();
-      for (const l of fs.readFileSync(fixturePath(name), "utf8").split("\n")) {
+      // From the CAPTURED buffer, not a re-read of the file, so the expectation
+      // cannot silently diverge from the bytes the stream served.
+      const st = stream.state.sequence.find((x) => x.fixture === name);
+      for (const l of st.buffer.toString("utf8").split("\n")) {
         if (!l.trim()) continue;
         try {
           const ev = JSON.parse(l);
@@ -5639,6 +5684,26 @@ const DRIVE_CASES = {
         } catch { /* keep looking */ }
       }
       return [...out];
+    };
+    // One integrity check, used by the drive at seal time and by the offline
+    // derivative: a retained stream that is missing or modified is a RED on this
+    // same assertion, not a silently smaller evidence set.
+    const retainedIntegrity = () => {
+      const rows = retained.map((r) => {
+        const p = path.join(driveDir, r.file);
+        if (!fs.existsSync(p)) return { ...r, present: false, matches: false, why: "retained file is missing" };
+        const actual = fs.readFileSync(p);
+        const sha = crypto.createHash("sha256").update(actual).digest("hex");
+        return {
+          ...r,
+          present: true,
+          actualBytes: actual.length,
+          actualSha256: sha,
+          matches: sha === r.sha256 && actual.length === r.bytes,
+          why: sha === r.sha256 && actual.length === r.bytes ? "byte-identical" : "retained bytes differ from the captured buffer",
+        };
+      });
+      return rows;
     };
     const aTitlesAll = fixtureTitles(A);
     const bTitlesAll = fixtureTitles(B);
@@ -5709,8 +5774,7 @@ const DRIVE_CASES = {
               /start investigation/i.test(x.textContent || ""),
             );
             return !!b && !b.disabled;
-          },
-          { timeout: 10_000 },
+          }, undefined, { timeout: 10_000 },
         )
         .catch(() => {});
       return submitEnabled();
@@ -5739,8 +5803,7 @@ const DRIVE_CASES = {
         () => {
           const live = document.querySelector('[aria-label="Evidence arriving live"]');
           return !!live && live.querySelectorAll("li").length > 0;
-        },
-        { timeout: 15_000 },
+        }, undefined, { timeout: 15_000 },
       )
       .catch(() => {});
     const seenA = await observe();
@@ -5761,8 +5824,7 @@ const DRIVE_CASES = {
     if (hadCancel) await cancel.click();
     await page
       .waitForFunction(
-        () => document.querySelector("h1")?.textContent?.trim() === "Investigation cancelled.",
-        { timeout: 10_000 },
+        () => document.querySelector("h1")?.textContent?.trim() === "Investigation cancelled.", undefined, { timeout: 10_000 },
       )
       .catch(() => {});
     const afterCancel = await observe();
@@ -5876,8 +5938,7 @@ const DRIVE_CASES = {
     // on a completed result, so reading stale content from it proved nothing.
     await page
       .waitForFunction(
-        () => /insufficient evidence|possible context conflict|no corroborating/i.test(document.body.innerText || ""),
-        { timeout: 20_000 },
+        () => /insufficient evidence|possible context conflict|no corroborating/i.test(document.body.innerText || ""), undefined, { timeout: 20_000 },
       )
       .catch(() => {});
     const overview = await page.evaluate(() => {
@@ -5908,13 +5969,13 @@ const DRIVE_CASES = {
     );
     const afterB = await observe();
     rec.note("ownership.after-b-complete", JSON.stringify(afterB));
-    const aSurvivors = aTitles.filter((t) => afterB.evidenceTitles.includes(t));
-    rec.check(
-      "ownership.b-owns-the-visible-evidence",
-      aSurvivors.length === 0,
-      `after B completed: ${afterB.evidenceCount} live card(s) rendered, ${aSurvivors.length} of which are A's ` +
-        `titles — A's ${aTitles.length} card(s) must not survive into B`,
-    );
+    // The earlier "A's live cards must not survive" check is REMOVED, not kept
+    // alongside: it read the live evidence section, which does not exist on a
+    // completed result, and compared against rendered-card last lines, which are
+    // DOMAINS rather than article titles. It could not fail, and
+    // ownership.no-stale-a-content-on-completed-overview is the real guard, over the
+    // whole rendered Overview, against A-exclusive article titles. Two overlapping
+    // claims would be worse than one correct one.
     rec.check(
       "ownership.b-not-cancelled-at-the-end",
       afterB.cancelled === false,
@@ -5981,6 +6042,46 @@ const DRIVE_CASES = {
         "delivered:false with a reason; an undeliverable packet is never reported as a late event processed.",
     });
     rec.note("ownership.delivery-ledger", JSON.stringify(stream.state.ledger));
+
+    // Seal-time integrity: the retained per-request stream files must still be the
+    // exact bytes those requests were served from.
+    const integrity = retainedIntegrity();
+    writeJson(path.join(driveDir, "retained-streams.json"), {
+      streams: integrity,
+      note:
+        "Each file is the exact buffer request N was served from. A missing or modified file is " +
+        "a RED on ownership.retained-streams-byte-identical, not a smaller evidence set.",
+    });
+    const badRetained = integrity.filter((r) => !r.matches);
+    rec.check(
+      "ownership.retained-streams-byte-identical",
+      integrity.length === 2 && badRetained.length === 0,
+      badRetained.length === 0
+        ? integrity
+            .map((r) => `request ${r.request} ${r.file} ${r.actualBytes}B sha256 ${String(r.actualSha256).slice(0, 12)}`)
+            .join("; ")
+        : `${badRetained.length} retained stream(s) not byte-identical: ${JSON.stringify(badRetained)}`,
+    );
+    // Both request claim identities, explicitly non-empty, in the drive record.
+    const claimIdentities = [0, 1].map((i) => {
+      const e = stream.state.ledger.find((x) => x.index === i);
+      return {
+        request: i,
+        claimSha256: e?.sentClaimSha256 ?? null,
+        claimBytes: e?.sentClaimBytes ?? null,
+        imageInput: "upload.png 70B (harness input)",
+        imageOnWire: e?.sentMediaName ? `${e.sentMediaName} ${e.sentMediaBytes}B` : null,
+        imageEntryMethod: e?.imageEntryMethod ?? null,
+      };
+    });
+    writeJson(path.join(driveDir, "request-inputs.json"), { requests: claimIdentities });
+    rec.check(
+      "ownership.both-request-claims-identified",
+      claimIdentities.every((c) => /^([0-9a-f]{64})$/.test(String(c.claimSha256)) && c.claimBytes > 0),
+      claimIdentities
+        .map((c) => `request ${c.request}: claim ${c.claimBytes}B sha256 ${String(c.claimSha256).slice(0, 12)}`)
+        .join("; "),
+    );
   },
 
   async accessibility({ page, rec, m, driveDir, viewport }) {
@@ -6077,8 +6178,7 @@ const DRIVE_CASES = {
             /start investigation/i.test(x.textContent || ""),
           );
           return !!b && !b.disabled && b.getAttribute("aria-disabled") !== "true";
-        },
-        { timeout: 15_000 },
+        }, undefined, { timeout: 15_000 },
       )
       .catch(() => {});
     await page
