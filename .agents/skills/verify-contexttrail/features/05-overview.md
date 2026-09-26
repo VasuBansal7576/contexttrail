@@ -20,7 +20,7 @@ Complete an investigation; use Overview tab from any result view.
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive result --case trace|conflict|possible|no-conflict|insufficient --view overview --run-id <id>. Assert actual backend support IDs and counts against DOM. Open every takeaway's evidence, then return.
+control-contexttrail drive result --case <fixture> --view overview --run-id <id>. Implemented fixtures: controlled-claim, controlled-trace, controlled-insufficient (INSUFFICIENT_EVIDENCE), controlled-viewer. conflict|possible|no-conflict variants are PLANNED — add generated fixtures in gen-fixtures.test.ts first. The drive asserts all four tabs exist, clicks each, and ends with --view selected. Assert actual backend support IDs and counts against DOM. Open every takeaway's evidence, then return.
 
 Observable proof: The headline reflects actual evidence state, metrics preserve unknowns, limitations are visible, and every conclusion opens its supporting occurrence or pair.
 

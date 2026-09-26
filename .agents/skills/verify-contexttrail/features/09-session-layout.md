@@ -21,7 +21,7 @@ All screens; refresh completed/active investigation; browser Back; keyboard-only
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive accessibility --viewport desktop|mobile --run-id <id>; control-contexttrail drive session --case refresh|back|new --run-id <id>. Capture active element before/after modal close, actual computed colors, horizontal dimensions, mobile order, and sessionStorage keys/content categories without image bytes.
+control-contexttrail drive accessibility --viewport desktop|mobile --run-id <id>; control-contexttrail drive session --case refresh|back|new|cancel|fatal-retry --run-id <id>. Keyboard reachability, horizontal overflow and 44px targets fail closed; contrast/focus-restore/sessionStorage keys are recorded into accessibility-<viewport>.json without image bytes. session refresh records whether the result persisted honestly.
 
 Observable proof: Every essential action is usable without pointer/hover; focus remains visible and meaningful; result appears before long input on mobile; refresh behavior matches disclosed persistence; uploaded media is not stored.
 

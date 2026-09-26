@@ -21,7 +21,7 @@ View evidence timeline CTA, Timeline tab, a conclusion's linked evidence, or vie
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive result --case rich-context-gaps --view timeline --run-id <id>. Compare every rendered node to core-identity predicates; test unknown/disputed and imprecise dates; open divergence endpoints; inspect a lower row and close. Repeat mobile.
+control-contexttrail drive result --case <fixture> --view timeline --run-id <id>. rich-context-gaps is PLANNED (no such fixture yet — generate it in gen-fixtures.test.ts); use controlled-claim until it lands. Compare every rendered node to core-identity predicates; test unknown/disputed and imprecise dates; open divergence endpoints; inspect a lower row and close. Repeat mobile.
 
 Observable proof: Timeline is an inspectable partial media history, with actual relationships and gaps; supporting material cannot imply a verified image appearance.
 

@@ -22,7 +22,7 @@ Inspect evidence from Timeline; Inspect from Sources; View evidence from a takea
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive viewer --entry <entry> --case image-load|image-fail|no-excerpt|pair --run-id <id>. Wait for actual image load/error, toggle on mobile, navigate both directions, open the original source, inspect technical details, press Escape and check restored focus.
+control-contexttrail drive viewer --entry timeline|sources|takeaway --case image-load|image-fail|no-excerpt|pair --run-id <id>. image-load/no-excerpt use controlled-viewer (loadable data-URI thumbnails + a no-snippet item); image-fail uses controlled-claim (unresolvable thumbnails hit the honest fallback); pair is explicitly NOT IMPLEMENTED. Wait for actual image load/error, toggle on mobile, navigate both directions, assert the source link's noopener new-tab attributes, inspect technical details, press Escape and record restored focus.
 
 Observable proof: Uploaded imagery is never substituted as retrieved evidence; image boundaries are visible; source text/provenance are accurate; return restores context and keyboard focus.
 

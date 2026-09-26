@@ -21,7 +21,7 @@ Open /investigate from landing, directly, or Return to upload; select by browse/
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive upload --entry <entry> --case valid|unsupported|empty|decode|oversize|replace|remove|claim-limit --run-id <id>. Use JPG/JPEG/PNG/WebP fixtures. Observe preview, inline error, preserved claim, 500-character cap and disabled submission. Record processed request size and image dimensions without persisting private media.
+control-contexttrail drive upload --entry browse|keyboard|drop|paste|setinputfiles --case valid|unsupported|empty|decode|oversize|replace|remove|claim-limit --run-id <id>. All entries and cases are implemented: browse/keyboard assert a real filechooser event; drop uses a real DataTransfer; paste uses a real ClipboardEvent; setinputfiles is direct input injection (no chooser proof). Generated scratch files cover valid/unsupported/empty/decode/oversize inputs. Observe preview, inline error, preserved claim, 500-character cap and disabled submission — missing states fail the drive.
 
 Observable proof: Each distinct entry path reaches the same valid selection; errors preserve claim and permit replacement; noisy oversized input fails before a request; successful preprocessing stays under limits.
 

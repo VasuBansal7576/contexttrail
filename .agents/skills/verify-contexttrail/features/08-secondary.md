@@ -19,7 +19,7 @@ Choose Sources or Analysis in the completed report; open a viewer's Technical de
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive result --case mixed-evidence --view sources|analysis --run-id <id>. Inspect a source row; compare counts, source roles, origin support, policy reasons and comparison coverage with sanitized final/events data.
+control-contexttrail drive result --case <fixture> --view sources|analysis --run-id <id>. mixed-evidence is PLANNED (no such fixture yet); use controlled-claim until it lands. Inspect a source row; compare counts, source roles, origin support, policy reasons and comparison coverage with sanitized final/events data. Missing data must not be treated as a pass.
 
 Observable proof: A user can see why evidence did or did not qualify, and distinguish retrieval volume from trustworthy media-history coverage.
 

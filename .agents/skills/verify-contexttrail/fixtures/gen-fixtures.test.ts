@@ -135,21 +135,89 @@ const jev = {
   }),
 } as unknown as JevClient;
 
-const fetchPage = async (url: string): Promise<FetchedPage> => ({
-  url,
-  html: `<html><head><title>CONTROLLED page</title></head><body><article><p>${"Controlled extracted text about a fixture photograph and its publication context. ".repeat(12)}</p></article></body></html>`,
-});
+/** Entity-bound JSON-LD publication dates per fixture domain — gives the
+ *  deep-read phase real dated evidence so core occurrences land in the
+ *  timeline and takeaways can cite evidenceIds. */
+const PAGE_DATES: Record<string, string> = {
+  "fixture-archive-c.example.org": "2018-06-15",
+  "fixture-site-d.example.org": "2020-10-02",
+  "fixture-news-f.example.org": "2026-09-24",
+};
+
+const fetchPage = async (url: string): Promise<FetchedPage> => {
+  const host = new URL(url).hostname;
+  const date = PAGE_DATES[host];
+  const ld = date
+    ? `<script type="application/ld+json">${JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "NewsArticle",
+        headline: "CONTROLLED article",
+        datePublished: date,
+      })}</script>`
+    : "";
+  return {
+    url,
+    html: `<html><head><title>CONTROLLED page</title>${ld}</head><body><article><p>${"Controlled extracted text about a fixture photograph and its publication context. ".repeat(12)}</p></article></body></html>`,
+  };
+};
+
+/** 1×1 PNG as a data URI — a retrieved image that actually loads in the
+ *  browser, so viewer `image-load` coverage exercises the real <img> path. */
+const DATA_URI_THUMB =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+const lensAllViewer = {
+  search_metadata: { id: "fixture-lens-viewer", status: "Success" },
+  visual_matches: [
+    {
+      position: 1,
+      title: "CONTROLLED FIXTURE lead — loadable thumbnail",
+      link: "https://fixture-viewer-a.example.org/report/loadable",
+      snippet: "controlled loadable snippet",
+      thumbnail: DATA_URI_THUMB,
+      date: "Apr 4, 2019",
+    },
+    {
+      position: 2,
+      title: "CONTROLLED FIXTURE lead — no snippet",
+      link: "https://fixture-viewer-b.example.org/post/nosnippet",
+      thumbnail: DATA_URI_THUMB,
+      date: "May 5, 2020",
+    },
+  ],
+};
+
+const serpapiViewer: SearchProvider = {
+  uploadImage: async () => "fixture-upload-id",
+  search: async (p: SerpapiParams) => {
+    if (p.engine === "google_lens" && p.type === "exact_matches") return lensExact;
+    if (p.engine === "google_lens" && p.type === "about_this_image") return aboutImage;
+    if (p.engine === "google_lens") return lensAllViewer;
+    if (p.engine === "google_news") return googleNews;
+    return googleSearch;
+  },
+};
+
+/** Every surface returns a provider-validated empty collection — claim mode
+ *  resolves to an honest INSUFFICIENT_EVIDENCE result. */
+const empty = (id: string) => ({ search_metadata: { id, status: "Success" } });
+const serpapiEmpty: SearchProvider = {
+  uploadImage: async () => "fixture-upload-id",
+  search: async (p: SerpapiParams) => empty(`fixture-empty-${p.engine}`),
+};
 
 describe.skipIf(!GEN)("controlled fixture generation", () => {
   it.each([
-    ["controlled-trace", null],
-    ["controlled-claim", "This controlled claim describes a fictional event today."],
-  ])("writes %s.ndjson", async (name, claim) => {
+    ["controlled-trace", null, serpapi],
+    ["controlled-claim", "This controlled claim describes a fictional event today.", serpapi],
+    ["controlled-viewer", "This controlled claim describes a fictional event today.", serpapiViewer],
+    ["controlled-insufficient", "This controlled claim describes a fictional event today.", serpapiEmpty],
+  ])("writes %s.ndjson", async (name, claim, provider) => {
     const events: unknown[] = [];
     await runInvestigation(
       { media: new Uint8Array([1, 2, 3]), claim, timezone: "UTC", locale: "en" },
       (e) => events.push(e),
-      { serpapi, jev, fetchPage },
+      { serpapi: provider, jev, fetchPage },
     );
     const file = path.join(OUT, `${name}.ndjson`);
     fs.writeFileSync(file, events.map((e) => JSON.stringify(e)).join("\n") + "\n");

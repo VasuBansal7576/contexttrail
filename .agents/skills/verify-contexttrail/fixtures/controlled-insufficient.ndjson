@@ -1,0 +1,36 @@
+{"type":"investigation.started","investigationId":"e9d7c729-76b7-4e54-a194-d2d18beaeff3"}
+{"type":"stage.started","stage":"INITIAL_RETRIEVAL"}
+{"type":"search.batch","engine":"google_search","count":0}
+{"type":"search.batch","engine":"google_news","count":0}
+{"type":"search.batch","engine":"google_lens","count":0}
+{"type":"search.batch","engine":"google_lens_exact_matches","count":0}
+{"type":"search.batch","engine":"google_lens_about_this_image","count":0}
+{"type":"stage.completed","stage":"INITIAL_RETRIEVAL","detail":"0 candidates"}
+{"type":"stage.started","stage":"NORMALIZE"}
+{"type":"stage.completed","stage":"NORMALIZE","detail":"0 candidates retained"}
+{"type":"stage.started","stage":"VERIFY_MEDIA"}
+{"type":"stage.completed","stage":"VERIFY_MEDIA","detail":"near-match verifier disabled"}
+{"type":"stage.started","stage":"SCREEN_REPORTING_ORIGINS"}
+{"type":"stage.completed","stage":"SCREEN_REPORTING_ORIGINS","detail":"0 unresolved pending deep read"}
+{"type":"stage.started","stage":"FAST_CLASSIFY"}
+{"type":"stage.completed","stage":"FAST_CLASSIFY","detail":"0 classified"}
+{"type":"stage.started","stage":"PRELIMINARY"}
+{"type":"verdict.preliminary","verdict":"INSUFFICIENT_EVIDENCE"}
+{"type":"provenance.partial","timeline":[]}
+{"type":"stage.completed","stage":"PRELIMINARY"}
+{"type":"stage.started","stage":"EXPAND_IF_NEEDED"}
+{"type":"search.batch","engine":"expansion","count":0}
+{"type":"stage.completed","stage":"EXPAND_IF_NEEDED","detail":"expanded (insufficient_evidence)"}
+{"type":"stage.started","stage":"DEEP_READ"}
+{"type":"stage.completed","stage":"DEEP_READ","detail":"0/0 pages read"}
+{"type":"stage.started","stage":"REFINED_CLASSIFY"}
+{"type":"stage.completed","stage":"REFINED_CLASSIFY"}
+{"type":"stage.started","stage":"REFINE_REPORTING_ORIGINS"}
+{"type":"stage.completed","stage":"REFINE_REPORTING_ORIGINS"}
+{"type":"stage.started","stage":"CHRONOLOGY"}
+{"type":"stage.completed","stage":"CHRONOLOGY","detail":"0 dated core occurrences"}
+{"type":"stage.started","stage":"DIVERGENCE"}
+{"type":"stage.completed","stage":"DIVERGENCE"}
+{"type":"stage.started","stage":"FINAL_POLICY"}
+{"type":"stage.completed","stage":"COMPLETE"}
+{"type":"investigation.completed","result":{"mode":"claim_check","status":"INSUFFICIENT_EVIDENCE","claim":"This controlled claim describes a fictional event today.","claimDate":"2026-09-26","doesNotProveClaimTrue":true,"webContextAvailable":true,"takeaways":[],"earliestObservedOccurrence":null,"sourceDomainCount":0,"reportingGroupCount":0,"unresolvedOriginCount":0,"contextSegmentCount":null,"firstObservedContextDivergence":null,"comparisonCoverage":{"eligible":0,"selected":0,"comparedPairs":0},"limitations":["exact_match_retrieval_unavailable","about_this_image_unavailable","insufficient_dated_occurrences"],"undatedEvidence":[],"supportingEvidence":[],"contextualEvidence":[],"timeline":[]}}

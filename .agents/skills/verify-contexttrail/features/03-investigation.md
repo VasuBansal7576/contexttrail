@@ -20,7 +20,7 @@ Select a valid image; leave claim blank or fill it; choose Start investigation.
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive investigation --mode trace|claim --case delayed-provider-fixture --run-id <id>. Repeat explicitly gated --live with the public input. Capture request/event timing, progressive cards and final result. Compare stage labels to actual outgoing engine/type attempts and final retained evidence.
+control-contexttrail drive investigation --mode trace|claim [--case <fixture>] [--delay-ms <ms>] --run-id <id>. Case defaults to controlled-<mode>; delay is a response-delay modifier on the intercept (no separate fixture name needed). Repeat explicitly gated --live with the public input. The drive asserts the progressive surface appears (Cancel button, "Tracing the web") before waiting for the terminal result tablist. Capture request/event timing, progressive cards and final result. Compare stage labels to actual outgoing engine/type attempts and final retained evidence.
 
 Observable proof: A real streamed sequence visibly reports the work it performs; early evidence is inspectable, stage counts are actual, limits are honored, and no fabricated percentage appears.
 

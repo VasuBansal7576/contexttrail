@@ -21,7 +21,7 @@ Run controlled provider failures through the normal upload path; cancel while Tr
 
 Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
 
-control-contexttrail drive session --case cancel|fatal-retry|new --run-id <id>; control-contexttrail drive investigation --mode claim --case <failure> --run-id <id>. Assert the precise stage and limitation, retained evidence, preserved input, source-call abort signal and bounded attempted credits.
+control-contexttrail drive session --case cancel|fatal-retry|new|refresh|back --run-id <id>; control-contexttrail drive investigation --mode claim --case <fixture> [--delay-ms <ms>] --run-id <id>. cancel uses a delayed intercept and asserts the cancelled screen plus preserved input after Return to upload; fatal-retry asserts the interrupted alert and preserved claim/image. Assert the precise stage and limitation, retained evidence, preserved input, source-call abort signal and bounded attempted credits.
 
 Observable proof: No silent fallback or retry; failure identifies missing work; retry preserves current inputs; new starts blank; cancellation is truthful about already sent requests.
 

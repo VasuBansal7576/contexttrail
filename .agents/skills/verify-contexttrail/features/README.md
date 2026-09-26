@@ -32,16 +32,44 @@ never against the interactive `:3100` server.
 
 ## Coverage status
 
-Implemented drives: `landing`, `upload`, `investigation`, `result` (desktop and
-mobile viewports). Drives not yet implemented report `unknown drive feature`
-rather than silently passing — treat missing coverage as NOT VERIFIED.
+Implemented drives: `landing`, `upload`, `investigation`, `result`, `viewer`,
+`session`, `accessibility` (desktop and mobile viewports where the map calls
+for it). Unsupported features, entries, cases, views and flag combinations are
+rejected with a nonzero exit — they are never silently ignored.
+
+Supported options per drive (see each feature file for recipes):
+
+- `landing` — no extra options.
+- `upload --entry browse|keyboard|drop|paste|setinputfiles --case
+  valid|unsupported|empty|decode|oversize|replace|remove|claim-limit`.
+- `investigation --mode trace|claim [--case <fixture>] [--delay-ms <ms>]` —
+  case defaults to `controlled-<mode>`; `--live` is accepted.
+- `result [--case <fixture>] [--view overview|timeline|sources|analysis]`
+  [--live] — every tab is asserted present; `--view` ends selected.
+- `viewer --entry timeline|sources|takeaway --case
+  image-load|image-fail|no-excerpt|pair` — `pair` is explicitly
+  NOT IMPLEMENTED (no linked-pair entry exists in the product).
+- `session --case refresh|back|new|cancel|fatal-retry`.
+- `accessibility --viewport desktop|mobile` — keyboard reachability, overflow
+  and 44px targets fail closed; contrast/focus-restore are recorded.
+
+Controlled fixtures shipped: `controlled-trace`, `controlled-claim`,
+`controlled-viewer` (loadable data-URI thumbnails + a no-snippet item),
+`controlled-insufficient` (provider-validated empties → INSUFFICIENT_EVIDENCE).
+`--case` accepts any fixture name present in `fixtures/`; unknown names fail.
+
+PLANNED / NOT IMPLEMENTED cases from the recipes: `rich-context-gaps`,
+`mixed-evidence`, `delayed-provider-fixture` as fixture names (delay is now a
+`--delay-ms` modifier instead), `conflict`, `possible`, `no-conflict` result
+variants — these need new generated fixtures in `gen-fixtures.test.ts` before
+they can run.
 
 NOT VERIFIED as real-data outcomes: strong Trace with decisive context
 divergence; strong CONTEXT_CONFLICT or NO_CONFLICT_FOUND; a complete core dated
 timeline; separately evidenced multiple origins; source-image near-match
 verification; real provider failure/cancellation accounting; hard 55 s partial
-cutoff. NOT VERIFIED as browser paths: clipboard paste; 90 s watchdog;
-non-Chromium engines; full screen-reader pass.
+cutoff. NOT VERIFIED as browser paths: 90 s watchdog; non-Chromium engines;
+full screen-reader pass.
 
 Browser-controlled exceptional states do not certify provenance accuracy.
 Function-level regressions live in `src/lib/investigation/__tests__/` under
