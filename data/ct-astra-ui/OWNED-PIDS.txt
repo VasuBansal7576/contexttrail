@@ -8,3 +8,4 @@ verify-CLI :3113 snapshot PID 98538 run-id ct-astra-ui-2 rev 1e64e75
 next-server(:3111) PID now 17089 (rebuilt with title-only fix). Old 91892 terminated.
 cli-fixture-server(:3114) PID 53264 (read-only serve of backend-owned fixtures)
 next-server(:3111) PID now 78638 (rebuilt with composite-split fix). Old 17089 terminated.
+cleanup done
