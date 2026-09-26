@@ -117,7 +117,7 @@ export const TAKEAWAY_COPY: Record<string, string> = {
   historical_reuse:
     "Retrieved sources show this media being used historically before the submitted claim.",
   no_current_media_corroboration:
-    "Current reporting about the claimed event was found, but this visual was not among the matching media evidence.",
+    "No qualifying current media corroboration was found for the submitted claim.",
 };
 
 export function getTakeaways(result: JsonRecord | null): Takeaway[] {
