@@ -19,9 +19,13 @@ export async function* readNdjsonStream(
     for (;;) {
       if (signal?.aborted) return;
       const { done, value } = await reader.read();
+      // An abort that lands inside the pending read voids what it returns —
+      // decoding it would yield events for a stream the caller abandoned.
+      if (signal?.aborted) return;
       buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
       let newlineIndex: number;
       while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+        if (signal?.aborted) return;
         const line = buffer.slice(0, newlineIndex);
         buffer = buffer.slice(newlineIndex + 1);
         const event = parseEventLine(line);
@@ -29,6 +33,7 @@ export async function* readNdjsonStream(
       }
       if (done) break;
     }
+    if (signal?.aborted) return;
     const tail = parseEventLine(buffer);
     if (tail) yield tail;
   } finally {

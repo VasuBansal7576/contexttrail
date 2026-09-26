@@ -160,7 +160,9 @@ export function applyEvent(snapshot: InvestigationSnapshot, event: Investigation
   switch (event.type) {
     case "investigation.started": {
       const id = typeof event.investigationId === "string" ? event.investigationId : null;
-      return { ...snapshot, investigationId: id };
+      // A snapshot belongs to one investigation: a later "started" event may
+      // fill an unset id but never relabel an adopted one.
+      return { ...snapshot, investigationId: snapshot.investigationId ?? id };
     }
     case "stage.started": {
       const name = String(event.stage);
@@ -328,17 +330,26 @@ export function useInvestigation() {
       clearWatchdog();
       const controller = new AbortController();
       abortRef.current = controller;
+      // This async body outlives its own run: cancel, reset, or a later
+      // start supersedes it while a read is still pending. Ownership is the
+      // controller token — every write to the shared snapshot and watchdog
+      // below is gated on it so a stale stream cannot touch its successor.
+      const ownsRun = () => abortRef.current === controller;
 
       setSnapshot({ ...INITIAL_SNAPSHOT, phase: "preparing" });
       watchdogRef.current = setTimeout(() => controller.abort(new Error(WATCHDOG_REASON)), STREAM_WATCHDOG_MS);
 
       const fail = (code: string, message: string, partial = false) => {
+        if (!ownsRun()) return;
         clearWatchdog();
-        setSnapshot((prev) => ({
-          ...prev,
-          phase: prev.phase === "cancelled" ? prev.phase : "failed",
-          error: { code, message, partial: partial || prev.evidence.length > 0 },
-        }));
+        setSnapshot((prev) => {
+          if (!ownsRun()) return prev;
+          return {
+            ...prev,
+            phase: prev.phase === "cancelled" ? prev.phase : "failed",
+            error: { code, message, partial: partial || prev.evidence.length > 0 },
+          };
+        });
       };
 
       try {
@@ -386,34 +397,41 @@ export function useInvestigation() {
         }
 
         for await (const event of readNdjsonStream(response.body, controller.signal)) {
+          if (!ownsRun()) break;
           setSnapshot((prev) => {
-            if (prev.phase !== "streaming") return prev;
+            if (prev.phase !== "streaming" || !ownsRun()) return prev;
             return applyEvent(prev, event);
           });
         }
 
-        clearWatchdog();
-        setSnapshot((prev) => {
-          if (prev.phase !== "streaming") return prev;
-          // Stream ended without a terminal event: honest failure, keep evidence.
-          if (prev.error) return { ...prev, phase: "failed" };
-          if (!prev.result) {
-            return {
-              ...prev,
-              phase: "failed",
-              error: {
-                code: "stream_terminated",
-                message:
-                  "The investigation stream ended before a result arrived. Whatever evidence arrived is shown below; nothing was fabricated to fill the gap.",
-                partial: prev.evidence.length > 0,
-              },
-            };
-          }
-          return prev;
-        });
+        if (ownsRun()) {
+          clearWatchdog();
+          setSnapshot((prev) => {
+            if (prev.phase !== "streaming" || !ownsRun()) return prev;
+            // Stream ended without a terminal event: honest failure, keep evidence.
+            if (prev.error) return { ...prev, phase: "failed" };
+            if (!prev.result) {
+              return {
+                ...prev,
+                phase: "failed",
+                error: {
+                  code: "stream_terminated",
+                  message:
+                    "The investigation stream ended before a result arrived. Whatever evidence arrived is shown below; nothing was fabricated to fill the gap.",
+                  partial: prev.evidence.length > 0,
+                },
+              };
+            }
+            return prev;
+          });
+        }
       } catch {
-        clearWatchdog();
-        setSnapshot((prev) => classifyStreamFailure(prev, controller.signal));
+        if (ownsRun()) {
+          clearWatchdog();
+          setSnapshot((prev) =>
+            ownsRun() ? classifyStreamFailure(prev, controller.signal) : prev,
+          );
+        }
         return;
       }
     },
