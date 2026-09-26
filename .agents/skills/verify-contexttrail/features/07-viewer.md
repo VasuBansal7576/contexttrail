@@ -122,6 +122,8 @@ after the context closes and hashed), and `drive.json` (`entry`, `case`,
 | `drive viewer --run-id <id> --live` without `--image` | exit 2, names the missing explicit input | schema spot-check |
 | `drive viewer --run-id <id> --live` without `--live-manifest` | exit 2, explains the readiness manifest | schema spot-check |
 | `drive landing --fault bad-selection` | exit 2, fault is not applicable to `landing` | schema spot-check |
+| `drive viewer --case image-load --fault pair-note-wrong` | exit 2, that fault only applies to `--case pair` | `verify7` schema spot-check |
+| `live-handler --feature viewer` with a declared result that has no occurrences | exit 0: the absence of an entry is explained, no dialog is claimed | `verify7` drive 002 |
 
 ## Resolved: the disclosure-close focus finding was a harness race
 
@@ -132,6 +134,17 @@ control, and the requirement is now asserted
 (`viewer.focus-return-after-disclosure-close`) on every viewer drive rather than
 noted. The escalation is withdrawn on this evidence; the assertion is not
 weakened, and `--fault focus-return-broken` proves it can still fail.
+
+## Live path
+
+`viewer --live` asserts the dialog contract against the response it receives and
+never a fixture: the entry control is observed rather than required, media state
+is observed (a still-loading image is not a failure at observation time), the
+pair affordance is never demanded, technical details are recorded rather than
+compared, and a response with nothing to inspect is explained
+(`viewer.live-no-evidence-explained`) instead of failing as a missing entry. An
+explicit `--case` is refused with `--live`. `live-handler --feature viewer` runs
+this production path with the API intercepted and a locally declared result.
 
 ## Gotchas
 

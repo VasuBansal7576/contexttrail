@@ -73,8 +73,10 @@ elsewhere rather than silently ignored);
 `--fault` accepts `a11y-false-green|bad-selection|unexpected-request|
 anchor-broken|focus-removed|drop-timeline-item|group-mislabel|
 pair-endpoint-wrong|pair-note-wrong|focus-return-broken`, and each fault
-declares the drives it can sabotage — an inapplicable combination exits 2
-instead of passing as an inert fault.
+declares the drive **and case/view** it can sabotage — `drop-timeline-item` needs
+`--view timeline`, `group-mislabel` needs `--view analysis`, the pair faults need
+`--case pair`. An inapplicable combination exits 2 instead of passing as an inert
+fault.
 
 Controlled fixtures shipped: `controlled-trace`, `controlled-claim`,
 `controlled-viewer` (per-occurrence loadable thumbnails + a no-snippet item),
@@ -91,13 +93,21 @@ suite in `fixtures/gen-fixtures.test.ts`: terminal event, mode/status
 coherence, `requestLog.durationMs`, policy/support/identity/date/origin
 fields, normalized probability distributions, the exact configured model pin,
 event chronology with discovered/classified/published id identity, decodable
-and distinguishable retrieved images, and no real hosts or credential
-material. Generation itself is gated behind `CONTEXTTRAIL_GEN_FIXTURES=1`.
+and distinguishable retrieved images compared by **decoded pixels** (dimensions
+plus a hash of the pixel bytes — two encodings of identical pixels have
+different URLs and different bytes), and no real hosts or credential material.
+Generation itself is gated behind `CONTEXTTRAIL_GEN_FIXTURES=1`.
 
 `live-ready --run-id <id> --manifest <path> --image <path> [--mode …]` validates
 a live input manifest with no browser, no provider request and no credential
-read, so live readiness is provable at zero credit; its record is sealed with
-the rest of the evidence.
+read, so live input readiness is provable at zero credit; its record is sealed
+with the rest of the evidence and refused after a seal.
+
+`live-handler --run-id <id> --feature result|viewer --manifest <path> --image
+<path> [--claim-text <t>] [--declared-result <fixture>]` proves the *handler*:
+the production `result`/`viewer` code runs with live semantics while the API
+boundary is intercepted and serves a locally declared result. Readiness
+manifests alone cannot show that the live path works; this can, at zero credit.
 
 ## Negative controls
 
@@ -119,13 +129,20 @@ lists its own; the standing set is:
   `pair-endpoint-wrong` (viewer pair — renders a wrong evidence id),
   `pair-note-wrong` (viewer pair — rewrites the pair note into a same-context
   claim), `focus-return-broken` (viewer — drops focus to `<body>` on close).
-- 1 schema rejection for an inert fault: `drive landing --fault bad-selection`
-  exits 2 naming the drives that fault applies to.
-- 6 live-readiness controls (exit 0/1, zero provider calls): a valid manifest
-  passes 11 rules; wrong image hash, a loopback `imageSource`, a provider URL
-  carrying a key, a claim that disagrees with the submitted text, a
-  non-decodable "image", and a claim supplied for a trace run each fail the
-  specific rule they break.
+- 3 schema rejections for inert faults: `drive landing --fault bad-selection`,
+  `drive viewer --case image-load --fault pair-note-wrong` and `drive result
+  --view timeline --fault group-mislabel` each exit 2 naming the scope the fault
+  needs.
+- 8 live-readiness controls (exit 0/1, zero provider calls): valid claim and
+  valid trace manifests pass 11 rules; wrong image hash, a loopback
+  `imageSource`, a provider URL carrying a key, a claim that disagrees with the
+  submitted text, a missing credit acknowledgement, a non-decodable "image", and
+  a claim supplied for a trace run each fail the specific rule they break.
+- 3 intercepted live-handler controls (exit 0, zero provider calls): the
+  production `result` handler and the production `viewer` handler — once against
+  a declared result with no occurrences, once against one with evidence — each
+  assert zero provider attempts, a redirected submission and an honest tier, and
+  never compare against a controlled fixture.
 
 PLANNED / NOT IMPLEMENTED: `rich-context-gaps` / `mixed-evidence` /
 `delayed-provider-fixture` fixture names (delay is a `--delay-ms` modifier

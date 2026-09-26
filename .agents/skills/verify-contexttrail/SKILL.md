@@ -147,17 +147,23 @@ pair-note-wrong|focus-return-broken` sabotages the page under test and the
 drive must exit 1. These prove the assertions are not vacuous; they are part of
 the evidence set, and `--fault` is refused with `--live`.
 
-Each fault declares which drives it can actually sabotage. A fault outside that
-set exits 2 naming the drives it applies to: an accepted fault that cannot fire
-is a false green, which is exactly what `drive landing --fault bad-selection`
-used to be.
+Each fault declares which drive **and which case/view of it** it can actually
+sabotage. A fault outside that scope exits 2 naming the scope it needs: an
+accepted fault that cannot fire is a false green. Feature-level scope alone is
+not enough — `drop-timeline-item` fires against the Timeline panel and
+`group-mislabel` only has an assertion in the Analysis branch, so both are inert
+on the wrong `--view`, and the pair faults have no pair note to rewrite outside
+`--case pair`.
 
 | fault | applies to |
 | --- | --- |
 | `a11y-false-green`, `focus-removed` | `accessibility` |
 | `anchor-broken` | `landing` |
-| `bad-selection`, `drop-timeline-item`, `group-mislabel` | `result` |
-| `pair-endpoint-wrong`, `pair-note-wrong`, `focus-return-broken` | `viewer` |
+| `bad-selection` | `result` (any view) |
+| `drop-timeline-item` | `result --view timeline` |
+| `group-mislabel` | `result --view analysis` |
+| `pair-endpoint-wrong`, `pair-note-wrong` | `viewer --case pair` |
+| `focus-return-broken` | `viewer` (any case) |
 | `unexpected-request` | any drive |
 
 `--delay-ms <ms>` is accepted only by `investigation`, `result` and `viewer`:
@@ -177,12 +183,15 @@ unreachable path is reported, never silently skipped.
 
 Provenance is per drive, not per run:
 
-- `drive.json` records the app revision/BUILD_ID, the runner revision and CLI
-  sha256, the **exact** command and options, the replayed `fixture` with its
-  `fixtureSha256`/`fixtureBytes`, the resolved `input` (image name, bytes,
-  sha256, claim presence and claim sha256 — never a claim value), the
-  `--live-manifest` sha256 for live drives, and the collected videos with their
-  own hashes.
+- `drive.json` records the app revision/BUILD_ID, the runner revision, the
+  runner's `runnerFiles` hash map **as read by that drive** (generator, feature
+  maps and SKILL included — a seal-time file list cannot describe what an
+  earlier drive read), the CLI sha256, the **exact** command and options, the
+  replayed `fixture` with its `fixtureSha256`/`fixtureBytes`, the resolved
+  `input` (image name, bytes, sha256, declared public source, claim presence and
+  claim sha256 — never a claim value), the `--live-manifest` sha256, and the
+  collected videos with their own hashes. The in-progress record carries the same
+  provenance.
 - The exact fixture bytes are copied into the drive directory, so a mid-run
   regeneration cannot re-attribute a drive to different bytes. `evidence`
   re-hashes that retained copy and reports `fixtureBytesIntact`.
@@ -191,6 +200,11 @@ Provenance is per drive, not per run:
   into the drive directory afterwards, hashed, and indexed. `cleanup` removes
   only the generation-level staging directory and prints how many recordings
   survive inside evidence.
+- A recording left in staging by a hard-interrupted attempt belongs to no drive
+  record. Listing its hash is not preserving it, so the seal **copies it into
+  `evidence/orphan-video/`** with a sidecar that labels it `INCOMPLETE` and says
+  in plain words that it is not completed proof. It is hashed like every other
+  artifact and survives cleanup.
 - A drive writes an `outcome: "INCOMPLETE"` record the moment its directory
   exists, and finalizes it on completion. `evidence` lists unfinished attempts
   (`incompleteDrives`) and any recording that belongs to no finalized drive
@@ -219,6 +233,27 @@ the report carries no credential material or provider query URL; the observed
 status is recorded as an observation, never compared with a fixture.
 
 `--delay-ms`, `--fault` and the fixture options are refused with `--live`.
+
+**Proving the live handler, not just the helper.** A manifest that validates
+says nothing about whether the live *handler* works — that is what the C2
+review demonstrated. `live-handler` runs the production `result`/`viewer`
+handler with live semantics while the API boundary is intercepted and serves a
+**locally declared** result:
+
+```
+bin/control-contexttrail live-handler --run-id <id> \
+  --feature result|viewer --manifest <readiness.json> --image <public image> \
+  [--claim-text <text>] [--declared-result <fixture>]
+```
+
+The handler code is unmodified and asserts only the response it receives:
+`result` records the observed takeaways/metrics/timeline/sources/analysis values
+instead of comparing them with a controlled fixture, and `viewer` takes its
+observed media/pair/technical-detail paths. It asserts zero provider attempts, a
+redirected submission and an honest tier label
+(`handler: production live path · result: locally declared, NOT provider truth`).
+It is exempt from the credit gate by construction — its boundary blocks every
+provider-shaped request — and it is refused after a seal.
 
 ## Cleanup
 
@@ -254,9 +289,12 @@ are never wired into production, and are labeled in evidence as
     support / identity / date / origin fields with resolvable cross
     references, normalized probability distributions, the **exact** configured
     model pin (not any `jev-*` lookalike), event chronology with discovered /
-    classified / published id identity in both directions, distinguishable
-    decodable retrieved images (data URIs included, since identical 1×1 pixels
-    make attribution unrecoverable), and no real hosts or credential material.
+    classified / published id identity in both directions, and distinguishable
+    decodable retrieved images compared by **decoded pixels** — dimensions plus a
+    hash of the pixel bytes, because two encodings of the same pixels have
+    different URLs and different bytes while rendering identically (data URIs
+    included, since identical 1×1 pixels make attribution unrecoverable) — plus
+    no real hosts or credential material.
     Nullable unknown fields stay valid; a re-classification is only allowed
     during `REFINED_CLASSIFY`, and the terminal `COMPLETE` stage is the single
     stage allowed to complete without a start;
