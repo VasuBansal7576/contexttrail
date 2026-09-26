@@ -39,6 +39,7 @@ export interface TimelineGroups {
   dated: JsonRecord[];
   unknownDate: JsonRecord[];
   supporting: JsonRecord[];
+  contextual: JsonRecord[];
 }
 
 export interface DivergenceLink {
@@ -96,6 +97,7 @@ function OccurrenceCard({
   index,
   highlight,
   assessed,
+  group,
   groupLabel,
   onInspect,
 }: {
@@ -104,6 +106,7 @@ function OccurrenceCard({
   highlight: boolean;
   /** True when this edge was actually compared (core dated pairs). */
   assessed: boolean;
+  group: "dated" | "supporting" | "contextual" | "unknown";
   groupLabel: string | null;
   onInspect: () => void;
 }) {
@@ -118,7 +121,7 @@ function OccurrenceCard({
   const domain = str(occurrence, "domain");
   const image = occurrenceImage(occurrence);
   const identity = identityBasis(occurrence);
-  const role = occurrenceRole(occurrence);
+  const role = occurrenceRole(occurrence, group);
   const matchBadge = identity?.badge ?? null;
   // Each badge carries distinct meaning (section group vs role vs match
   // basis); never print the same label twice.
@@ -229,9 +232,9 @@ export default function TimelineView({
   onInspect,
 }: TimelineViewProps) {
   const reduce = useReducedMotion();
-  const { dated, unknownDate, supporting } = groups;
+  const { dated, unknownDate, supporting, contextual } = groups;
 
-  if (dated.length === 0 && unknownDate.length === 0 && supporting.length === 0) {
+  if (dated.length === 0 && unknownDate.length === 0 && supporting.length === 0 && contextual.length === 0) {
     return (
       <p className="rounded-xl bg-white/70 p-8 text-center text-sm text-ink/60 ring-1 ring-ink/10">
         No occurrences were returned in this investigation.
@@ -323,6 +326,7 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={assessed}
+                    group="dated"
                     groupLabel={null}
                     onInspect={() => onInspect(id)}
                   />
@@ -357,7 +361,38 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={false}
+                    group="supporting"
                     groupLabel="Supporting lead"
+                    onInspect={() => onInspect(id)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {contextual.length > 0 ? (
+        <section aria-label="Contextual web results" className="mt-10">
+          <h3 className="text-sm font-semibold tracking-wide text-ink/60 uppercase">
+            Contextual web results · not same-media evidence
+          </h3>
+          <p className="mt-1 text-xs text-ink/55">
+            Related pages from web and news search. They were not confirmed to show the submitted
+            image and never enter the core timeline.
+          </p>
+          <ul className="mt-3 space-y-4">
+            {contextual.map((occurrence, i) => {
+              const id = occurrenceId(occurrence, `contextual-${i}`);
+              return (
+                <li key={id}>
+                  <OccurrenceCard
+                    occurrence={occurrence}
+                    index={i}
+                    highlight={highlightId === id}
+                    assessed={false}
+                    group="contextual"
+                    groupLabel="Contextual result"
                     onInspect={() => onInspect(id)}
                   />
                 </li>
@@ -385,6 +420,7 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={false}
+                    group="unknown"
                     groupLabel="Date unknown"
                     onInspect={() => onInspect(id)}
                   />

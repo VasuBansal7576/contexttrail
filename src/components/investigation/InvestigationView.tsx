@@ -4,6 +4,8 @@
  * Dark immersive layout: stage list left, progressive evidence right. Renders
  * only values actually received in this investigation — real counts, real
  * cards, real failures. No percentage-complete meter, no simulated progress.
+ * In DOM and on mobile, the compact current-stage summary comes first, then
+ * arriving evidence, then the full stage list.
  */
 "use client";
 
@@ -126,48 +128,8 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
             </p>
           ) : null}
 
-          {/* Stage list — left column on desktop, below evidence on mobile. */}
-          <section aria-label="Investigation stages" className="order-2 lg:order-1">
-            <ol className="space-y-1">
-              {fullStages.map((stage) => (
-                <li
-                  key={stage.name}
-                  aria-label={`${stage.label}: ${stageStateLabel(stage.status)}${stage.detail ? ` — ${stage.detail}` : ""}`}
-                  className="flex items-start gap-3 rounded-lg px-2 py-2"
-                >
-                  <span className={cn("mt-0.5", stage.status === "running" && "text-signal")}>
-                    <StatusDot kind={stageTone(stage.status)} label="" />
-                  </span>
-                  <div className={cn("min-w-0", stage.status === "waiting" && "opacity-45")}>
-                    <p className="text-[15px] font-medium">{stage.label}</p>
-                    {stage.detail ? (
-                      <p className="truncate text-sm text-white/55" title={stage.detail}>
-                        {stage.detail}
-                      </p>
-                    ) : null}
-                    {stage.status === "running" && !stage.detail ? (
-                      <p className="text-sm text-white/55">In progress…</p>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
-            {searchCounts.length > 0 ? (
-              <ul aria-label="Retrieval counts from this investigation" className="mt-6 space-y-1 text-sm text-white/70">
-                {searchCounts.map((c) => (
-                  <li key={c.engine}>
-                    ✓ {c.engine} — {c.count} {c.count === 1 ? "result" : "results"}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <p className="mt-6 text-xs leading-relaxed text-white/40">
-              Canceling stops new work where possible. Requests already sent may still consume provider credits.
-            </p>
-          </section>
-
-          {/* Progressive evidence — first on mobile, right column on desktop. */}
-          <section aria-label="Evidence arriving live" aria-live="polite" className="order-1 lg:order-2">
+          {/* Progressive evidence — first in DOM and on mobile, right column on desktop. */}
+          <section aria-label="Evidence arriving live" aria-live="polite" className="lg:order-2">
             {evidence.length === 0 ? (
               <p className="rounded-xl bg-white/5 p-8 text-center text-sm text-white/55 ring-1 ring-white/10">
                 Waiting for the first evidence from this investigation…
@@ -209,6 +171,46 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                 </ul>
               </>
             )}
+          </section>
+
+          {/* Stage list — below evidence in DOM and on mobile, left column on desktop. */}
+          <section aria-label="Investigation stages" className="lg:order-1">
+            <ol className="space-y-1">
+              {fullStages.map((stage) => (
+                <li
+                  key={stage.name}
+                  aria-label={`${stage.label}: ${stageStateLabel(stage.status)}${stage.detail ? ` — ${stage.detail}` : ""}`}
+                  className="flex items-start gap-3 rounded-lg px-2 py-2"
+                >
+                  <span className={cn("mt-0.5", stage.status === "running" && "text-signal")}>
+                    <StatusDot kind={stageTone(stage.status)} label="" />
+                  </span>
+                  <div className={cn("min-w-0", stage.status === "waiting" && "opacity-45")}>
+                    <p className="text-[15px] font-medium">{stage.label}</p>
+                    {stage.detail ? (
+                      <p className="truncate text-sm text-white/55" title={stage.detail}>
+                        {stage.detail}
+                      </p>
+                    ) : null}
+                    {stage.status === "running" && !stage.detail ? (
+                      <p className="text-sm text-white/55">In progress…</p>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+            {searchCounts.length > 0 ? (
+              <ul aria-label="Retrieval counts from this investigation" className="mt-6 space-y-1 text-sm text-white/70">
+                {searchCounts.map((c) => (
+                  <li key={c.engine}>
+                    ✓ {c.engine} — {c.count} {c.count === 1 ? "result" : "results"}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="mt-6 text-xs leading-relaxed text-white/40">
+              Canceling stops new work where possible. Requests already sent may still consume provider credits.
+            </p>
           </section>
         </div>
       </main>
