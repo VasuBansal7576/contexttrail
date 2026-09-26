@@ -487,3 +487,101 @@ describe("23/34 — typed provenance graph + sanitized inspection fields", () =>
     expect(prov?.claimContext?.comparedSegmentIds.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe("22 — Trace headline requires a usable chronology (L1)", () => {
+  // Astra L1 P2: the live Situation Room run had 4 relevant core
+  // occurrences but only 1 dated, 0 compared pairs, and
+  // insufficient_dated_occurrences — yet displayed MEDIA_HISTORY_
+  // RECONSTRUCTED. Relevance alone cannot assert a reconstructed history.
+  const datedHtml = (fetchedUrl: string, date: string | null) =>
+    `<html><head><script type="application/ld+json">${JSON.stringify({
+      "@type": "NewsArticle",
+      url: fetchedUrl,
+      headline: "Page",
+      ...(date === null ? {} : { datePublished: date }),
+    })}</script></head><body><p>${"Body text. ".repeat(30)}</p></body></html>`;
+
+  const harness = (dates: Record<string, string | null>) => ({
+    serpapi: {
+      uploadImage: async () => "controlled",
+      search: async (p: { engine?: string; type?: string }) => {
+        if (p.type === "exact_matches") {
+          return {
+            search_metadata: { status: "Success", id: "serp-exact" },
+            exact_matches: Object.keys(dates).map((link, i) => ({
+              title: `item ${i}`,
+              link,
+              position: i + 1,
+            })),
+          };
+        }
+        if (p.type === "about_this_image") {
+          return {
+            search_metadata: { status: "Success", id: "serp-about" },
+            about_this_image: { sections: [] },
+          };
+        }
+        return {
+          search_metadata: { status: "Success", id: `serp-${p.engine}` },
+          visual_matches: [],
+          organic_results: [],
+          news_results: [],
+        };
+      },
+    },
+    jev: {
+      ask: async (_s: unknown, qs: Record<string, unknown>) => ({
+        answers:
+          "pairwise_context" in qs
+            ? {
+                pairwise_context: {
+                  type: "choice",
+                  choice: "DIFFERENT_CONTEXT",
+                  probabilities: { SAME_CONTEXT: 0.02, DIFFERENT_CONTEXT: 0.95, UNCLEAR: 0.03 },
+                },
+              }
+            : GOOD_ANSWERS,
+        model: "jev-1.13.0",
+        identity: VERIFIED_JEV,
+      }),
+    },
+    fetchPage: async (url: string): Promise<FetchedPage> => ({
+      url,
+      html: datedHtml(url, dates[url] ?? null),
+    }),
+  });
+
+  const run = async (deps: ReturnType<typeof harness>) => {
+    const events: Array<{ type: string; result?: Record<string, unknown> }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: null, timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      deps as never,
+    );
+    return events.find((e) => e.type === "investigation.completed")?.result;
+  };
+
+  it("relevant core without a dated chronology is LIMITED, not reconstructed", async () => {
+    // 2 relevant core occurrences; only one resolves a usable date —
+    // the live Situation Room shape (4 relevant core, 1 dated, 0 pairs).
+    const result = await run(
+      harness({
+        "https://a.example.org/item": "2024-01-02",
+        "https://b.example.org/item": null,
+      }),
+    );
+    expect(result?.headline).toBe("LIMITED_MEDIA_HISTORY_FOUND");
+    // The honest limitation is still surfaced.
+    expect(result?.limitations).toContain("insufficient_dated_occurrences");
+  });
+
+  it("a genuinely qualified chronology still earns RECONSTRUCTED", async () => {
+    const result = await run(
+      harness({
+        "https://a.example.org/item": "2024-01-02",
+        "https://b.example.org/item": "2024-03-04",
+      }),
+    );
+    expect(result?.headline).toBe("MEDIA_HISTORY_RECONSTRUCTED");
+  });
+});

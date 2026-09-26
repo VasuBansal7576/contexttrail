@@ -396,7 +396,11 @@ export function sharedMetrics(input: ResultAssemblyInput) {
 
 /**
  * §22 — Trace-mode result. Trace mode never returns claim statuses.
- * Headline is "limited" when fewer than two relevant core occurrences exist.
+ * The strong headline requires a real reconstructed chronology: at least
+ * two relevant core occurrences AND at least two dated core occurrences
+ * actually displayed in the timeline. Relevant-but-undated core evidence
+ * cannot assert a reconstructed history — it yields the limited headline
+ * alongside the `insufficient_dated_occurrences` limitation (L1).
  */
 export function buildTraceResult(input: ResultAssemblyInput): InvestigationResult {
   const relevantCore = input.candidates.filter(
@@ -405,7 +409,7 @@ export function buildTraceResult(input: ResultAssemblyInput): InvestigationResul
   return {
     mode: "trace",
     headline:
-      relevantCore.length >= 2
+      relevantCore.length >= 2 && input.coverage.displayedDatedCore >= 2
         ? "MEDIA_HISTORY_RECONSTRUCTED"
         : "LIMITED_MEDIA_HISTORY_FOUND",
     ...sharedMetrics(input),
