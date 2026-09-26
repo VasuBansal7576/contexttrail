@@ -39,11 +39,15 @@ values into evidence, logs, or commits.
 bin/control-contexttrail doctor --run-id <id> [--expect-revision <sha>]
 ```
 
-Read-only health check: owned PID alive, port answers, landing returns 200 and
-contains the app identity, the referenced stylesheet returns 200, BUILD_ID
-present, revision matches, env-file presence as a boolean. Exit 1 on any
-failure — run doctor before driving and after any surprising result; it never
-consumes provider credit.
+Read-only health check: the manifest PID is alive *and* its recorded
+signature still matches (PID-reuse guard), the expected port is bound by
+that process or one of its descendants, landing returns 200 and contains
+the app identity, the referenced stylesheet returns 200, the build id
+served in the page matches the manifest's, revision matches, and
+env-file presence as a boolean. Run resolution does not need `--checkout`:
+it falls back through `CONTEXTTRAIL_CHECKOUT`, the CLI's own repo root,
+then cwd. Exit 1 on any failure — run doctor before driving and after
+any surprising result; it never consumes provider credit.
 
 ## Drive
 
@@ -56,8 +60,12 @@ Implemented drives:
 - `landing` — loads `/`, captures hero + ARIA snapshot, follows the first
   "Start investigating" CTA, asserts `/investigate` is reached and no
   `/api/investigate` request fired from the landing page.
-- `upload` — opens `/investigate`, exercises the real file chooser with a
-  generated 1x1 PNG, captures the selected state and submit-button enablement.
+- `upload` — opens `/investigate` and loads a generated 1x1 PNG through
+  `setInputFiles` on the hidden `#ct-image-input` (recorded as
+  `entry: "setInputFiles"` in actions.jsonl — this exercises the real
+  onChange path but is NOT a native file-chooser/drop/paste interaction;
+  those entry points are not yet implemented), captures the selected
+  state and submit-button enablement.
 - `investigation --mode trace|claim [--case <fixture>]` — submits the upload
   through the normal form. Without `--live`, `POST /api/investigate` is
   intercepted and fulfilled with a controlled public-contract NDJSON stream
@@ -90,10 +98,13 @@ the resulting state; an unreachable path is reported, never silently skipped.
 bin/control-contexttrail cleanup --run-id <id>
 ```
 
-Terminates only the owned PID (SIGTERM then SIGKILL if needed) and removes the
-snapshot checkout and scratch state — never kills by process name, never
-touches the interactive `:3100` server or sibling worktrees. Evidence, logs,
-and the manifest are preserved; the command prints surviving artifact counts.
+Refuses to signal anything unless the manifest PID's recorded signature
+still matches (PID-reuse guard). Terminates the owned process *tree* —
+descendants first, then the npm parent — and waits for the port to be
+released, exiting nonzero if it is not. Removes the snapshot checkout and
+scratch state — never kills by process name, never touches the
+interactive `:3100` server or sibling worktrees. Evidence, logs, and the
+manifest are preserved; the command prints surviving artifact counts.
 Run cleanup after every failed iteration too.
 
 ## Feature map and live gate

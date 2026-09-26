@@ -152,11 +152,20 @@ export function buildContextSegments(
   let segmentIdx = 0;
   let comparedPairs = 0;
   let firstDivergence: Divergence | null = null;
-  // A sampled sequence skips eligible occurrences — the skipped adjacent
-  // transitions are unexamined, so earlier transitions stay unresolved and
-  // no exact segment count may be claimed (§20.2).
+  // An exact segment count needs complete adjacent coverage of the
+  // eligible run — a sampled sequence that skips occurrences can never
+  // claim one (§20.2).
   const fullCoverage = selected.length === eligible.length;
-  let earlierUnresolved = !fullCoverage;
+  const selectedIds = new Set(selected.map((c) => c.id));
+  // True when an eligible occurrence strictly before `cur` (in the
+  // chronological eligible order) was not selected — its adjacent
+  // transitions were never examined.
+  const skippedBefore = (cur: EvidenceCandidate): boolean => {
+    const curIdx = eligible.findIndex((e) => e.id === cur.id);
+    if (curIdx <= 0) return false;
+    return eligible.slice(0, curIdx).some((e) => !selectedIds.has(e.id));
+  };
+  let earlierUnresolved = false;
   let allDecisive = selected.length > 0 && fullCoverage;
 
   if (selected.length === 0) {
@@ -202,7 +211,10 @@ export function buildContextSegments(
           fromOccurrenceId: prev.id,
           toOccurrenceId: cur.id,
           observedAt: cur.publishedAt,
-          earlierTransitionsUnresolved: earlierUnresolved,
+          // Unresolved means an *earlier* transition is unexamined —
+          // either an uncertain edge already walked, or an eligible
+          // occurrence skipped by sampling before this divergence.
+          earlierTransitionsUnresolved: earlierUnresolved || skippedBefore(cur),
         };
       }
     } else {

@@ -63,10 +63,16 @@ function fail(msg, code = 2) {
 
 /* ------------------------------ run state ------------------------------ */
 
+/** Repo root derived from this file's own location — the stable anchor
+ *  that lets doctor/drive/evidence/cleanup resolve a run without flags
+ *  or a matching cwd. */
+const CLI_CHECKOUT = path.resolve(SKILL_DIR, "..", "..", "..");
+
 function runDir(runId) {
   const candidates = [
     flags.checkout && path.resolve(flags.checkout),
     process.env.CONTEXTTRAIL_CHECKOUT && path.resolve(process.env.CONTEXTTRAIL_CHECKOUT),
+    CLI_CHECKOUT,
     process.cwd(),
   ].filter(Boolean);
   for (const c of candidates) {
@@ -126,6 +132,73 @@ function pidAlive(pid) {
   } catch {
     return false;
   }
+}
+
+/** OS process signature for PID-reuse guarding: start time + argv. */
+function pidSignature(pid) {
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "lstart=", "-o", "args="], {
+      encoding: "utf8",
+    }).replace(/\s+/g, " ").trim();
+  } catch {
+    return null;
+  }
+}
+
+/** PID(s) listening on a TCP port (lsof). */
+function portListeners(port) {
+  try {
+    const out = execFileSync(
+      "lsof",
+      ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"],
+      { encoding: "utf8" },
+    );
+    return out.split("\n").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0);
+  } catch {
+    return [];
+  }
+}
+
+/** All descendant pids of `pid` (pgrep -P walk), children before parents. */
+function descendantsOf(pid) {
+  const out = [];
+  const walk = (p) => {
+    let kids = [];
+    try {
+      kids = execFileSync("pgrep", ["-P", String(p)], { encoding: "utf8" })
+        .split("\n")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isInteger(n) && n > 0);
+    } catch {
+      kids = [];
+    }
+    for (const k of kids) {
+      out.push(k);
+      walk(k);
+    }
+  };
+  walk(pid);
+  return out;
+}
+
+/** True when `pid` is an ancestor-or-self of `descendant`. */
+function isAncestorOrSelf(pid, descendant) {
+  if (pid === descendant) return true;
+  let ppid = new Map();
+  try {
+    for (const line of execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" }).split("\n")) {
+      const [a, b] = line.trim().split(/\s+/).map(Number);
+      if (Number.isInteger(a) && Number.isInteger(b)) ppid.set(a, b);
+    }
+  } catch {
+    return false;
+  }
+  let cur = descendant;
+  for (let i = 0; i < 100 && cur > 1; i++) {
+    cur = ppid.get(cur) ?? 0;
+    if (cur === pid) return true;
+  }
+  return false;
 }
 
 function gitSha(checkout, rev) {
@@ -223,6 +296,7 @@ async function launch() {
   writeManifest(runId, {
     runId,
     pid: child.pid,
+    pidSig: pidSignature(child.pid),
     port,
     url,
     revision: sha,
@@ -244,19 +318,37 @@ async function launch() {
 
 /* -------------------------------- doctor ------------------------------- */
 
+/** PID reuse guard: the recorded process must still be our process. */
+function pidIsOwned(m) {
+  if (!m.pid || !pidAlive(m.pid)) return false;
+  if (!m.pidSig) return true; // manifests predating the guard
+  return pidSignature(m.pid) === m.pidSig;
+}
+
 async function doctor() {
   const runId = required("run-id");
   const m = readManifest(runId);
   if (!m) fail(`no manifest for run-id ${runId}`);
   const checks = {};
-  checks.pidAlive = pidAlive(m.pid);
+  checks.ownedPidAlive = pidIsOwned(m);
+  // The expected port must be bound by our recorded process or one of
+  // its descendants — not just any listener on the port.
+  const listeners = portListeners(m.port);
+  checks.portBoundByOwnedProcess =
+    listeners.length > 0 &&
+    (listeners.includes(m.pid) ||
+      listeners.some((p) => isAncestorOrSelf(m.pid, p)) ||
+      descendantsOf(m.pid).some((p) => listeners.includes(p)));
   const landing = await httpGet(m.url);
   checks.landing200 = landing.status === 200;
   checks.titlePresent = landing.body.toString("utf8").includes("ContextTrail");
   const css = [...landing.body.toString("utf8").matchAll(/href="([^"]+\.css[^"]*)"/g)]
     .map((x) => x[1])[0];
   checks.stylesheet200 = css ? (await httpGet(new URL(css, m.url).href)).status === 200 : false;
-  checks.buildIdPresent = fs.existsSync(path.join(m.snapshot, ".next", "BUILD_ID"));
+  // The served build — not merely a file on disk — must match manifest.
+  // Next serves /_next/static/<BUILD_ID>/_ssgManifest.js keyed by build id.
+  checks.servedBuildIdMatch =
+    (await httpGet(`${m.url}/_next/static/${m.buildId}/_ssgManifest.js`)).status === 200;
   checks.revisionMatch =
     flags["expect-revision"] === undefined
       ? true
@@ -354,7 +446,7 @@ async function drive() {
   const runId = required("run-id");
   const m = readManifest(runId);
   if (!m) fail(`no manifest for run-id ${runId}`);
-  if (!pidAlive(m.pid)) fail(`server pid ${m.pid} is not alive — relaunch`);
+  if (!pidIsOwned(m)) fail(`server pid ${m.pid} is not alive (or was reused) — relaunch`);
   const viewport = flags.viewport ?? "desktop";
   const live = flags.live === true;
   if (live && process.env.RUN_LIVE_TESTS !== "1") fail("--live requires RUN_LIVE_TESTS=1");
@@ -392,7 +484,7 @@ async function drive() {
         await aria(page, runId, "upload-selected");
         const submit = page.getByRole("button", { name: /start investigation/i });
         evidenceRecord(runId, {
-          feature: "upload", entry: "browse", viewport, tier: "real-ui",
+          feature: "upload", entry: "setInputFiles", viewport, tier: "real-ui",
           submitEnabled: await submit.isEnabled().catch(() => null),
         });
         break;
@@ -482,12 +574,35 @@ async function cleanup() {
   if (!m) fail(`no manifest for run-id ${runId}`);
   const killed = [];
   if (m.pid && pidAlive(m.pid)) {
-    try {
-      process.kill(m.pid, "SIGTERM");
-      killed.push(m.pid);
-      await delay(400);
-      if (pidAlive(m.pid)) process.kill(m.pid, "SIGKILL");
-    } catch { /* already gone */ }
+    if (!pidIsOwned(m)) {
+      // PID was recycled by the OS — never signal a process we don't own.
+      console.log(JSON.stringify({ cleaned: runId, killed, pidReused: true, evidenceArtifacts: fs.existsSync(path.join(runDir(runId), "evidence")) ? fs.readdirSync(path.join(runDir(runId), "evidence")).length : 0 }));
+      process.exit(1);
+    }
+    // Stop the whole owned tree — children (next-server) first, npm last.
+    const tree = [...descendantsOf(m.pid), m.pid];
+    for (const p of tree) {
+      try {
+        process.kill(p, "SIGTERM");
+        killed.push(p);
+      } catch { /* already gone */ }
+    }
+    await delay(500);
+    for (const p of tree) {
+      try {
+        if (pidAlive(p)) process.kill(p, "SIGKILL");
+      } catch { /* already gone */ }
+    }
+    // Wait until the port is released or give up with a nonzero exit —
+    // a surviving listener means our tree was not fully stopped.
+    const t0 = Date.now();
+    while (portListeners(m.port).length > 0 && Date.now() - t0 < 5000) {
+      await delay(250);
+    }
+    if (portListeners(m.port).length > 0) {
+      console.log(JSON.stringify({ cleaned: runId, killed, portStillBound: true }));
+      process.exit(1);
+    }
   }
   // Remove scratch checkout/install — preserve evidence, logs and manifest.
   const snap = path.join(runDir(runId), "checkout");

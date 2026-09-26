@@ -38,17 +38,23 @@ const ATTRIBUTION_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Explicit original-reporting markers on the page itself. Every pattern
- * asserts a positive act of original publication/reporting — merely
- * mentioning staff or reporters is never evidence (§13 conservative rule).
+ * Explicit original-reporting markers on the page itself. Eligibility
+ * requires an inspector-visible *named* attribution — a person byline
+ * bound to an outlet, or a named publisher tied to the media itself.
+ * Anonymous assertions ("our investigation first published…", "this
+ * outlet reported…", "exclusive report") and mere staff/reporter
+ * mentions are unattributed claims and never qualify (§13 conservative
+ * rule).
  */
 const OWN_REPORTING_PATTERNS: RegExp[] = [
-  /first published (?:here|by us)/i,
-  /\bexclusive\b[^.]{0,40}\b(?:report|investigation|interview)/i,
-  /(?:our|the)\s+(?:staff|reporters?|correspondents?)\s+(?:first\s+)?(?:reported|verified|obtained|produced|investigated|documented|broke)\b/i,
-  /our\s+(?:investigation|reporting|newsroom|outlet)\s+(?:first\s+)?(?:published|reported|broke|uncovered|verified|obtained)/i,
-  /(?:reported|investigated|written) by\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b[^.]{0,40}\bfor\s+/i,
-  /this (?:outlet|site|publication|newspaper) (?:first )?(?:reported|broke|published)/i,
+  // Named-person byline bound to an outlet: "Reported by Jane Doe for
+  // the Daily Examiner", "Written by Sam Roe for the Herald". Verb forms
+  // accept sentence-start or mid-sentence case; the name must be a real
+  // capitalized proper noun.
+  /(?:[Rr]eported|[Ii]nvestigated|[Ww]ritten|[Pp]hotographed|[Dd]ocumented) by\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b[^.]{0,60}\bfor\s+\S/,
+  // Named publisher tied to the media: "the photograph was first
+  // published by Reuters", "image obtained by the Associated Press".
+  /(?:image|photo|photograph|footage|video)\s+(?:was\s+)?(?:first\s+)?(?:published|released|obtained|verified|documented)\s+by\s+[A-Z]/,
 ];
 
 /**
