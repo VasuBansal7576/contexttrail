@@ -1,33 +1,81 @@
 # Media timeline, supporting leads, and context changes
 
-Timeline is an inspectable partial media history, with actual relationships and gaps; supporting material cannot imply a verified image appearance.
+The timeline shows what the fixture actually shipped: every dated occurrence,
+in order, with its year, its source domain, and the connector that explains
+the context change — and it never invents an item.
 
 ## Sub-features
 
-- timeline-core: dated verified occurrences only
-- timeline-supporting: separate dated leads/contextual pages
-- timeline-unknown: unknown/disputed with visible reasons
-- timeline-precision: day/month/year without invented day
-- timeline-connectors: same/different/uncertain/not compared
-- timeline-sample:allvisible,≤8compared, unresolvedexactcount
-- timeline-divergence:laterpoint, twoIDs, earlieruncertainty
-- timeline-position: inspect and return preserves location
+- timeline-dated: the core dated occurrences render as an ordered list
+- timeline-dates: usable dates are shown as years; unknown dates are grouped separately
+- timeline-groups: supporting visual leads, contextual web results and unknown-date evidence each render their own section
+- timeline-divergence: the first observed context divergence note appears only when the fixture has one
 
-## How to get to it (user POV)
+## Drive command
 
-View evidence timeline CTA, Timeline tab, a conclusion's linked evidence, or viewer return.
+```
+bin/control-contexttrail drive result --run-id <id> --view timeline \
+  [--case controlled-claim|controlled-trace|controlled-viewer|controlled-insufficient]
+bin/control-contexttrail drive viewer --run-id <id> --entry timeline \
+  --case image-load|image-fail|no-excerpt --viewport desktop|mobile
+```
 
-## Driving it with control-contexttrail
+## Assertions (executable contract)
 
-Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
+Rendered-count contract — each is a comparison against the terminal
+`investigation.completed` result inside the fixture itself, so a regression
+that drops an item turns the drive red:
 
-control-contexttrail drive result --case <fixture> --view timeline --run-id <id>. rich-context-gaps is PLANNED (no such fixture yet — generate it in gen-fixtures.test.ts); use controlled-claim until it lands. Compare every rendered node to core-identity predicates; test unknown/disputed and imprecise dates; open divergence endpoints; inspect a lower row and close. Repeat mobile.
+| ID | What it proves |
+| --- | --- |
+| `result.timeline-count-matches-fixture` | `#ct-panel-timeline ol > li` count equals the fixture's `timeline.length` |
+| `result.timeline-shows-dates` | when the fixture has usable dates, the panel text carries at least one `20xx` year token |
+| `result.timeline-section-nonempty-contextual-web-results` | a labelled section that renders contains ≥1 item |
+| `result.timeline-section-nonempty-supporting-visual-leads` | same for supporting leads |
+| `result.timeline-section-nonempty-evidence-with-unknown-dates` | same for unknown-date evidence |
+| `result.timeline-no-placeholder` | no `undefined`, `null`, `NaN` or `Invalid Date` in the panel text |
+| `result.tab-timeline-present` / `result.tab-timeline-selected` | the tab exists and reports `aria-selected=true` |
 
-Observable proof: Timeline is an inspectable partial media history, with actual relationships and gaps; supporting material cannot imply a verified image appearance.
+Entering an occurrence from the timeline:
+
+| ID | What it proves |
+| --- | --- |
+| `viewer.timeline-entry-present` | `Inspect evidence` control exists on a timeline row |
+| `viewer.dialog-open` | the evidence dialog opens |
+| `viewer.takeaway-entry-present` | (overview) `View evidence →` exists on a takeaway row when takeaways ship |
+| `viewer.source-link-*` | see [07-viewer](./07-viewer.md) |
+
+For `--case controlled-insufficient` the timeline is genuinely empty: the
+count assertion compares `0 rendered vs 0 fixture` and the empty state must
+render instead of a fabricated list.
+
+## Evidence
+
+`01-result-timeline.png`, `result-timeline.aria.txt`, `drive.json`
+(`fixture`, `view`), plus the viewer artifacts when entered from a row.
+
+## Negative controls
+
+| Command | Expected |
+| --- | --- |
+| `drive result --run-id <id> --view timeline --fault drop-timeline-item` | **exit 1** — `result.timeline-count-matches-fixture` fails (`0 rendered vs 2 fixture`) |
+| `drive result --run-id <id> --view timeline --case controlled-trace` | exit 0 — trace fixtures carry a timeline with no conflict status |
+| `drive result --run-id <id> --view tab` | exit 2, lists the four views |
+
+The `drop-timeline-item` fault removes rendered occurrences every 50 ms; it is
+the proof that the count assertions are not vacuous.
 
 ## Gotchas
 
-Live noncore nodes contaminate core line. UI ignores connectors and divergence endpoints. Sampled exact segment count fails. Sorting is automatic; no filter/sort controls exist or are required by the PRD.
+- The labelled sections render only when non-empty, so a section assertion is
+  written as "if it renders, it is non-empty" — an absent section is not a
+  failure, a hollow one is.
+- `motion.li` re-mounts on tab re-selection; any fault or assertion must
+  therefore be re-evaluated rather than assumed stable across selections.
+- Dates come from the fixture's `dateStatus`/`observedAt` contract, which the
+  always-on fixture suite in `fixtures/gen-fixtures.test.ts` validates
+  independently of the browser.
 
-Keep screenshots, ARIA snapshots, action video, sanitized response/events and invariant results with the feature ID. Cleanup closes owned runtime state and preserves evidence. 
-
+Keep screenshots, ARIA snapshots, action video, sanitized response/events and
+invariant results with the feature ID. Cleanup closes owned runtime state and
+preserves evidence.

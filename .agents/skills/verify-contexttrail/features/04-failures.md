@@ -1,33 +1,80 @@
 # Cancellation, partial evidence, and retry
 
-No silent fallback or retry; failure identifies missing work; retry preserves current inputs; new starts blank; cancellation is truthful about already sent requests.
+A user can stop an investigation, is told plainly what happened, keeps what
+they typed, and can try again — and an unexpected provider-shaped request is
+never allowed to pass silently.
 
 ## Sub-features
 
-- failure-visual: both Lens fail, honest fatal outcome
-- failure-exact: empty/malformed/unavailable distinct
-- failure-enrichment: Search/News/About nonfatal explicit
-- failure-page: retain SERP metadata when page fetch fails
-- failure-jev: partial/null/all unavailable conservative
-- failure-network: HTTP500/413/truncated stream/watchdog
-- cancel: stops UI work and retains input
-- retry: Return to upload retains image/claim, New clears
+- failure-cancel: Cancel shows a cancellation screen and returns to the upload with the claim intact
+- failure-fatal: an interrupted stream shows a fatal message, then returns to upload with the claim intact
+- failure-boundary: any provider-shaped request from the page is counted and fails the drive
+- failure-delay: `--delay-ms` makes the stream slow without changing the assertions that must hold
 
-## How to get to it (user POV)
+## Drive commands
 
-Run controlled provider failures through the normal upload path; cancel while Tracing the web is visible; return or start new.
+```
+bin/control-contexttrail drive session --run-id <id> --case cancel
+bin/control-contexttrail drive session --run-id <id> --case fatal-retry
+bin/control-contexttrail drive result --run-id <id> --delay-ms <ms>
+bin/control-contexttrail drive result --run-id <id> --fault unexpected-request
+```
 
-## Driving it with control-contexttrail
+## Assertions (executable contract)
 
-Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
+`--case cancel`:
 
-control-contexttrail drive session --case cancel|fatal-retry|new|refresh|back --run-id <id>; control-contexttrail drive investigation --mode claim --case <fixture> [--delay-ms <ms>] --run-id <id>. cancel uses a delayed intercept and asserts the cancelled screen plus preserved input after Return to upload; fatal-retry asserts the interrupted alert and preserved claim/image. Assert the precise stage and limitation, retained evidence, preserved input, source-call abort signal and bounded attempted credits.
+| ID | What it proves |
+| --- | --- |
+| `session.cancel-shown` | `investigation cancelled` surface appears after Cancel |
+| `session.cancel-preserves-claim` | returning to upload keeps the typed claim |
+| `upload.preview-visible` / `upload.preview-matches-file` | the selected image is still selected after returning |
+| `boundary.*` / `console.no-unexpected-errors` | nothing escaped the boundary during cancel |
 
-Observable proof: No silent fallback or retry; failure identifies missing work; retry preserves current inputs; new starts blank; cancellation is truthful about already sent requests.
+`--case fatal-retry`:
+
+| ID | What it proves |
+| --- | --- |
+| `session.fatal-shown` | `investigation interrupted` error surface appears |
+| `session.fatal-preserves-claim` | the claim survives the failure |
+| `upload.preview-visible` / `upload.preview-matches-file` | the image survives the failure |
+| `boundary.*` / `console.no-unexpected-errors` | no provider call was made while failing |
+
+`--fault unexpected-request` (any drive):
+
+| ID | What it proves |
+| --- | --- |
+| `boundary.provider-blocked` | the injected `serpapi.com` fetch was counted and stopped |
+| `boundary.zero-provider-attempts` | fails — an attempt was observed |
+| `drive.completed` (FAIL) | the run exits nonzero rather than reporting green |
+
+## Evidence
+
+`01-session-cancel.png`, `01-session-fatal.png`, `boundary.json`,
+`console.json`, `drive.json` (`outcome`, `failure`, `failureStack`).
+
+## Negative controls
+
+| Command | Expected |
+| --- | --- |
+| `drive session --run-id <id> --case nope` | exit 2, lists `refresh\|back\|new\|cancel\|fatal-retry` |
+| `drive session --run-id <id> --entry x` | exit 2, session declares no `--entry` |
+| `drive session --run-id <id> --fault unexpected-request` | **exit 1** with `boundary.providerBlocked: 1` |
+| `drive result --run-id <id> --delay-ms abc` | exit 2 |
+| `drive result --run-id <id> --delay-ms -1` | exit 2 |
 
 ## Gotchas
 
-Browser cancellation and fatal/return, HTTP errors, partial unconfigured semantics and truncated stream verified at boundaries. Actual upstream cancellation and90s watchdog timing remain NOT VERIFIED. Failure limitation derivation has gaps.
+- Cancel releases the held stream segments *after* the cancellation surface is
+  asserted, so the harness never races the UI it is checking.
+- The fatal path is driven by an aborted stream, not by a stubbed error
+  component — the page must reach the interrupted state through the real
+  `useInvestigation` error handling.
+- Console errors observed during these runs are classified; only
+  `unexpected` ones fail `console.no-unexpected-errors`. Controlled
+  `example.invalid` / `fixture-*` image failures and blocked-API noise are
+  recognised and recorded instead.
 
-Keep screenshots, ARIA snapshots, action video, sanitized response/events and invariant results with the feature ID. Cleanup closes owned runtime state and preserves evidence. 
-
+Keep screenshots, ARIA snapshots, action video, sanitized response/events and
+invariant results with the feature ID. Cleanup closes owned runtime state and
+preserves evidence.
