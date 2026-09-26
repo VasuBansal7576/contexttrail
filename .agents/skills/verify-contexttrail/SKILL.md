@@ -235,6 +235,18 @@ Provenance is per drive, not per run:
   nothing it did not finish. `evidence` lists unfinished attempts
   (`incompleteDrives`) and any recording that belongs to no finalized drive
   (`unclaimedRecordings`) instead of counting only what succeeded.
+- A `stream-ownership` drive writes `ownership-plan.json` **before any effect**
+  (the streams it plans to serve and the retained files it plans to keep), then
+  persists its observed records through a failure-safe finalizer:
+  `delivery-ledger.json` (every request the transport actually saw),
+  `request-inputs.json` (each PLANNED request projected against observation —
+  a request never sent is `UNOBSERVED` with null fields, never fabricated), and
+  `retained-streams.json` (per-request integrity of the retained source bytes).
+  These are written even when an assertion aborts the case, with
+  `finalizedUnder` naming the exit that produced them. `evidence` expects every
+  stream the plan declared — sourced from the plan, not the end ledger — and a
+  missing plan, missing ledger, divergence between them, or a lost/corrupted
+  retained file fails the seal non-zero.
 
 ## Live input contract
 

@@ -4,14 +4,16 @@
  * The drive writes the exact buffer each request was served from as a durable
  * per-request file, and checks at seal time that the file on disk is still those
  * bytes. A check that can only pass proves nothing, so this exercises the SAME
- * predicate against a lost file and a corrupted file and must report both as
- * failures. It needs no browser and no run.
+ * predicate the drive and the seal use — imported, not copied — against a lost
+ * file and a corrupted file and must report both as failures. It needs no
+ * browser and no run.
  *
  *   node fixtures/controls/retained-integrity.mjs <drive-dir>
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { verifyRetainedStreams } from "../../cli/control-contexttrail.mjs";
 
 const dir = process.argv[2];
 if (!dir) {
@@ -20,19 +22,10 @@ if (!dir) {
 }
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "retained-streams.json"), "utf8"));
 
-// The same predicate the drive uses.
+// The same predicate the drive and the seal use — the real import, so this
+// control cannot drift into a different verdict.
 const verify = (rows) =>
-  rows.map((r) => {
-    const p = path.join(dir, r.file);
-    if (!fs.existsSync(p)) return { file: r.file, matches: false, why: "retained file is missing" };
-    const actual = fs.readFileSync(p);
-    const sha = crypto.createHash("sha256").update(actual).digest("hex");
-    return {
-      file: r.file,
-      matches: sha === r.sha256 && actual.length === r.bytes,
-      why: sha === r.sha256 && actual.length === r.bytes ? "byte-identical" : "retained bytes differ from the captured buffer",
-    };
-  });
+  verifyRetainedStreams(rows, (r) => fs.readFileSync(path.join(dir, r.file)));
 
 const baseline = verify(manifest.streams);
 console.log("as sealed:", baseline.map((r) => `${r.file} ${r.matches ? "OK" : "FAIL"} (${r.why})`).join("; "));

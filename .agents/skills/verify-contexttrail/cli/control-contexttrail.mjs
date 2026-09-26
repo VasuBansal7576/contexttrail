@@ -2106,14 +2106,116 @@ function verifyRetainedStreams(expected, read) {
 }
 
 /**
+ * S3: project the planned multi-request contract against the request ledger that
+ * was ACTUALLY observed. Pure — plans and ledger rows in, rows out — so the
+ * drive's finalizer, the seal and the offline controls all run the same
+ * projection.
+ *
+ * A request the plan named but the drive never got as far as sending stays
+ * UNOBSERVED, with a reason, and is never fabricated into a row that looks like
+ * it reached the transport: its observed-only fields are null, not invented.
+ * Ledger rows with no matching plan are surfaced separately as unplanned rather
+ * than silently dropped.
+ */
+function projectRequestObservations(planned, ledger) {
+  const rows = (ledger ?? []).filter((e) => e && typeof e.index === "number");
+  const requests = planned.map((pl) => {
+    const entry = rows.find((e) => e.index === pl.request) ?? null;
+    if (!entry) {
+      return {
+        request: pl.request,
+        fixture: pl.fixture,
+        investigationId: pl.investigationId ?? null,
+        observed: false,
+        status: "UNOBSERVED",
+        unobservedReason:
+          "planned but never reached the transport: the drive ended before this request was sent",
+        sentClaimSha256: null,
+        sentClaimBytes: null,
+        sentMediaName: null,
+        sentMediaBytes: null,
+        imageEntryMethod: null,
+        eventsWritten: null,
+        clientClosed: null,
+        endedByServer: null,
+        lateAttempts: null,
+      };
+    }
+    return {
+      request: pl.request,
+      fixture: pl.fixture,
+      investigationId: pl.investigationId ?? null,
+      observed: true,
+      status: "OBSERVED",
+      unobservedReason: null,
+      // Whether the request was actually served from the planned fixture: a
+      // mismatch is a real observation to report, not something to paper over.
+      fixtureAgrees: entry.fixture === pl.fixture,
+      sentClaimSha256: entry.sentClaimSha256 ?? null,
+      sentClaimBytes: entry.sentClaimBytes ?? null,
+      sentMediaName: entry.sentMediaName ?? null,
+      sentMediaBytes: entry.sentMediaBytes ?? null,
+      imageEntryMethod: entry.imageEntryMethod ?? null,
+      eventsWritten: entry.eventsWritten ?? null,
+      clientClosed: entry.clientClosed ?? null,
+      endedByServer: entry.endedByServer ?? null,
+      lateAttempts: entry.lateAttempts ?? [],
+    };
+  });
+  const plannedIndexes = new Set(planned.map((pl) => pl.request));
+  const unplanned = rows
+    .filter((e) => !plannedIndexes.has(e.index))
+    .map((e) => ({
+      index: e.index,
+      fixture: e.fixture ?? null,
+      sentClaimSha256: e.sentClaimSha256 ?? null,
+      note: "reached the transport but was not in this drive's plan",
+    }));
+  return { requests, unplanned };
+}
+
+/**
+ * RO5: whether the reading-order sabotage target observed in the page matches
+ * what the drive actually asked for. With a reading fault requested, the
+ * mutation must have applied to the measured panel's own Sources list; with NO
+ * reading fault, the only honest requirement is that NO sabotage target exists
+ * — the requested panel itself is established separately by
+ * result.measurement-surface-is-the-requested-panel, so conditioning on
+ * "Sources" here false-reds every other valid view.
+ */
+function readingOrderTargetOk(fault, faultTarget, panelId) {
+  if (fault === "reading-order-reversed" || fault === "reading-order-restored") {
+    return (
+      faultTarget !== null &&
+      faultTarget.panelId === panelId &&
+      faultTarget.directRows >= 2 &&
+      faultTarget.applied === true
+    );
+  }
+  return faultTarget === null;
+}
+
+/**
+ * RO5: the panel the layout is measured on must be the one the requested view
+ * selected — the check that runs BEFORE the mutation-target assertion, so a
+ * wrong panel is red there, not here.
+ */
+function measurementSurfaceOk(requestedView, panelInfo) {
+  return panelInfo.observedTab === requestedView && panelInfo.settled === true;
+}
+
+/**
  * Files the run PLANNED to retain, projected to expectation fields only.
  *
  * Returns expectations AND the problems found, because a missing or malformed plan
- * must not read as "nothing was planned". Every stream-ownership drive writes a plan;
- * if one is absent or unreadable, that is a broken seal, not an empty one. A missing
- * plan is reported separately from a schema error, and a plan whose entry is
- * missing the fields the validator needs is a schema error rather than a silently
- * skipped entry.
+ * must not read as "nothing was planned". Every stream-ownership drive dir is
+ * enumerated first — including failed or incomplete ones — and a drive whose
+ * record says stream-ownership but wrote no plan is a broken seal, not a skip.
+ *
+ * Expectations come from ownership-plan.json, written BEFORE any effect — not
+ * from the end-of-drive retained-streams.json, whose observed fields would let a
+ * stale verdict stand in for a check. The end ledger still has to AGREE with the
+ * plan: a recorded set that diverges from what was declared is a broken seal.
  */
 function plannedRetainedStreams(runId) {
   const out = [];
@@ -2123,52 +2225,145 @@ function plannedRetainedStreams(runId) {
     problems.push({ drive: "(none)", why: "evidence has no drives/ directory at all" });
     return { out, problems };
   }
-  for (const name of fs.readdirSync(drivesDir)) {
-    const p = path.join(drivesDir, name, "retained-streams.json");
-    if (!fs.existsSync(p)) {
-      // A drive that wrote an ownership plan naming retained streams, but no
-      // retained-streams.json, has LOST its record. Skipping it silently would
-      // make a deleted plan seal as a pass, which is the failure 041 named: the
-      // expectation is known independently, from the plan written before effects.
-      const planPath = path.join(drivesDir, name, "ownership-plan.json");
-      if (fs.existsSync(planPath)) {
-        try {
-          const plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
-          const declared = plan?.retainedStreams ?? plan?.streamsConsumed ?? null;
-          if (Array.isArray(declared) && declared.length > 0) {
-            problems.push({
-              drive: name,
-              why: `ownership-plan.json declares ${declared.length} retained stream(s) but retained-streams.json is missing`,
-            });
-          }
-        } catch (err) {
-          problems.push({ drive: name, why: `ownership-plan.json is unreadable: ${err.message}` });
-        }
+  for (const name of fs.readdirSync(drivesDir).sort()) {
+    const drivePath = path.join(drivesDir, name);
+    if (!fs.statSync(drivePath).isDirectory()) continue;
+    // The drive record is the authority on what this directory was: a
+    // stream-ownership drive that never wrote its plan (aborted before the
+    // first write, or the file lost) must not read as "never planned".
+    let feature = null;
+    try {
+      feature = JSON.parse(fs.readFileSync(path.join(drivePath, "drive.json"), "utf8"))?.feature ?? null;
+    } catch {
+      /* no readable record — the plan file decides below */
+    }
+    const planPath = path.join(drivePath, "ownership-plan.json");
+    const streamsPath = path.join(drivePath, "retained-streams.json");
+    if (!fs.existsSync(planPath)) {
+      if (feature === "stream-ownership") {
+        problems.push({ drive: name, why: "stream-ownership drive wrote no ownership-plan.json" });
       }
       continue; // a drive that never planned streams
     }
-    let parsed;
+    let plan;
     try {
-      parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+      plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
+    } catch (err) {
+      problems.push({ drive: name, why: `ownership-plan.json is unreadable: ${err.message}` });
+      continue;
+    }
+    const declared = plan?.retainedStreams ?? null;
+    if (!Array.isArray(declared) || declared.length === 0) {
+      problems.push({ drive: name, why: "ownership-plan.json declares no retained streams" });
+      continue;
+    }
+    const expectations = [];
+    for (const r of declared) {
+      if (
+        !r ||
+        typeof r.file !== "string" ||
+        path.basename(r.file) !== r.file ||
+        !Number.isInteger(r.bytes) ||
+        r.bytes < 0 ||
+        !/^[0-9a-f]{64}$/.test(String(r.sha256))
+      ) {
+        problems.push({ drive: name, why: `plan stream entry missing file/bytes/sha256: ${JSON.stringify(r)}` });
+        continue;
+      }
+      out.push({ drive: name, file: r.file, bytes: r.bytes, sha256: r.sha256, generator: r.generator ?? null });
+      expectations.push(`${r.file}:${r.bytes}:${r.sha256}`);
+    }
+    if (!fs.existsSync(streamsPath)) {
+      problems.push({
+        drive: name,
+        why: `ownership-plan.json declares ${declared.length} retained stream(s) but retained-streams.json is missing`,
+      });
+      continue;
+    }
+    let recorded;
+    try {
+      recorded = JSON.parse(fs.readFileSync(streamsPath, "utf8"));
     } catch (err) {
       problems.push({ drive: name, why: `retained-streams.json is unreadable: ${err.message}` });
       continue;
     }
-    if (!Array.isArray(parsed.streams) || parsed.streams.length === 0) {
+    if (!Array.isArray(recorded.streams) || recorded.streams.length === 0) {
       problems.push({ drive: name, why: "retained-streams.json lists no streams" });
       continue;
     }
-    for (const r of parsed.streams) {
-      // Only the expectation. The file also stores what the drive observed at the
-      // time; spreading those in would let a stale verdict stand in for a check.
-      if (!r || typeof r.file !== "string" || !Number.isInteger(r.bytes) || !/^[0-9a-f]{64}$/.test(String(r.sha256))) {
-        problems.push({ drive: name, why: `stream entry missing file/bytes/sha256: ${JSON.stringify(r)}` });
-        continue;
-      }
-      out.push({ drive: name, file: r.file, bytes: r.bytes, sha256: r.sha256, generator: r.generator ?? null });
+    const declaredKeys = new Set(expectations);
+    const recordedKeys = new Set(
+      recorded.streams.map((r) => `${r?.file}:${r?.bytes}:${r?.sha256}`),
+    );
+    const unrecorded = expectations.filter((k) => !recordedKeys.has(k)).length;
+    const undeclared = recorded.streams.filter(
+      (r) => !declaredKeys.has(`${r?.file}:${r?.bytes}:${r?.sha256}`),
+    ).length;
+    if (unrecorded > 0 || undeclared > 0) {
+      problems.push({
+        drive: name,
+        why:
+          `retained-streams.json diverges from ownership-plan.json: ` +
+          `${unrecorded} declared stream(s) unrecorded, ${undeclared} undeclared`,
+      });
     }
   }
   return { out, problems };
+}
+
+/**
+ * S3: the failure-safe finalizer for a stream-ownership drive. Idempotent — the
+ * case calls it on the success path so a late assertion failure still leaves the
+ * full record on disk, and `drive` calls it again on the abort path so a case
+ * that never reached its own persist still writes everything it observed.
+ *
+ * Writes the three records that used to be reachable only on the happy path:
+ * the delivery ledger (verbatim), the per-request inputs projected
+ * planned-vs-observed, and the retained-stream integrity rows. `reason` says
+ * which exit produced the record, so a reader can tell a completed drive's
+ * record from an aborted one's.
+ */
+function persistStreamOwnership(driveDir, stream, reason) {
+  const ctx = stream?.state?.ownership;
+  if (!ctx) return null;
+  if (ctx.persisted) return ctx.persisted;
+  const projection = projectRequestObservations(
+    ctx.plan.plans.map((pl, i) => ({ request: i, fixture: pl.fixture, investigationId: pl.id ?? null })),
+    stream.state.ledger,
+  );
+  const integrity = verifyRetainedStreams(ctx.retained, (r) =>
+    fs.readFileSync(path.join(driveDir, r.file)),
+  );
+  ctx.persisted = { reason, projection, integrity };
+  writeJson(path.join(driveDir, "delivery-ledger.json"), {
+    planned: ctx.plan.plans.length,
+    observed: stream.state.ledger.length,
+    unplanned: projection.unplanned,
+    ledger: stream.state.ledger,
+    finalizedUnder: reason,
+    note:
+      "One row per served request, exactly as observed at finalize time. A late write the " +
+      "client had already aborted is recorded as delivered:false with a reason; an " +
+      "undeliverable packet is never reported as a late event processed.",
+  });
+  writeJson(path.join(driveDir, "request-inputs.json"), {
+    planned: ctx.plan.plans.length,
+    observed: projection.requests.filter((r) => r.observed).length,
+    requests: projection.requests,
+    finalizedUnder: reason,
+    note:
+      "One row per PLANNED request, projected against what the transport actually observed. " +
+      "status UNOBSERVED means the request was planned but never sent — its observed-only " +
+      "fields are null, not fabricated.",
+  });
+  writeJson(path.join(driveDir, "retained-streams.json"), {
+    streams: integrity,
+    finalizedUnder: reason,
+    note:
+      "Each file is the exact buffer request N was served from. A missing or modified file is " +
+      "a RED on ownership.retained-streams-byte-identical, not a smaller evidence set.",
+  });
+  return ctx.persisted;
 }
 
 /* ------------------------- fault script syntax gate --------------------- */
@@ -3769,7 +3964,7 @@ async function drive(opts = {}) {
       claimProvided: true,
       claimCount: 2,
       claimNote: "two distinct claims, one per request; identities in request-inputs.json",
-      image: input.kind === "controlled" ? input.image : null,
+      imageName: "upload.png",
       imageBytes: input.kind === "controlled" ? input.imageBytes : null,
       imageSha256: input.kind === "controlled" ? input.imageSha256 : null,
       imageSource: "generated-controlled-1x1-png (harness input, 70B)",
@@ -3777,6 +3972,9 @@ async function drive(opts = {}) {
         "the app re-encodes the input; B's request carried investigation-image 560B. The exact wire " +
         "bytes are NOT retained, so no wire image hash is claimed — only the harness input hash above.",
       imageEntryMethod: "setInputFiles",
+      // The per-request ledger, linked by name so the record does not duplicate
+      // it: planned-vs-observed claim/media identities live there.
+      requestInputs: "request-inputs.json",
     };
   }
 
@@ -3877,6 +4075,8 @@ async function drive(opts = {}) {
         await session?.context?.close().catch(() => {});
         await session?.browser?.close().catch(() => {});
         const collected = collectVideos(videoStaged, videoStageDir, driveDir);
+        // S3: an interrupted stream-ownership drive keeps what it observed.
+        persistStreamOwnership(driveDir, stream, `interrupted by ${signal}`);
         rec.push("drive.interrupted", "FAIL", `interrupted by ${signal}`);
         rec.close();
         writeJson(path.join(driveDir, "drive.json"), {
@@ -3884,6 +4084,13 @@ async function drive(opts = {}) {
           outcome: "INCOMPLETE",
           complete: false,
           interruptedBy: signal,
+          streamOwnership: stream?.state?.ownership?.persisted
+            ? {
+                planned: stream.state.ownership.plan.plans.length,
+                observed: stream.state.ownership.persisted.projection.requests.filter((r) => r.observed).length,
+                finalizedUnder: stream.state.ownership.persisted.reason,
+              }
+            : null,
           finishedAt: new Date().toISOString(),
           videos: collected,
           faultFired: fault ? faultHits > 0 : null,
@@ -3985,6 +4192,17 @@ async function drive(opts = {}) {
       if (session?.syncBoundary) session.syncBoundary();
       writeJson(path.join(driveDir, "request-capture.json"), stream.state.captured);
       await stream.close().catch(() => {});
+      // S3: a case that aborted (assertion throw, timeout, dead page) still
+      // persists what it observed — ledger, per-request inputs and retained
+      // integrity. On the success path the case already ran this; the call is
+      // idempotent, so only the reason differs and only the first write stands.
+      persistStreamOwnership(
+        driveDir,
+        stream,
+        outcome === "FAIL"
+          ? `the case aborted: ${String(failure ?? "unknown failure").slice(0, 300)}`
+          : "the case ran to completion",
+      );
     }
     if (session) {
       // The fault's self-report must be read while the page is still alive and
@@ -4055,17 +4273,40 @@ async function drive(opts = {}) {
     fixtureSha256: fixtureBytesSha,
     generator: fixtureUsed ? "contexttrail-fixtures" : null,
     // The exact submitted input, so a drive cannot be re-attributed to a
-    // different image or claim.
+    // different image or claim. A multi-stream drive submits more than one
+    // request, so the full contract — claim count, the per-request identity
+    // file, the entry method and the honest wire-image note — is serialized
+    // too, not just the single-claim fields.
     input: input
       ? {
           kind: input.kind,
-          imageName: input.imageName,
-          imageBytes: input.imageBytes,
-          imageSha256: input.imageSha256,
-          imageSource: input.imageSource,
+          imageName: input.imageName ?? null,
+          imageBytes: input.imageBytes ?? null,
+          imageSha256: input.imageSha256 ?? null,
+          imageSource: input.imageSource ?? null,
+          imageEntryMethod: input.imageEntryMethod ?? null,
+          imageOnWire: input.imageOnWire ?? null,
           claimProvided: input.claimProvided,
+          claimCount: input.claimCount ?? null,
+          claimNote: input.claimNote ?? null,
           claimSha256:
             typeof input.claim === "string" ? sha256(Buffer.from(input.claim, "utf8")) : null,
+          requestInputs: input.requestInputs ?? null,
+        }
+      : null,
+    // The multi-request contract AS OBSERVED, persisted by the failure-safe
+    // finalizer before this record is written: a failed drive still reports how
+    // many planned requests actually reached the transport and under which exit
+    // the record was finalized — "complete" is never implied by the record
+    // existing.
+    streamOwnership: stream?.state?.ownership?.persisted
+      ? {
+          planned: stream.state.ownership.plan.plans.length,
+          observed: stream.state.ownership.persisted.projection.requests.filter((r) => r.observed).length,
+          finalizedUnder: stream.state.ownership.persisted.reason,
+          requestInputs: "request-inputs.json",
+          deliveryLedger: "delivery-ledger.json",
+          retainedStreams: "retained-streams.json",
         }
       : null,
     liveManifestSha256: handlerLive
@@ -5816,6 +6057,14 @@ const DRIVE_CASES = {
       imagePath: path.basename(uploadFileSet(runId)["upload.png"].path),
       imageSha256: sha256(fs.readFileSync(uploadFileSet(runId)["upload.png"].path)),
     });
+
+    // S3: publish the plan context so the drive-level finalizer can persist what
+    // was OBSERVED even if an assertion aborts this case below. A rec.check
+    // throw used to skip every one of those writes, leaving a failed drive with
+    // a plan and retained bytes but no ledger, no inputs and no integrity
+    // record — a seal that could not be inspected.
+    stream.state.ownership = { plan, retained };
+
     // S2: exactly one read per fixture, and the segments, id, hash and retained
     // bytes all come from that same buffer.
     const readCounts = stream.state.fixtureReads ?? {};
@@ -5877,26 +6126,10 @@ const DRIVE_CASES = {
       }
       return [...out];
     };
-    // One integrity check, used by the drive at seal time and by the offline
-    // derivative: a retained stream that is missing or modified is a RED on this
-    // same assertion, not a silently smaller evidence set.
-    const retainedIntegrity = () => {
-      const rows = retained.map((r) => {
-        const p = path.join(driveDir, r.file);
-        if (!fs.existsSync(p)) return { ...r, present: false, matches: false, why: "retained file is missing" };
-        const actual = fs.readFileSync(p);
-        const sha = crypto.createHash("sha256").update(actual).digest("hex");
-        return {
-          ...r,
-          present: true,
-          actualBytes: actual.length,
-          actualSha256: sha,
-          matches: sha === r.sha256 && actual.length === r.bytes,
-          why: sha === r.sha256 && actual.length === r.bytes ? "byte-identical" : "retained bytes differ from the captured buffer",
-        };
-      });
-      return rows;
-    };
+    // The integrity check is the shared verifyRetainedStreams predicate, run
+    // inside persistStreamOwnership: a retained stream that is missing or
+    // modified is a RED on the same assertion, not a silently smaller evidence
+    // set — on the success path AND on the abort path alike.
     const aTitlesAll = fixtureTitles(A);
     const bTitlesAll = fixtureTitles(B);
     // A-exclusive: titles A has that B does not. Shared titles are legitimate on
@@ -6226,52 +6459,39 @@ const DRIVE_CASES = {
     );
     rec.note("ownership.cache-identity", JSON.stringify({ aId, bId, keys: Object.keys(cache) }));
 
-    // --- the ledger, verbatim ---
-    writeJson(path.join(driveDir, "delivery-ledger.json"), {
-      ledger: stream.state.ledger,
-      note:
-        "One row per served request. A late write the client had already aborted is recorded as " +
-        "delivered:false with a reason; an undeliverable packet is never reported as a late event processed.",
-    });
+    // --- persist everything observed, then assert on it ---
+    // The same writer the drive-level finalizer uses on an abort; on this
+    // success path the reason is "ran to completion". Writing BEFORE the checks
+    // below means a RED there still leaves the full observed record on disk.
+    const fin = persistStreamOwnership(driveDir, stream, "the case ran to completion");
     rec.note("ownership.delivery-ledger", JSON.stringify(stream.state.ledger));
 
     // Seal-time integrity: the retained per-request stream files must still be the
     // exact bytes those requests were served from.
-    const integrity = verifyRetainedStreams(retained, (r) => fs.readFileSync(path.join(driveDir, r.file)));
-    writeJson(path.join(driveDir, "retained-streams.json"), {
-      streams: integrity,
-      note:
-        "Each file is the exact buffer request N was served from. A missing or modified file is " +
-        "a RED on ownership.retained-streams-byte-identical, not a smaller evidence set.",
-    });
-    const badRetained = integrity.filter((r) => !r.matches);
+    const badRetained = fin.integrity.filter((r) => !r.matches);
     rec.check(
       "ownership.retained-streams-byte-identical",
-      integrity.length === 2 && badRetained.length === 0,
+      fin.integrity.length === 2 && badRetained.length === 0,
       badRetained.length === 0
-        ? integrity
+        ? fin.integrity
             .map((r) => `request ${r.request} ${r.file} ${r.actualBytes}B sha256 ${String(r.actualSha256).slice(0, 12)}`)
             .join("; ")
         : `${badRetained.length} retained stream(s) not byte-identical: ${JSON.stringify(badRetained)}`,
     );
-    // Both request claim identities, explicitly non-empty, in the drive record.
-    const claimIdentities = [0, 1].map((i) => {
-      const e = stream.state.ledger.find((x) => x.index === i);
-      return {
-        request: i,
-        claimSha256: e?.sentClaimSha256 ?? null,
-        claimBytes: e?.sentClaimBytes ?? null,
-        imageInput: "upload.png 70B (harness input)",
-        imageOnWire: e?.sentMediaName ? `${e.sentMediaName} ${e.sentMediaBytes}B` : null,
-        imageEntryMethod: e?.imageEntryMethod ?? null,
-      };
-    });
-    writeJson(path.join(driveDir, "request-inputs.json"), { requests: claimIdentities });
+    // Both PLANNED request claim identities, explicitly observed and non-empty.
+    // An UNOBSERVED request is a failure here — the drive ran to completion, so
+    // a request that never reached the transport means the flow was lost.
     rec.check(
       "ownership.both-request-claims-identified",
-      claimIdentities.every((c) => /^([0-9a-f]{64})$/.test(String(c.claimSha256)) && c.claimBytes > 0),
-      claimIdentities
-        .map((c) => `request ${c.request}: claim ${c.claimBytes}B sha256 ${String(c.claimSha256).slice(0, 12)}`)
+      fin.projection.requests.every(
+        (c) => c.observed === true && /^([0-9a-f]{64})$/.test(String(c.sentClaimSha256)) && (c.sentClaimBytes ?? 0) > 0,
+      ),
+      fin.projection.requests
+        .map((c) =>
+          c.observed
+            ? `request ${c.request}: claim ${c.sentClaimBytes}B sha256 ${String(c.sentClaimSha256).slice(0, 12)}`
+            : `request ${c.request}: ${c.status} — ${c.unobservedReason}`,
+        )
         .join("; "),
     );
   },
@@ -6713,6 +6933,37 @@ async function evidence() {
         : null;
       const keptFixtureSha =
         keptFixture && fs.existsSync(keptFixture) ? sha256(fs.readFileSync(keptFixture)) : null;
+      // The multi-request input contract, when the drive wrote one: the seal
+      // links the file and serializes the planned-vs-observed summary, not just
+      // the artifact hash — an UNOBSERVED planned request must be visible here,
+      // not only inside the drive directory.
+      const reqInputsRel = `drives/${name}/request-inputs.json`;
+      let requestInputs = null;
+      const reqInputsPath = path.join(dir, reqInputsRel);
+      if (fs.existsSync(reqInputsPath)) {
+        try {
+          const ri = JSON.parse(fs.readFileSync(reqInputsPath, "utf8"));
+          requestInputs = {
+            file: reqInputsRel,
+            planned: ri.planned ?? null,
+            observed: ri.observed ?? null,
+            finalizedUnder: ri.finalizedUnder ?? null,
+            requests: Array.isArray(ri.requests)
+              ? ri.requests.map((r) => ({
+                  request: r.request ?? null,
+                  fixture: r.fixture ?? null,
+                  status: r.status ?? null,
+                  claimSha256: r.sentClaimSha256 ?? r.claimSha256 ?? null,
+                  imageOnWire:
+                    r.sentMediaName != null ? `${r.sentMediaName} ${r.sentMediaBytes}B` : null,
+                  imageEntryMethod: r.imageEntryMethod ?? null,
+                }))
+              : null,
+          };
+        } catch (err) {
+          requestInputs = { file: reqInputsRel, malformed: String(err?.message ?? err) };
+        }
+      }
       drives.push({
         driveId: d.driveId,
         feature: d.feature,
@@ -6730,6 +6981,8 @@ async function evidence() {
         fixtureBytesIntact:
           keptFixtureSha === null ? null : keptFixtureSha === (d.fixtureSha256 ?? null),
         input: d.input ?? null,
+        requestInputs,
+        streamOwnership: d.streamOwnership ?? null,
         liveManifestSha256: d.liveManifestSha256 ?? null,
         fault: d.fault,
         faultFired: d.faultFired ?? null,
@@ -7016,20 +7269,28 @@ const handlers = {
   evidence,
   cleanup,
 };
-if (!command || !handlers[command]) {
-  console.error(
-    "usage: control-contexttrail <launch|doctor|drive|live-ready|live-handler|evidence|cleanup> [args]\n" +
-      "  drive <landing|upload|investigation|result|viewer|session|accessibility> --run-id <id>\n" +
-      "  live-ready --run-id <id> --manifest <path> --image <path> [--mode claim --claim-text <t>]\n" +
-      "    zero-provider validation of a live input manifest; makes no provider call\n" +
-      "  live-handler --run-id <id> --feature result|viewer --manifest <path> --image <path>\n" +
-      "    [--claim-text <t>] [--declared-result <fixture>]\n" +
-      "    runs the PRODUCTION live handler against an intercepted, locally declared result;\n" +
-      "    zero provider calls, no real-data claim",
-  );
-  process.exit(EXIT_SCHEMA);
+
+// Imported as a module by the offline controls so they exercise the SAME
+// predicates the drive and the seal use, not a copy that can drift. Dispatch
+// only happens when this file is the one node was started on.
+const IS_MAIN = process.argv[1] !== undefined && path.resolve(process.argv[1]) === CLI_PATH;
+export { verifyRetainedStreams, projectRequestObservations, readingOrderTargetOk, measurementSurfaceOk };
+if (IS_MAIN) {
+  if (!command || !handlers[command]) {
+    console.error(
+      "usage: control-contexttrail <launch|doctor|drive|live-ready|live-handler|evidence|cleanup> [args]\n" +
+        "  drive <landing|upload|investigation|result|viewer|session|accessibility> --run-id <id>\n" +
+        "  live-ready --run-id <id> --manifest <path> --image <path> [--mode claim --claim-text <t>]\n" +
+        "    zero-provider validation of a live input manifest; makes no provider call\n" +
+        "  live-handler --run-id <id> --feature result|viewer --manifest <path> --image <path>\n" +
+        "    [--claim-text <t>] [--declared-result <fixture>]\n" +
+        "    runs the PRODUCTION live handler against an intercepted, locally declared result;\n" +
+        "    zero provider calls, no real-data claim",
+    );
+    process.exit(EXIT_SCHEMA);
+  }
+  handlers[command]().catch((err) => {
+    console.error(`control-contexttrail ${command} failed:`, err?.message ?? err);
+    process.exit(EXIT_ASSERT);
+  });
 }
-handlers[command]().catch((err) => {
-  console.error(`control-contexttrail ${command} failed:`, err?.message ?? err);
-  process.exit(EXIT_ASSERT);
-});
