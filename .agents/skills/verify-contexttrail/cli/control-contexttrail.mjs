@@ -1254,6 +1254,15 @@ async function startStreamServer() {
     segments: null,
     /** Per-request plans for a two-stream run: [{fixture, holds}]. */
     sequence: null,
+    /** Live response handles by request index, for an explicit late-write attempt. */
+    responses: {},
+    /** The request handler resolves a per-request plan through these. */
+    segmentsFor(plan) {
+      return plan.segments;
+    },
+    holdsFor(plan) {
+      return plan.holds;
+    },
     /** One row per served request; the honest record of what was and was not
      *  deliverable, so an undelivered late packet is never implied to have been
      *  processed by the client. */
@@ -1289,6 +1298,11 @@ async function startStreamServer() {
     req.on("data", (c) => chunks.push(c));
     req.on("end", async () => {
       const body = Buffer.concat(chunks);
+      // Captured BEFORE the counter moves, so request 0 is index 0. Reading it
+      // after the increment labelled the first request 1 and the second 2, which
+      // would hand A's stream to B's plan and misattribute every ownership
+      // assertion that follows.
+      const reqIndex = state.received;
       state.received++;
       state.captured = {
         contentType: req.headers["content-type"] ?? null,
@@ -1307,7 +1321,6 @@ async function startStreamServer() {
       // the plan is per request rather than one shared plan. Everything about a
       // request is recorded in a ledger, including a late write the client could
       // not possibly receive.
-      const reqIndex = state.received;
       const entry = {
         index: reqIndex,
         fixture: state.sequence?.[reqIndex]?.fixture ?? state.planName ?? null,
@@ -1319,6 +1332,7 @@ async function startStreamServer() {
         lateAttempts: [],
       };
       state.ledger.push(entry);
+      state.responses[reqIndex] = res;
       const active = state.sequence?.[reqIndex];
       const segs = active ? state.segmentsFor(active) : (state.segments ?? []);
       const holds = active ? state.holdsFor(active) : state.holds;
@@ -1398,6 +1412,97 @@ async function startStreamServer() {
     /** Fast path: single flush, no barriers (optionally paced). */
     planFast(fixtureName, paceMs = 0) {
       return this.plan(fixtureName, { holds: 0, paceMs });
+    },
+    /**
+     * Two-stream plan: request N gets plans[N]. Without this every request gets
+     * the same stream, so two consecutive investigations are indistinguishable and
+     * ownership between them cannot be observed at all.
+     */
+    planSequence(plans) {
+      state.sequence = plans.map((p) => {
+        const lines = fs.readFileSync(fixturePath(p.fixture), "utf8").split("\n").filter((l) => l.trim());
+        const all = buildSegments(lines);
+        const n = Math.max(0, Math.min(p.holds ?? 0, all.length - 1));
+        const held = all.slice(0, n);
+        const tail = all.slice(n);
+        const segments = n > 0 ? [...held, tail.flat()] : [lines];
+        const holds = segments.map((_, i) => {
+          if (i >= n) return null;
+          let resolveReached;
+          const reachedP = new Promise((r) => (resolveReached = r));
+          let resolveRelease;
+          const releasePromise = new Promise((r) => (resolveRelease = r));
+          return { reached: reachedP, releasePromise, resolveReached, resolveRelease };
+        });
+        const id = (() => {
+          for (const l of lines) {
+            try {
+              const ev = JSON.parse(l);
+              if (ev.investigationId) return ev.investigationId;
+            } catch { /* keep looking */ }
+          }
+          return null;
+        })();
+        return { fixture: p.fixture, segments, holds, id };
+      });
+      state.paceMs = Math.max(0, plans[0]?.paceMs ?? 0);
+      return { plans: state.sequence.map((p) => ({ fixture: p.fixture, id: p.id, segments: p.segments.length })) };
+    },
+    segmentsFor(plan) {
+      return plan.segments;
+    },
+    holdsFor(plan) {
+      return plan.holds;
+    },
+    /** Wait for request `index`'s segment `i` to be reached. */
+    async reachedFor(index, i, ms = 8000) {
+      const plan = state.sequence?.[index];
+      if (!plan) return false;
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        const entry = state.ledger.find((e) => e.index === index);
+        if (entry && entry.eventsWritten >= plan.segments.slice(0, i + 1).flat().length) return true;
+        await delay(50);
+      }
+      return false;
+    },
+    releaseFor(index, i) {
+      state.sequence?.[index]?.holds[i]?.resolveRelease?.();
+    },
+    releaseAllFor(index) {
+      for (const h of state.sequence?.[index]?.holds ?? []) h?.resolveRelease?.();
+    },
+    /**
+     * Attempt to deliver a late event to a stream the client has already aborted.
+     * The outcome is recorded either way: `delivered: false` with the reason is the
+     * honest result, and the ledger exists so an undeliverable packet is never
+     * reported as if the client had processed a late event.
+     */
+    attemptLate(index, line) {
+      const entry = state.ledger.find((e) => e.index === index);
+      const res = state.responses[index];
+      const attempt = {
+        at: Date.now(),
+        bytes: Buffer.byteLength(line),
+        delivered: false,
+        reason: null,
+      };
+      if (!entry) attempt.reason = "no such request reached the transport";
+      else if (!res) attempt.reason = "response handle released";
+      else if (entry.clientClosed) attempt.reason = "client aborted and closed the response before the write";
+      else if (res.writableEnded) attempt.reason = "response already ended";
+      else {
+        try {
+          res.write(line + "\n");
+          entry.eventsWritten++;
+          attempt.delivered = true;
+          attempt.reason = "written to an open response";
+        } catch (err) {
+          attempt.reason = `write failed: ${err.message}`;
+        }
+      }
+      entry?.lateAttempts.push(attempt);
+      return attempt;
     },
     reached(i) {
       return state.holds[i] ? state.holds[i].reached : Promise.resolve();
@@ -5301,6 +5406,216 @@ const DRIVE_CASES = {
     }
     await shot(page, driveDir, `02-session-${scase}`);
     await aria(page, driveDir, `session-${scase}`);
+  },
+
+  /* NOT REGISTERED — see report: the transport below works, but the observation
+   * layer reads ownership from raw `ev-` ids in the upload-stage HTML and detects
+   * a cancelled state by matching the word "cancel", which also matches the cancel
+   * BUTTON. Both are harness bugs, so this is kept as work in progress rather than
+   * exposed as a command that fails on its own heuristic. The ownership evidence
+   * has to be read from the rendered result/timeline and the session state.
+   *
+   * Native A -> cancel/reset -> B ownership.
+   *
+   * Two real requests over the real POST, each with its own fixture and its own
+   * investigationId, so the ids are actually distinct rather than labelled
+   * distinct. A is held mid-stream, cancelled, and B is started; then a late A
+   * event is ATTEMPTED and the outcome recorded honestly — the client aborted, so
+   * the transport is closed and the packet is undeliverable. That is recorded as
+   * undeliverable and is explicitly not treated as proof that a late event was
+   * processed. What is asserted is the ownership that IS observable: the UI, the
+   * claim, the result and the sessionStorage cache belong to B, and B is still
+   * streaming after A's response closed (A's stream ending must not mark B failed
+   * or cancelled).
+   */
+  async "stream-ownership-wip"({ page, rec, m, runId, driveDir, stream, viewport }) {
+    const A = "controlled-pair";
+    const B = "controlled-insufficient";
+    const plan = stream.planSequence([{ fixture: A, holds: 1 }, { fixture: B, holds: 1 }]);
+    writeJson(path.join(driveDir, "ownership-plan.json"), { plan, viewport });
+
+    const ids = (p) => p.filter(Boolean).map((x) => String(x));
+    rec.check(
+      "ownership.streams-have-distinct-ids",
+      plan.plans.length === 2 && plan.plans[0].id && plan.plans[1].id && plan.plans[0].id !== plan.plans[1].id,
+      `A(${A})=${plan.plans[0]?.id} B(${B})=${plan.plans[1]?.id} — the two streams must be distinguishable by id, not only by position`,
+    );
+    const aId = plan.plans[0]?.id ?? null;
+    const bId = plan.plans[1]?.id ?? null;
+
+    // Evidence ids actually rendered in the DOM, and the claim text on screen.
+    const observe = () =>
+      page.evaluate(() => {
+        const text = document.body.innerText || "";
+        const html = document.documentElement.innerHTML || "";
+        const evs = [...new Set((html.match(/ev-[a-z0-9]+/gi) || []).map((s) => s.toLowerCase()))];
+        return {
+          evidenceIds: evs,
+          hasA: text.includes("controlled claim describes a fictional event today."),
+          hasB: text.includes("fictional") && /no corroborating/i.test(text),
+          streaming: /investigating|searching|analyz|streaming|working/i.test(text),
+          cancelled: /cancel/i.test(text),
+          failed: /failed|could not|unable to/i.test(text),
+          bodySample: text.replace(/\s+/g, " ").slice(0, 160),
+        };
+      });
+
+    // The real controlled image, attached for real: the form's submit stays
+    // disabled without an image, so "start investigation" would be a disabled
+    // control and the sequence could not start at all.
+    const image = uploadFileSet(runId)["upload.png"];
+    const imageBytes = fs.statSync(image.path).size;
+    const submitEnabled = async () => {
+      const b = page.getByRole("button", { name: /start investigation/i }).first();
+      await b.waitFor({ state: "attached", timeout: 10_000 });
+      return (await b.isEnabled()) === true;
+    };
+    const attachAndClaim = async (claim) => {
+      await page.setInputFiles("#ct-image-input", image.path);
+      await page.fill("#ct-claim", claim);
+      await page
+        .waitForFunction(
+          () => {
+            const b = [...document.querySelectorAll("button")].find((x) =>
+              /start investigation/i.test(x.textContent || ""),
+            );
+            return !!b && !b.disabled;
+          },
+          { timeout: 10_000 },
+        )
+        .catch(() => {});
+      return submitEnabled();
+    };
+
+    await page.goto(`${m.url}/investigate`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#ct-claim");
+
+    // --- stream A: submit, let it reach early evidence, then hold ---
+    const aEnabled = await attachAndClaim("controlled claim describes a fictional event today.");
+    rec.check(
+      "ownership.a-usable-primary-action",
+      aEnabled === true,
+      `with the real controlled image attached (${path.basename(image.path)}, ${imageBytes}B, ` +
+        `sha256 ${sha256(fs.readFileSync(image.path)).slice(0, 12)}), ` +
+        `the primary control is enabled=${aEnabled} — a disabled button cannot start a stream`,
+    );
+    await page.getByRole("button", { name: /start investigation/i }).first().click();
+    const aReached = await stream.reachedFor(0, 0);
+    rec.check("ownership.a-delivered-early-evidence", aReached, `request 0 (${A}) reached its first held segment`);
+    const seenA = await observe();
+    rec.note("ownership.a-observed", JSON.stringify({ ...seenA, evidenceIds: seenA.evidenceIds.slice(0, 6) }));
+    const aEvidence = seenA.evidenceIds;
+    rec.check(
+      "ownership.a-produced-its-own-evidence",
+      aEvidence.length > 0 && aEvidence.every((e) => e.startsWith((aId || "ev-").split("-").slice(0, 3).join("-"))),
+      `${aEvidence.length} evidence id(s) rendered for A, e.g. ${aEvidence.slice(0, 3).join(", ")}`,
+    );
+
+    // --- cancel A, which aborts its fetch and closes the transport ---
+    const cancel = page.getByRole("button", { name: /cancel/i }).first();
+    const hadCancel = (await cancel.count()) > 0;
+    rec.check("ownership.cancel-available-while-streaming", hadCancel, "a cancel control is offered while A streams");
+    if (hadCancel) await cancel.click();
+    await delay(400);
+    const afterCancel = await observe();
+    rec.note("ownership.after-cancel", JSON.stringify(afterCancel));
+    const transportClosed = stream.state.ledger.find((e) => e.index === 0)?.clientClosed === true;
+    rec.check(
+      "ownership.a-abort-closed-the-transport",
+      transportClosed === true,
+      `request 0 clientClosed=${transportClosed} — cancelling must abort the fetch, not merely hide the UI`,
+    );
+
+    // --- the late A packet: attempted, and honestly recorded ---
+    const lateLine = JSON.stringify({
+      type: "investigation.completed",
+      investigationId: aId,
+      result: { mode: "claim_check", status: "POSSIBLE_CONTEXT_CONFLICT", claim: "LATE A RESULT THAT MUST NOT APPEAR" },
+    });
+    const attempt = stream.attemptLate(0, lateLine);
+    rec.note("ownership.late-a-attempt", JSON.stringify(attempt));
+    rec.check(
+      "ownership.late-a-attempt-recorded-honestly",
+      typeof attempt.delivered === "boolean" && (attempt.delivered === false ? !!attempt.reason : true),
+      attempt.delivered
+        ? `late A packet was WRITTEN to an open response — ownership must now be judged on the UI below`
+        : `late A packet NOT delivered (${attempt.reason}); this is an undeliverable packet, NOT proof of a late event`,
+    );
+    if (attempt.delivered) {
+      await delay(400);
+      const afterLate = await observe();
+      rec.check(
+        "ownership.b-unaffected-by-delivered-late-a",
+        !/LATE A RESULT THAT MUST NOT APPEAR/.test(afterLate.bodySample) && afterLate.streaming === true,
+        `after a DELIVERED late A packet, the screen shows: ${afterLate.bodySample}`,
+      );
+    }
+
+    // --- stream B: distinct identity, must own everything from here ---
+    await page.goto(`${m.url}/investigate`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#ct-claim");
+    const bEnabled = await attachAndClaim("a different controlled claim with no corroborating evidence at all");
+    rec.check(
+      "ownership.b-usable-primary-action",
+      bEnabled === true,
+      `B's primary control is enabled=${bEnabled} with the same real image attached`,
+    );
+    await page.getByRole("button", { name: /start investigation/i }).first().click();
+    const bReached = await stream.reachedFor(1, 0);
+    rec.check("ownership.b-started-and-streaming", bReached, `request 1 (${B}) reached its first held segment`);
+    const seenB = await observe();
+    rec.note("ownership.b-observed", JSON.stringify({ ...seenB, evidenceIds: seenB.evidenceIds.slice(0, 6) }));
+    rec.check(
+      "ownership.b-not-marked-failed-or-cancelled-by-a",
+      seenB.streaming === true && seenB.failed === false && seenB.cancelled === false,
+      `B is streaming=${seenB.streaming} failed=${seenB.failed} cancelled=${seenB.cancelled} — A's stream ending ` +
+        `must not decide B's state`,
+    );
+    const bOwns = seenB.evidenceIds.filter((e) => !aEvidence.includes(e));
+    rec.check(
+      "ownership.b-owns-the-visible-evidence",
+      bOwns.length > 0,
+      `${bOwns.length} evidence id(s) on screen that A never produced (e.g. ${bOwns.slice(0, 3).join(", ")})`,
+    );
+    rec.check(
+      "ownership.a-evidence-not-retained-across-reset",
+      seenB.evidenceIds.every((e) => bOwns.includes(e)),
+      `every visible evidence id belongs to B; A's ids ${aEvidence.length} are gone`,
+    );
+
+    // --- let B finish, then the cached result must be B's ---
+    stream.releaseAllFor(1);
+    await stream.waitForServed(8000);
+    await delay(600);
+    const cache = await page.evaluate(() => {
+      const out = {};
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const k = sessionStorage.key(i);
+        if (k && /result|investigat/i.test(k)) out[k] = sessionStorage.getItem(k);
+      }
+      return out;
+    });
+    writeJson(path.join(driveDir, "session-cache.json"), cache);
+    const cacheText = JSON.stringify(cache);
+    rec.check(
+      "ownership.cache-belongs-to-b",
+      Object.keys(cache).length > 0 && bId ? cacheText.includes(bId) : false,
+      `sessionStorage keys ${Object.keys(cache).join(", ") || "(none)"}; B id ${bId} present=${bId ? cacheText.includes(bId) : "n/a"}`,
+    );
+    rec.check(
+      "ownership.cache-not-a",
+      aId ? !cacheText.includes(aId) : false,
+      `A id ${aId} absent from the cache=${aId ? !cacheText.includes(aId) : "n/a"}`,
+    );
+
+    // --- the ledger, verbatim ---
+    writeJson(path.join(driveDir, "delivery-ledger.json"), {
+      ledger: stream.state.ledger,
+      note:
+        "One row per served request. A late write the client had already aborted is recorded as " +
+        "delivered:false with a reason; an undeliverable packet is never reported as a late event processed.",
+    });
+    rec.note("ownership.delivery-ledger", JSON.stringify(stream.state.ledger));
   },
 
   async accessibility({ page, rec, m, driveDir, viewport }) {
