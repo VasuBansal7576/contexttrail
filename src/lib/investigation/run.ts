@@ -222,6 +222,10 @@ export async function runInvestigation(
 
   const candidates: EvidenceCandidate[] = [];
   const seenIds = new Set<string>();
+  /** Ids already emitted via evidence.discovered — each evidence id is
+   *  emitted at most once per investigation (a re-emit produces duplicate
+   *  client keys). */
+  const emittedEvidenceIds = new Set<string>();
   const dateSources = new Map<string, EvidenceDateSources>();
   const relatedQueries: string[] = [];
   const excerpts = new Map<string, string>();
@@ -237,6 +241,12 @@ export async function runInvestigation(
   const stage = (s: Stage, phase: "started" | "completed", detail?: string) => {
     if (phase === "started") emit({ type: "stage.started", stage: s });
     else emit({ type: "stage.completed", stage: s, ...(detail ? { detail } : {}) });
+  };
+
+  const emitDiscovered = (c: EvidenceCandidate) => {
+    if (emittedEvidenceIds.has(c.id)) return;
+    emittedEvidenceIds.add(c.id);
+    emit({ type: "evidence.discovered", evidence: toPublicCandidate(c, excerpts.get(c.id) ?? null) });
   };
 
   const addCandidates = (batch: NormalizedBatch | null): number => {
@@ -506,7 +516,7 @@ export async function runInvestigation(
       c.dateStatus = resolved.dateStatus;
       c.excerptSource = c.snippet !== null ? "serp_snippet" : null;
       if (c.snippet !== null) excerpts.set(c.id, c.snippet);
-      emit({ type: "evidence.discovered", evidence: toPublicCandidate(c, c.snippet) });
+      emitDiscovered(c);
     }
     stage("NORMALIZE", "completed", `${pool.length} candidates retained`);
 
@@ -581,7 +591,7 @@ export async function runInvestigation(
             const added = addCandidates(res.batch);
             if (added > 0) {
               pool = applyRetentionCaps(dedupeByCanonicalUrl(pool));
-              const newOnes = pool.filter((c) => !excerpts.has(c.id));
+              const newOnes = pool.filter((c) => !emittedEvidenceIds.has(c.id));
               for (const c of newOnes) {
                 const resolved = resolveEvidenceDate(dateSources.get(c.id) ?? {}, new Date(startedAt));
                 c.publishedAt = resolved.publishedAt;
@@ -591,7 +601,7 @@ export async function runInvestigation(
                 c.mediaRelationship = enforceIdentityInvariants(c);
                 c.excerptSource = c.snippet !== null ? "serp_snippet" : null;
                 if (c.snippet !== null) excerpts.set(c.id, c.snippet);
-                emit({ type: "evidence.discovered", evidence: toPublicCandidate(c, c.snippet) });
+                emitDiscovered(c);
                 if (c.mediaRelationship === "VISUAL_LEAD") {
                   limitations.add("unverified_visual_leads_present");
                   limitations.add("near_match_verifier_disabled");
@@ -759,8 +769,10 @@ export async function runInvestigation(
             contextSegmentCount: segments.contextSegmentCount,
             limitations: [...limitations],
           });
-    emit({ type: "investigation.completed", result });
+    // Stage completion precedes the terminal event — a client that stops
+    // reading at investigation.completed still sees a finished stage list.
     stage("COMPLETE", "completed");
+    emit({ type: "investigation.completed", result });
   } catch {
     // Defensive: orchestration must never throw past the stream. Provider
     // failures are handled per-stage; anything reaching here is internal.

@@ -105,7 +105,8 @@ function orderStages(stages: StageState[]): StageState[] {
   return [...stages].sort((a, b) => rank(a.name) - rank(b.name));
 }
 
-function applyEvent(snapshot: InvestigationSnapshot, event: InvestigationEvent): InvestigationSnapshot {
+/** Exported for focused reducer tests. */
+export function applyEvent(snapshot: InvestigationSnapshot, event: InvestigationEvent): InvestigationSnapshot {
   switch (event.type) {
     case "investigation.started": {
       const id = typeof event.investigationId === "string" ? event.investigationId : null;
@@ -140,6 +141,15 @@ function applyEvent(snapshot: InvestigationSnapshot, event: InvestigationEvent):
     case "evidence.discovered": {
       const evidence = asRecord(event.evidence);
       if (!evidence) return snapshot;
+      // One entry per evidence id — a repeated discovery enriches the
+      // existing row rather than duplicating it (unique React keys).
+      const id = str(evidence, "id");
+      if (id !== null && snapshot.evidence.some((e) => str(e, "id") === id)) {
+        return {
+          ...snapshot,
+          evidence: snapshot.evidence.map((e) => (str(e, "id") === id ? { ...e, ...evidence } : e)),
+        };
+      }
       return { ...snapshot, evidence: [...snapshot.evidence, evidence] };
     }
     case "evidence.classified": {
