@@ -758,6 +758,37 @@ describe("claimLocationEligibility — explicit motion-relationship complements 
     expect(r.unresolved).toEqual(["Tomorrowland"]);
   });
 
+  /* ---- M3: an unresolved complement must not swallow the next clause ---- */
+
+  it.each([
+    "A storm approached Tomorrowland in August 2005.",
+    "The storm neared Tomorrowland in August 2005.",
+  ])("keeps %s unevaluated, without reading a surname across the temporal clause", (claim) => {
+    const r = claimLocationEligibility(claim);
+    expect(r.eligible, claim).toBe(false);
+    expect(r.outcome, claim).toBe("unknown");
+    expect(r.rejectedBy, claim).toBe("unrecognised_name");
+    // the unrecognised name and the temporal clause are both reported, and the
+    // stop preposition is not absorbed into either span
+    expect(r.unresolved, claim).toEqual(["Tomorrowland", "August 2005"]);
+    const built = evidenceQuestionsWithProvenance({ claimMode: true, claim });
+    expect(built.questions.location_relation, claim).toBeUndefined();
+  });
+
+  it("applies the same stop-token rule on the preposition path", () => {
+    const r = claimLocationEligibility("This image was taken in Brindlewick in August 2005.");
+    expect(r.eligible).toBe(false);
+    expect(r.outcome).toBe("unknown");
+    expect(r.unresolved).toEqual(["Brindlewick", "August 2005"]);
+  });
+
+  it("still records a genuine multi-word unresolved name whole", () => {
+    // "Chen" and "today" are neither stop tokens nor sentence ends, so the span
+    // covers the whole phrase; only a stop token or a sentence end truncates it.
+    const r = claimLocationEligibility("A man approached Juniper Chen today.");
+    expect(r.unresolved).toEqual(["Juniper Chen today"]);
+  });
+
   it("keeps the M1 fixes from costing a genuine place, address or modifier", () => {
     const kept: Array<[string, boolean]> = [
       // the confirmed positives
