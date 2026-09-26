@@ -17,7 +17,7 @@
  * - dates too imprecise to order cannot create an ordered divergence edge.
  */
 
-import type { EvidenceCandidate } from "./contracts/evidence";
+import type { DatePrecision, EvidenceCandidate } from "./contracts/evidence";
 import {
   classifyPairwise,
   type PairwiseContextJudgment,
@@ -30,7 +30,48 @@ import type {
 import { isCoreOccurrence } from "./identity";
 import { MAX_DIVERGENCE_OCCURRENCES } from "./limits";
 
-/** Occurrences usable in the dated core sequence (day-precision usable dates). */
+/** Day-precision interval an observed date value covers (§20.2 ordering). */
+export function dateInterval(
+  publishedAt: string,
+  precision: DatePrecision,
+): { start: string; end: string } {
+  if (precision === "month" && /^\d{4}-\d{2}$/.test(publishedAt)) {
+    const y = Number(publishedAt.slice(0, 4));
+    const m = Number(publishedAt.slice(5, 7));
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const mm = String(m).padStart(2, "0");
+    return { start: `${publishedAt}-01`, end: `${y}-${mm}-${String(last).padStart(2, "0")}` };
+  }
+  if (precision === "year" && /^\d{4}$/.test(publishedAt)) {
+    return { start: `${publishedAt}-01-01`, end: `${publishedAt}-12-31` };
+  }
+  return { start: publishedAt, end: publishedAt };
+}
+
+/** Strict ordering: `a` is fully before `b`, no interval overlap. */
+export function strictlyBefore(a: EvidenceCandidate, b: EvidenceCandidate): boolean {
+  const ia = dateInterval(a.publishedAt ?? "", a.datePrecision);
+  const ib = dateInterval(b.publishedAt ?? "", b.datePrecision);
+  return ia.end < ib.start;
+}
+
+/** Chronological sort key — interval start, then end, then stable id. */
+export function chronoCompare(a: EvidenceCandidate, b: EvidenceCandidate): number {
+  const ia = dateInterval(a.publishedAt ?? "", a.datePrecision);
+  const ib = dateInterval(b.publishedAt ?? "", b.datePrecision);
+  return (
+    ia.start.localeCompare(ib.start) ||
+    ia.end.localeCompare(ib.end) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+/**
+ * Occurrences usable in the dated core sequence (§20.2). Usable dates of
+ * ANY known precision are eligible — the displayed timeline shows them,
+ * so coverage must count them. Ordering between adjacent items uses
+ * intervals; overlapping (unorderable) pairs cannot assert transitions.
+ */
 export function datedCoreOccurrences(
   candidates: readonly EvidenceCandidate[],
 ): EvidenceCandidate[] {
@@ -39,14 +80,10 @@ export function datedCoreOccurrences(
       (c) =>
         isCoreOccurrence(c) &&
         c.dateStatus === "usable" &&
-        c.datePrecision === "day" &&
+        c.datePrecision !== "unknown" &&
         c.publishedAt !== null,
     )
-    .sort(
-      (a, b) =>
-        (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-        a.id.localeCompare(b.id),
-    );
+    .sort(chronoCompare);
 }
 
 /**
@@ -59,11 +96,7 @@ export function selectDatedCoreOccurrences(
   datedCore: readonly EvidenceCandidate[],
   max = MAX_DIVERGENCE_OCCURRENCES,
 ): EvidenceCandidate[] {
-  const sorted = [...datedCore].sort(
-    (a, b) =>
-      (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-      a.id.localeCompare(b.id),
-  );
+  const sorted = [...datedCore].sort(chronoCompare);
   if (sorted.length <= max) return sorted;
   if (max < 2) return sorted.slice(0, max);
 
@@ -107,11 +140,7 @@ export function selectDatedCoreOccurrences(
     }
   }
 
-  return selected.sort(
-    (a, b) =>
-      (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-      a.id.localeCompare(b.id),
-  );
+  return selected.sort(chronoCompare);
 }
 
 export function pairKey(a: string, b: string): string {
@@ -133,6 +162,19 @@ export interface SegmentResult {
   contextSegmentCount: number | null;
   firstObservedContextDivergence: Divergence | null;
   coverage: ComparisonCoverage;
+  /** occurrenceId -> pair ids it was an endpoint of where a pairwise
+   *  comparison was actually performed (§14). */
+  comparedPairsFor: Map<string, string[]>;
+  /** §34 — every evaluated adjacent pair in the displayed order: the
+   *  connector it produced and the actual pairwise distribution (null
+   *  when the comparison was not performed — never invented). */
+  comparisons: Array<{
+    pairId: string;
+    fromOccurrenceId: string;
+    toOccurrenceId: string;
+    connector: Exclude<TimelineConnector["kind"], "start">;
+    distribution: PairwiseContextJudgment | null;
+  }>;
 }
 
 /**
@@ -149,8 +191,16 @@ export function buildContextSegments(
 ): SegmentResult {
   const segmentOf = new Map<string, number | null>();
   const connectorOf = new Map<string, TimelineConnector>();
+  const comparedPairsFor = new Map<string, string[]>();
+  const comparisons: SegmentResult["comparisons"] = [];
+  const recordComparedPair = (a: string, b: string) => {
+    const pk = pairKey(a, b);
+    comparedPairsFor.set(a, [...(comparedPairsFor.get(a) ?? []), pk]);
+    comparedPairsFor.set(b, [...(comparedPairsFor.get(b) ?? []), pk]);
+  };
   let segmentIdx = 0;
   let comparedPairs = 0;
+  const comparedPairIds: string[] = [];
   let firstDivergence: Divergence | null = null;
   // An exact segment count needs complete adjacent coverage of the
   // eligible run — a sampled sequence that skips occurrences can never
@@ -174,7 +224,15 @@ export function buildContextSegments(
       connectorOf,
       contextSegmentCount: null,
       firstObservedContextDivergence: null,
-      coverage: { eligible: eligible.length, selected: 0, comparedPairs: 0 },
+      coverage: {
+        eligible: eligible.length,
+        selected: 0,
+        comparedPairs: 0,
+        displayedDatedCore: eligible.length,
+        comparedPairIds: [],
+      },
+      comparedPairsFor,
+      comparisons,
     };
   }
 
@@ -183,6 +241,25 @@ export function buildContextSegments(
   for (let i = 1; i < selected.length; i++) {
     const prev = selected[i - 1];
     const cur = selected[i];
+
+    // An adjacent pair whose date intervals overlap is not strictly
+    // ordered — equal same-day dates and imprecise windows cannot
+    // manufacture an ordered transition or a divergence edge.
+    if (!strictlyBefore(prev, cur)) {
+      connectorOf.set(cur.id, { kind: "unexamined", fromOccurrenceId: prev.id });
+      comparisons.push({
+        pairId: pairKey(prev.id, cur.id),
+        fromOccurrenceId: prev.id,
+        toOccurrenceId: cur.id,
+        connector: "unexamined",
+        distribution: null,
+      });
+      allDecisive = false;
+      earlierUnresolved = true;
+      segmentOf.set(cur.id, null);
+      continue;
+    }
+
     const j = judgments.get(pairKey(prev.id, cur.id)) ?? null;
 
     let kind: TimelineConnector["kind"];
@@ -190,6 +267,8 @@ export function buildContextSegments(
       kind = "unexamined";
     } else {
       comparedPairs += 1;
+      comparedPairIds.push(pairKey(prev.id, cur.id));
+      recordComparedPair(prev.id, cur.id);
       const rel = classifyPairwise(j);
       kind =
         rel === "SAME_CONTEXT"
@@ -199,6 +278,13 @@ export function buildContextSegments(
             : "uncertain";
     }
     connectorOf.set(cur.id, { kind, fromOccurrenceId: prev.id });
+    comparisons.push({
+      pairId: pairKey(prev.id, cur.id),
+      fromOccurrenceId: prev.id,
+      toOccurrenceId: cur.id,
+      connector: kind,
+      distribution: j,
+    });
 
     if (kind === "same_context") {
       // Continue the current segment only if it is still asserted.
@@ -235,6 +321,12 @@ export function buildContextSegments(
       eligible: eligible.length,
       selected: selected.length,
       comparedPairs,
+      // Filled by the caller once the displayed chronology is built —
+      // buildContextSegments only knows the eligible run.
+      displayedDatedCore: eligible.length,
+      comparedPairIds,
     },
+    comparedPairsFor,
+    comparisons,
   };
 }

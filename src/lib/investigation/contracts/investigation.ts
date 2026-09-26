@@ -10,15 +10,19 @@ import type {
   DateStatus,
   EvidenceCandidate,
   ExcerptSource,
+  IdentityBasis,
   IdentityEvidence,
+  JevDistributions,
   MediaRelationship,
+  PageMetadata,
   PublishedAtSource,
   ReportingOrigin,
+  ReportingOriginBasis,
   ReportingOriginStatus,
   RetrievalKind,
   RetrievalRecord,
 } from "./evidence";
-import type { EvidenceJudgment } from "./judgment";
+import type { EvidenceJudgment, PairwiseContextJudgment } from "./judgment";
 
 export type InvestigationMode = "trace" | "claim_check";
 
@@ -86,6 +90,42 @@ export interface TimelineItem {
   publishedAtSource: PublishedAtSource;
   /** Reporting-origin status for badge display (§13). */
   reportingOriginStatus: ReportingOriginStatus;
+  /** Resolved origin group when shared/separate, else null. */
+  reportingOriginGroupId: string | null;
+  /** Why this origin status was assigned — bounded reason codes (§13). */
+  reportingOriginBasis: ReportingOriginBasis[];
+  /** How the media identity was established (§11), for inspection. */
+  identityBasis: IdentityBasis;
+  /** Identity method plus the verifier/config identifier that produced
+   *  it — null supportId when no verifier ran (§13.3). */
+  identityBasisDetail: { method: IdentityBasis; supportId: string | null } | null;
+  /** Publication-date provenance — the selected value plus every rejected
+   *  JSON-LD candidate and why, so the date stays inspectable (§19.2). */
+  dateProvenance: {
+    value: string | null;
+    precision: DatePrecision;
+    source: PublishedAtSource;
+    entityBinding: string | null;
+    rejectedCandidates: Array<{ value: string; reason: string }>;
+  };
+  /** Reporting-origin provenance — status, group membership, the exact
+   *  retrieved attribution spans, and the grouping basis codes (§13.1). */
+  originSupport: {
+    status: ReportingOriginStatus;
+    groupId: string | null;
+    attributionSpans: Array<{ text: string; relation: string }>;
+    groupingReason: ReportingOriginBasis[];
+  };
+  /** Human-readable attribution for the displayed excerpt — e.g.
+   *  "Extracted page excerpt", "Search snippet",
+   *  "Composite page excerpt (title/snippet/body)". Null for raw labels. */
+  displayAttribution: string | null;
+  /** The bounded composite text sent to the classifier — keyed separately
+   *  from `excerpt` and never rendered as a quote (§13.4, §18.3). */
+  classificationContext: string | null;
+  /** §14 comparison selection — whether this item entered the compared
+   *  run and which adjacent pair ids it was compared in. */
+  comparisonSelection: { selected: boolean; comparedPairIds: string[] };
   /** Strong context-relationship label from Jev when decisive, else null. */
   contextLabel:
     | "SAME_CONTEXT"
@@ -102,6 +142,17 @@ export interface TimelineItem {
   resultType: string | null;
   /** Jev model version when classified (§34), else null. */
   jevModel: string | null;
+  /** §34 — the actual provider search ids this occurrence was retrieved
+   *  under (deduped, retrieval order); empty when none were reported —
+   *  identifiers are never invented. */
+  searchIds: string[];
+  /** §34 — the verified per-question Jev distributions behind this
+   *  item's classification; null unless a verified pinned-model
+   *  judgment exists. Never unverified or synthesized numbers. */
+  jevDistributions: JevDistributions | null;
+  /** §18.2 — source-bound JSON-LD/OpenGraph metadata retained by the
+   *  deep read; null when none was retained. */
+  pageMetadata: PageMetadata | null;
 }
 
 /** §20.2 / §22 — the first observed context divergence marker. */
@@ -118,8 +169,13 @@ export interface ComparisonCoverage {
   eligible: number;
   /** Occurrences actually selected into the compared sequence (max 8). */
   selected: number;
-  /** Adjacent pairs that produced a decisive comparison. */
+  /** Adjacent pairs for which a pairwise comparison was performed. */
   comparedPairs: number;
+  /** Dated core items actually displayed in the chronology — includes
+   *  month/year-precision items ordered as intervals (§20.2). */
+  displayedDatedCore: number;
+  /** Ordered ids of the adjacent pairs actually compared (§14). */
+  comparedPairIds: string[];
 }
 
 /** §33 — deterministic takeaway codes; UI renders fixed copy per code. */
@@ -157,6 +213,103 @@ export type LimitationCode =
   | "disputed_dates_present"
   | "unknown_dates_present";
 
+/** One retrieval operation row — what was attempted, what returned, and
+ *  how much survived into the investigated pool (§34 "request/operation
+ *  log"). Counts only; no params, no provider payloads. */
+export interface RequestLogEntry {
+  engine: string;
+  attempted: number;
+  returned: number;
+  retained: number;
+  durationMs: number;
+  /** §34 — the actual SerpApi search id for this attempt; null when the
+   *  provider returned none. Identifiers only, never payloads. */
+  searchId: string | null;
+}
+
+/** One resolved reporting-origin group: its members and the basis codes
+ *  that grouped them (§13). Unresolved candidates never join a group —
+ *  they are listed separately in `unresolvedCandidateIds`. */
+export interface ReportingGroupSummary {
+  groupId: string;
+  memberIds: string[];
+  reason: ReportingOriginBasis[];
+}
+
+/** One deterministic policy gate evaluation — the gate, whether it
+ *  passed, a bounded detail string, and the evidence ids it rested on
+ *  (§21). Never generated prose. */
+export interface PolicyReason {
+  gate: string;
+  passed: boolean;
+  detail: string;
+  supportIds: string[];
+}
+
+/** §34 — one evaluated adjacent comparison in the displayed order. The
+ *  distribution is the actual pairwise Jev answer — null when the pair
+ *  was unexamined (interval overlap, budget, deadline); never invented. */
+export interface ComparisonRecord {
+  pairId: string;
+  fromOccurrenceId: string;
+  toOccurrenceId: string;
+  connector: Exclude<TimelineConnectorKind, "start">;
+  distribution: PairwiseContextJudgment | null;
+}
+
+/** §23 — the public projection of the internal provenance graph that
+ *  drives both the timeline and the result summary. Node/edge ids are
+ *  typed; an unobserved relation is reported as null/[], never
+ *  fabricated. */
+export interface ProvenanceProjection {
+  /** The submitted media asset node (M). */
+  media: { id: "media" };
+  /** M → O edges: one per investigated occurrence. */
+  occurrences: Array<{
+    id: string;
+    /** O → S edge target (source-domain node id). */
+    domainId: string;
+    /** O → K edge target; null when continuity was unresolved or the
+     *  occurrence was not in the compared run. */
+    segmentId: string | null;
+    role: "core" | "lead" | "contextual";
+    dated: boolean;
+  }>;
+  /** O → S: one domain node per registrable domain observed. */
+  sourceDomains: Array<{
+    id: string;
+    domain: string;
+    occurrenceIds: string[];
+  }>;
+  /** O → K: asserted context segments only. */
+  contextSegments: Array<{
+    id: string;
+    index: number;
+    occurrenceIds: string[];
+  }>;
+  /** K → K DIVERGES_TO edges — real asserted divergences only. */
+  divergenceEdges: Array<{
+    fromSegmentId: string;
+    toSegmentId: string;
+    fromOccurrenceId: string;
+    toOccurrenceId: string;
+    observedAt: string;
+    firstObserved: boolean;
+    earlierTransitionsUnresolved: boolean;
+  }>;
+  /** C → KQ claim context node; null in Trace mode. */
+  claimContext: {
+    claim: string;
+    claimDate: string | null;
+    claimDatePrecision: DatePrecision;
+    /** Actually-performed comparison pair ids. */
+    comparedPairIds: string[];
+    /** KQ → K "compared with" edges — segments a performed comparison
+     *  endpoint resolved into. */
+    comparedSegmentIds: string[];
+  } | null;
+}
+
 export interface SharedResultMetrics {
   /** Earliest usable observed date among core occurrences; never "original". */
   earliestObservedOccurrence: string | null;
@@ -170,6 +323,19 @@ export interface SharedResultMetrics {
   contextSegmentCount: number | null;
   firstObservedContextDivergence: Divergence | null;
   comparisonCoverage: ComparisonCoverage;
+  /** Per-operation retrieval accounting (§34) — attempted/returned/
+   *  retained counts per engine/slot. */
+  requestLog: RequestLogEntry[];
+  /** Resolved reporting-origin groups among core occurrences (§13). */
+  reportingGroups: ReportingGroupSummary[];
+  /** Core candidates whose reporting origin stayed unresolved (§13). */
+  unresolvedCandidateIds: string[];
+  /** §34 — every evaluated pairwise comparison in displayed order, with
+   *  the actual distribution; empty when none ran. */
+  comparisons: ComparisonRecord[];
+  /** §23 — the typed public projection of the provenance graph behind
+   *  this result's timeline and summary. */
+  provenance: ProvenanceProjection;
   limitations: LimitationCode[];
   undatedEvidence: TimelineItem[];
   /** Dated core occurrences (EXACT_MATCH / verified NEAR_MATCH) only. */
@@ -186,10 +352,23 @@ export interface TraceResult extends SharedResultMetrics {
   headline: TraceHeadline;
 }
 
+/** Bounded reason codes for the deterministic claim status (§21). */
+export type ClaimStatusBasis =
+  | "qualifying_conflicts_corroborated"
+  | "single_qualifying_conflict"
+  | "conflicts_without_corroboration"
+  | "corroborated_no_conflict"
+  | "insufficient_qualifying_evidence";
+
 /** §21 — Claim-check result: one conservative deterministic status. */
 export interface ClaimResult extends SharedResultMetrics {
   mode: "claim_check";
   status: ClaimStatus;
+  /** Why the status was assigned — deterministic codes, not prose. */
+  statusBasis: ClaimStatusBasis[];
+  /** Every gate the deterministic policy evaluated, pass or fail, with
+   *  the evidence ids it rested on (§21). */
+  policyReasons: PolicyReason[];
   claim: string;
   /** Parsed claim date (ISO day) or null when absent/ambiguous. */
   claimDate: string | null;

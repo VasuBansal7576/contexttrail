@@ -68,6 +68,7 @@ export type ReportingOriginBasis =
   | "explicit_syndication_attribution"
   | "common_originating_report"
   | "article_text_duplication"
+  | "shared_named_provider"
   | "separate_reporting_evidence"
   | "origin_unresolved_missing_evidence";
 
@@ -76,6 +77,9 @@ export interface ReportingOrigin {
   status: ReportingOriginStatus;
   basis: ReportingOriginBasis[];
   evidenceIds: string[];
+  /** Inspector-visible attribution spans that produced this status —
+   *  the exact retrieved sentences and how they were used (§13). */
+  attributionSpans: Array<{ text: string; relation: string }>;
 }
 
 export type PublishedAtSource =
@@ -88,7 +92,7 @@ export type PublishedAtSource =
 export type DatePrecision = "day" | "month" | "year" | "unknown";
 export type DateStatus = "usable" | "disputed" | "unknown";
 
-export type ExcerptSource = "page_text" | "serp_snippet" | null;
+export type ExcerptSource = "page_text" | "page_composite" | "serp_snippet" | null;
 
 export interface RetrievalRecord {
   kind: RetrievalKind;
@@ -98,6 +102,39 @@ export interface RetrievalRecord {
 }
 
 import type { EvidenceJudgment } from "./judgment";
+
+/**
+ * §18.2 — descriptive metadata retained from a JSON-LD publication entity
+ * that binds to the fetched page (page_url / main_entity / root_entity).
+ * Bounded allowlist: trimmed/capped strings and name lists only — never
+ * full subtrees, and never from contradicted or unbound nested entities.
+ */
+export interface JsonLdEntityMetadata {
+  /** Which page-binding tier this entity satisfied. */
+  binding: "page_url" | "main_entity" | "root_entity";
+  types: string[];
+  headline: string | null;
+  author: string[];
+  publisher: string | null;
+  description: string | null;
+}
+
+/** §18.2 — source-bound page metadata retained from a deep read. */
+export interface PageMetadata {
+  jsonLd: JsonLdEntityMetadata[];
+  openGraph: Record<string, string>;
+}
+
+/** §34 — the verified per-question Jev distributions behind a judgment.
+ *  Present only when `judgment` exists — construction requires a verified
+ *  pinned-model identity, so these are never invented or unverified. */
+export interface JevDistributions {
+  relevance: number;
+  pageRole: EvidenceJudgment["pageRole"];
+  contextRelation: EvidenceJudgment["contextRelation"];
+  claimRelation: EvidenceJudgment["claimRelation"];
+  locationRelation: EvidenceJudgment["locationRelation"];
+}
 
 /**
  * §11 — the raw evidence candidate. Retain disputed-date candidates and the
@@ -137,6 +174,14 @@ export interface EvidenceCandidate {
   excerptSource: ExcerptSource;
   retrievals: RetrievalRecord[];
 
+  /** Which JSON-LD binding tier produced the selected page date —
+   *  "page_url" | "main_entity" | "root_entity" — else null. */
+  dateEntityBinding?: string | null;
+  /** JSON-LD dates rejected for this page, with binding reasons (§19.2). */
+  rejectedDateCandidates?: Array<{ value: string; reason: string }>;
+  /** Source-bound JSON-LD/OpenGraph metadata retained by the deep read
+   *  (§18.2); null until a page is fetched, absent on failure. */
+  pageMetadata?: PageMetadata | null;
   pageText: string | null;
 
   judgment: EvidenceJudgment | null;

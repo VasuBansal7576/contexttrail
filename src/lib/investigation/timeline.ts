@@ -7,11 +7,11 @@
  * asserted continuity.
  */
 
-import type { EvidenceCandidate } from "./contracts/evidence";
+import type { EvidenceCandidate, JevDistributions } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
 import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
-import { isCoreOccurrence } from "./identity";
-import type { SegmentResult } from "./divergence";
+import { type SegmentResult } from "./divergence";
+import { partitionOccurrences } from "./provenance-graph";
 
 /** Strong context-relationship label from a Jev judgment, else null. */
 function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
@@ -23,6 +23,38 @@ function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
   return null;
 }
 
+const DISPLAY_ATTRIBUTION: Record<string, string> = {
+  page_text: "Extracted page excerpt",
+  serp_snippet: "Search snippet",
+  page_composite: "Composite page excerpt (title/snippet/body)",
+};
+
+/** §34 — the actual provider search ids this occurrence was retrieved
+ *  under (deduped, in retrieval order). Empty when none were reported —
+ *  ids are never invented. */
+function searchIdsOf(c: EvidenceCandidate): string[] {
+  const out: string[] = [];
+  for (const id of [c.serpSearchId, ...c.retrievals.map((r) => r.searchId)]) {
+    if (id !== null && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** §34 — verified per-question Jev distributions; null unless the
+ *  candidate carries a judgment (a judgment exists only when the pinned
+ *  model identity was verified — the numbers are never fabricated). */
+function jevDistributionsOf(c: EvidenceCandidate): JevDistributions | null {
+  const j = c.judgment;
+  if (j === null) return null;
+  return {
+    relevance: j.relevance,
+    pageRole: j.pageRole,
+    contextRelation: j.contextRelation,
+    claimRelation: j.claimRelation,
+    locationRelation: j.locationRelation,
+  };
+}
+
 function toTimelineItem(
   c: EvidenceCandidate,
   opts: {
@@ -31,6 +63,8 @@ function toTimelineItem(
     connector: TimelineItem["incomingConnector"];
     isDivergencePoint: boolean;
     excerpt: string | null;
+    classificationContext: string | null;
+    comparisonSelection: TimelineItem["comparisonSelection"];
   },
 ): TimelineItem {
   const firstRetrieval = c.retrievals[0] ?? null;
@@ -54,12 +88,45 @@ function toTimelineItem(
     excerptSource: c.excerptSource,
     publishedAtSource: c.publishedAtSource,
     reportingOriginStatus: c.reportingOrigin.status,
+    reportingOriginGroupId:
+      c.reportingOrigin.status === "unresolved"
+        ? null
+        : c.reportingOrigin.groupId,
+    reportingOriginBasis: c.reportingOrigin.basis,
+    identityBasis: c.identityEvidence.basis,
+    identityBasisDetail: {
+      method: c.identityEvidence.basis,
+      supportId: c.identityEvidence.verifierConfigId,
+    },
+    dateProvenance: {
+      value: c.publishedAt,
+      precision: c.datePrecision,
+      source: c.publishedAtSource,
+      entityBinding: c.dateEntityBinding ?? null,
+      rejectedCandidates: c.rejectedDateCandidates ?? [],
+    },
+    originSupport: {
+      status: c.reportingOrigin.status,
+      groupId:
+        c.reportingOrigin.status === "unresolved"
+          ? null
+          : c.reportingOrigin.groupId,
+      attributionSpans: c.reportingOrigin.attributionSpans,
+      groupingReason: c.reportingOrigin.basis,
+    },
+    displayAttribution:
+      c.excerptSource === null ? null : (DISPLAY_ATTRIBUTION[c.excerptSource] ?? null),
+    classificationContext: opts.classificationContext,
+    comparisonSelection: opts.comparisonSelection,
     contextLabel: contextLabelOf(c),
     serpPosition: c.serpPosition,
     retrievedAt: firstRetrieval?.retrievedAt ?? null,
     engine: firstRetrieval?.kind ?? null,
     resultType: firstRetrieval?.resultType ?? null,
     jevModel: c.judgment?.model ?? null,
+    searchIds: searchIdsOf(c),
+    jevDistributions: jevDistributionsOf(c),
+    pageMetadata: c.pageMetadata ?? null,
   };
 }
 
@@ -85,34 +152,14 @@ export function buildTimeline(
   candidates: readonly EvidenceCandidate[],
   segments: SegmentResult | null,
   excerpts?: ReadonlyMap<string, string>,
+  /** Model-input composites keyed by candidate id — surfaced separately
+   *  as `classificationContext`, never as the displayed quote. */
+  modelExcerpts?: ReadonlyMap<string, string>,
 ): BuiltTimeline {
-  const dated: EvidenceCandidate[] = [];
-  const datedLead: EvidenceCandidate[] = [];
-  const datedContextual: EvidenceCandidate[] = [];
-  const undated: EvidenceCandidate[] = [];
-  for (const c of candidates) {
-    if (
-      c.publishedAt !== null &&
-      c.dateStatus === "usable" &&
-      c.datePrecision !== "unknown"
-    ) {
-      if (isCoreOccurrence(c)) dated.push(c);
-      else if (c.mediaRelationship === "VISUAL_LEAD") datedLead.push(c);
-      else datedContextual.push(c);
-    } else {
-      undated.push(c);
-    }
-  }
-  dated.sort(
-    (a, b) =>
-      (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-      a.id.localeCompare(b.id),
-  );
-  const byDate = (a: EvidenceCandidate, b: EvidenceCandidate) =>
-    (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-    a.id.localeCompare(b.id);
-  datedLead.sort(byDate);
-  datedContextual.sort(byDate);
+  // §23 — the partition comes from the provenance-graph module so the
+  // timeline's buckets and the graph's occurrence roles are one derivation.
+  const { datedCore: dated, datedLead, datedContextual, undated } =
+    partitionOccurrences(candidates);
 
   const divergenceId =
     segments?.firstObservedContextDivergence?.toOccurrenceId ?? null;
@@ -141,6 +188,13 @@ export function buildTimeline(
       connector,
       isDivergencePoint: c.id === divergenceId,
       excerpt: excerpts?.get(c.id) ?? null,
+      classificationContext: modelExcerpts?.get(c.id) ?? null,
+      comparisonSelection: {
+        selected:
+          segments !== null &&
+          (segments.segmentOf.has(c.id) || segments.connectorOf.has(c.id)),
+        comparedPairIds: segments?.comparedPairsFor.get(c.id) ?? [],
+      },
     });
   });
 
@@ -151,6 +205,8 @@ export function buildTimeline(
       connector: null,
       isDivergencePoint: false,
       excerpt: excerpts?.get(c.id) ?? null,
+      classificationContext: modelExcerpts?.get(c.id) ?? null,
+      comparisonSelection: { selected: false, comparedPairIds: [] },
     });
 
   return {
@@ -164,6 +220,8 @@ export function buildTimeline(
         connector: null,
         isDivergencePoint: false,
         excerpt: excerpts?.get(c.id) ?? null,
+        classificationContext: modelExcerpts?.get(c.id) ?? null,
+        comparisonSelection: { selected: false, comparedPairIds: [] },
       }),
     ),
   };
