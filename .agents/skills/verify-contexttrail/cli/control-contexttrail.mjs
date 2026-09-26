@@ -1389,8 +1389,10 @@ function readLiveManifest(manifestPath) {
 }
 
 function liveManifestValue(key) {
-  if (flags["live-manifest"] === undefined) return null;
-  const { raw } = readLiveManifest(flags["live-manifest"]);
+  // `drive --live` and `live-handler` name the manifest with different flags.
+  const which = flags["live-manifest"] ?? flags.manifest;
+  if (which === undefined) return null;
+  const { raw } = readLiveManifest(which);
   return typeof raw[key] === "string" ? raw[key] : null;
 }
 
@@ -1512,6 +1514,14 @@ async function liveReady() {
   enforceCommandSchema("live-ready", { requiredOptions: ["run-id", "manifest", "image"] });
 
   const runId = required("run-id");
+  // A sealed generation is immutable: writing a readiness record after the seal
+  // would leave artifacts the manifest does not list.
+  if (manifestSealed(runId)) {
+    fail(
+      `evidence for run ${runId} generation ${generation(runId)} is sealed; ` +
+        "a readiness control would add unlisted artifacts — relaunch with --new-generation",
+    );
+  }
   const manifest = readLiveManifest(required("manifest"));
   const imagePath = required("image");
   const mode = flags.mode ?? "trace";
@@ -2470,6 +2480,89 @@ function fixtureViewerImages(name) {
   )].map((o) => o.imageUrl ?? o.thumbnailUrl ?? null);
 }
 
+/**
+ * Live/observed result assertions. Every check here is about the response the
+ * app actually rendered, and every count is recorded as an observation with
+ * its real value — nothing is compared with a fixture, and no expected status
+ * is invented.
+ */
+/** An entry control is a requirement for a controlled run (the fixture ships the
+ *  occurrence) and an observation for a live one (the response decides). */
+async function recordEntry(rec, id, locator, live) {
+  const count = await locator.count();
+  if (live) rec.note(id, `${count} entry control(s) in the returned result`);
+  else rec.check(id, count > 0, `count=${count}`);
+  return count;
+}
+
+async function observeResultView(page, rec, view, panel, panelText) {
+  rec.check(`result.observed-${view}-has-content`, panelText.trim().length > 0, `${panelText.trim().length} chars`);
+  rec.check(
+    `result.observed-${view}-no-placeholder`,
+    !/\b(undefined|NaN|Invalid Date|null)\b/i.test(panelText),
+    panelText.slice(0, 160).replace(/\s+/g, " "),
+  );
+  if (view === "overview") {
+    const takeaways = await page.locator('[aria-label="Key takeaways"] li').count();
+    const metrics = await page.locator('[aria-label="Investigation result"]').innerText({ timeout: 10_000 }).catch(() => "");
+    rec.note("result.observed-takeaways", `${takeaways} takeaway row(s)`);
+    rec.note("result.observed-metrics", metrics.slice(0, 200).replace(/\s+/g, " "));
+    rec.check("result.observed-no-percentage", !/\b\d{1,3}%\b/.test(metrics), "no fabricated percentage");
+  } else if (view === "timeline") {
+    const rows = await panel.locator("ol > li").allInnerTexts();
+    rec.note("result.observed-timeline-rows", `${rows.length} row(s)`);
+    rec.note(
+      "result.observed-timeline-dates",
+      JSON.stringify(rows.map((r) => (/(20\d{2}-\d{2}-\d{2})/.exec(r) ?? [])[1] ?? null)),
+    );
+    for (const [pattern, kind] of [
+      [/same context as previous · compared/i, "same_context"],
+      [/different context from previous · compared/i, "different_context"],
+      [/comparison inconclusive — performed but not established/i, "uncertain"],
+      [/not compared in this investigation/i, "unexamined"],
+    ]) {
+      rec.note(`result.observed-timeline-connector-${kind}`, pattern.test(panelText) ? "present" : "absent");
+    }
+    // The connector copy must be the one the product defines, whatever the
+    // real investigation contained.
+    rec.check(
+      "result.observed-connector-copy-is-product-copy",
+      !/connector|kind|incomingConnector/i.test(panelText),
+      "no wire tokens in the rendered chronology",
+    );
+  } else if (view === "sources") {
+    const rows = await panel.locator('section[aria-label="Sources"] li').count();
+    rec.note("result.observed-source-rows", `${rows} source row(s)`);
+    rec.check(
+      "result.observed-sources-surface-complete",
+      rows > 0 || (await panel.getByText(/no sources were retrieved/i).count()) > 0,
+      `${rows} row(s) or an explicit empty state`,
+    );
+  } else {
+    const groups = panelText.match(/Reporting group of \d+ occurrences?/g) ?? [];
+    const pairs = /(\d+) pairs? compared/.exec(panelText);
+    const selected = /(\d+) selected(?: of (\d+))?/.exec(panelText);
+    rec.note("result.observed-reporting-groups", `${groups.length} group headline(s): ${groups.join(" | ") || "none"}`);
+    rec.note("result.observed-coverage", `pairs=${pairs?.[1] ?? "n/a"} selected=${selected?.[1] ?? "n/a"} of ${selected?.[2] ?? "n/a"}`);
+    const mislabel = panelText.match(/Shared group of \d+ occurrence/i);
+    rec.check("result.observed-reporting-group-not-mislabeled", mislabel === null, mislabel ? mislabel[0] : "neutral headline");
+    if (/Reporting group of \d+ occurrence/.test(panelText)) {
+      // Every rendered group headline must carry a real member count.
+      rec.check(
+        "result.observed-reporting-group-counts-are-numeric",
+        groups.every((g) => /Reporting group of [1-9]\d* occurrences?/.test(g)),
+        groups.join(" | ") || "no group headline",
+      );
+    } else {
+      rec.check(
+        "result.observed-reporting-group-empty-state",
+        /No resolved reporting groups were reported/i.test(panelText) || /no groups/i.test(panelText),
+        panelText.slice(0, 120).replace(/\s+/g, " "),
+      );
+    }
+  }
+}
+
 /* --------------------------------- drive -------------------------------- */
 
 /**
@@ -2506,6 +2599,9 @@ async function drive(opts = {}) {
     if (mode === "claim" && (claimText === null || claimText.trim() === "")) {
       fail("--mode claim requires --claim-text (the claim actually under test)");
     }
+    // The mode is derived from the claim that will really be submitted, so the
+    // manifest is validated against that — a manifest without a `mode` field is
+    // reported as a manifest that fails, not silently accepted.
     const readiness = liveReadinessChecks({ manifest, imagePath, mode, claimText });
     const failed = readiness.filter((c) => c.status === "FAIL");
     if (failed.length) {
@@ -2524,7 +2620,10 @@ async function drive(opts = {}) {
 
   // Credit gate BEFORE run state: a --live drive must never reach the
   // manifest, port or browser checks without the explicit credit opt-in.
-  if (live && process.env.RUN_LIVE_TESTS !== "1") {
+  // `live-handler` is exempt by construction: its boundary blocks every
+  // provider-shaped request and the drive asserts zero attempts, so requiring
+  // credit opt-in for a command that cannot spend credit would be theatre.
+  if (live && !handlerLive && process.env.RUN_LIVE_TESTS !== "1") {
     fail("--live requires RUN_LIVE_TESTS=1 (provider credit gate)");
   }
 
@@ -2776,9 +2875,11 @@ async function drive(opts = {}) {
             typeof input.claim === "string" ? sha256(Buffer.from(input.claim, "utf8")) : null,
         }
       : null,
-    liveManifestSha256: handlerLive || (live && flags["live-manifest"])
-      ? readLiveManifest(flags["live-manifest"]).sha256
-      : null,
+    liveManifestSha256: handlerLive
+      ? readLiveManifest(flags.manifest).sha256
+      : live && flags["live-manifest"]
+        ? readLiveManifest(flags["live-manifest"]).sha256
+        : null,
     liveHandler: handlerLive || undefined,
     declaredResult: handlerLive ? (flags["declared-result"] ?? DEFAULT_DECLARED_RESULT) : undefined,
     appRevision: m.revision,
@@ -3450,80 +3551,6 @@ const DRIVE_CASES = {
     }
   },
 
-  /**
-   * Live/observed result assertions. Every check here is about the response the
-   * app actually rendered, and every count is recorded as an observation with
-   * its real value — nothing is compared with a fixture, and no expected status
-   * is invented.
-   */
-  async observeResultView(page, rec, view, panel, panelText) {
-    rec.check(`result.observed-${view}-has-content`, panelText.trim().length > 0, `${panelText.trim().length} chars`);
-    rec.check(
-      `result.observed-${view}-no-placeholder`,
-      !/\b(undefined|NaN|Invalid Date|null)\b/i.test(panelText),
-      panelText.slice(0, 160).replace(/\s+/g, " "),
-    );
-    if (view === "overview") {
-      const takeaways = await page.locator('[aria-label="Key takeaways"] li').count();
-      const metrics = await page.locator('[aria-label="Investigation result"]').innerText({ timeout: 10_000 }).catch(() => "");
-      rec.note("result.observed-takeaways", `${takeaways} takeaway row(s)`);
-      rec.note("result.observed-metrics", metrics.slice(0, 200).replace(/\s+/g, " "));
-      rec.check("result.observed-no-percentage", !/\b\d{1,3}%\b/.test(metrics), "no fabricated percentage");
-    } else if (view === "timeline") {
-      const rows = await panel.locator("ol > li").allInnerTexts();
-      rec.note("result.observed-timeline-rows", `${rows.length} row(s)`);
-      rec.note(
-        "result.observed-timeline-dates",
-        JSON.stringify(rows.map((r) => (/(20\d{2}-\d{2}-\d{2})/.exec(r) ?? [])[1] ?? null)),
-      );
-      for (const [pattern, kind] of [
-        [/same context as previous · compared/i, "same_context"],
-        [/different context from previous · compared/i, "different_context"],
-        [/comparison inconclusive — performed but not established/i, "uncertain"],
-        [/not compared in this investigation/i, "unexamined"],
-      ]) {
-        rec.note(`result.observed-timeline-connector-${kind}`, pattern.test(panelText) ? "present" : "absent");
-      }
-      // The connector copy must be the one the product defines, whatever the
-      // real investigation contained.
-      rec.check(
-        "result.observed-connector-copy-is-product-copy",
-        !/connector|kind|incomingConnector/i.test(panelText),
-        "no wire tokens in the rendered chronology",
-      );
-    } else if (view === "sources") {
-      const rows = await panel.locator('section[aria-label="Sources"] li').count();
-      rec.note("result.observed-source-rows", `${rows} source row(s)`);
-      rec.check(
-        "result.observed-sources-surface-complete",
-        rows > 0 || (await panel.getByText(/no sources were retrieved/i).count()) > 0,
-        `${rows} row(s) or an explicit empty state`,
-      );
-    } else {
-      const groups = panelText.match(/Reporting group of \d+ occurrences?/g) ?? [];
-      const pairs = /(\d+) pairs? compared/.exec(panelText);
-      const selected = /(\d+) selected(?: of (\d+))?/.exec(panelText);
-      rec.note("result.observed-reporting-groups", `${groups.length} group headline(s): ${groups.join(" | ") || "none"}`);
-      rec.note("result.observed-coverage", `pairs=${pairs?.[1] ?? "n/a"} selected=${selected?.[1] ?? "n/a"} of ${selected?.[2] ?? "n/a"}`);
-      const mislabel = panelText.match(/Shared group of \d+ occurrence/i);
-      rec.check("result.observed-reporting-group-not-mislabeled", mislabel === null, mislabel ? mislabel[0] : "neutral headline");
-      if (/Reporting group of \d+ occurrence/.test(panelText)) {
-        // Every rendered group headline must carry a real member count.
-        rec.check(
-          "result.observed-reporting-group-counts-are-numeric",
-          groups.every((g) => /Reporting group of [1-9]\d* occurrences?/.test(g)),
-          groups.join(" | ") || "no group headline",
-        );
-      } else {
-        rec.check(
-          "result.observed-reporting-group-empty-state",
-          /No resolved reporting groups were reported/i.test(panelText) || /no groups/i.test(panelText),
-          panelText.slice(0, 120).replace(/\s+/g, " "),
-        );
-      }
-    }
-  },
-
   async viewer({ page, rec, m, runId, driveDir, viewport, stream, caseName, spec, delayMs, live, input }) {
     const entry = flags.entry ?? spec.defaultEntry;
     const vcase = flags.case ?? spec.defaultCase;
@@ -3544,18 +3571,46 @@ const DRIVE_CASES = {
     if (entry === "timeline") {
       await selectTab(page, rec, "Timeline");
       entryBtn = page.getByRole("button", { name: /inspect evidence/i }).first();
-      rec.check("viewer.timeline-entry-present", (await entryBtn.count()) > 0, `count=${await entryBtn.count()}`);
+      // Live: whether an entry exists depends on the response, so it is observed
+      // here and the empty case is handled explicitly below.
+      recordEntry(rec, "viewer.timeline-entry-present", entryBtn, live);
     } else if (entry === "sources") {
       await selectTab(page, rec, "Sources");
       entryBtn = page.getByRole("button", { name: /^inspect/i }).first();
-      rec.check("viewer.sources-entry-present", (await entryBtn.count()) > 0, `count=${await entryBtn.count()}`);
+      recordEntry(rec, "viewer.sources-entry-present", entryBtn, live);
     } else {
       entryBtn = page
         .locator('[aria-label="Key takeaways"]')
         .getByRole("button", { name: /view evidence/i })
         .first();
-      rec.check("viewer.takeaway-entry-present", (await entryBtn.count()) > 0, `count=${await entryBtn.count()}`);
+      recordEntry(rec, "viewer.takeaway-entry-present", entryBtn, live);
     }
+
+    if (live && (await entryBtn.count()) === 0) {
+      // An honest live outcome: the response carried no inspectable occurrence,
+      // so there is no entry to open and no dialog contract to assert. The
+      // absence must itself be explained — the surface exists, it simply has
+      // nothing to inspect — and the drive says so instead of pretending to
+      // have opened a viewer.
+      const panelText = await page
+        .locator(`#ct-panel-${entry === "takeaway" ? "overview" : entry === "sources" ? "sources" : "timeline"}`)
+        .innerText({ timeout: 10_000 })
+        .catch(() => "");
+      rec.note(
+        "viewer.live-observed-no-evidence",
+        `the returned result exposes no ${entry} entry (${panelText.trim().length} chars in the panel)`,
+      );
+      rec.check(
+        "viewer.live-no-evidence-explained",
+        panelText.trim().length > 0 || (await page.locator('[aria-label="Result views"]').count()) > 0,
+        "the result surface rendered; it simply has no occurrence to inspect",
+      );
+      rec.check("viewer.live-no-dialog-opened", (await page.locator('[role="dialog"]').count()) === 0, "no dialog was opened");
+      await shot(page, driveDir, "01-viewer-no-evidence");
+      await aria(page, driveDir, `viewer-no-evidence-${entry}`);
+      return;
+    }
+
     await entryBtn.click();
 
     const dialog = page.locator('[role="dialog"]');
@@ -4641,7 +4696,24 @@ async function cleanup() {
 
 /* --------------------------------- main --------------------------------- */
 
-const handlers = { launch, doctor, drive, "live-ready": liveReady, evidence, cleanup };
+/** Handlers whose live code path is fixture-coupled enough to need an
+ *  intercepted, zero-provider proof. */
+const LIVE_HANDLER_FEATURES = ["result", "viewer"];
+
+/** A valid, honest result shape served locally for an intercepted live
+ *  submission: provider-validated empty collections → INSUFFICIENT_EVIDENCE. It
+ *  is a DECLARED result, never presented as provider truth. */
+const DEFAULT_DECLARED_RESULT = "controlled-insufficient";
+
+const handlers = {
+  launch,
+  doctor,
+  drive,
+  "live-ready": liveReady,
+  "live-handler": () => drive({ handlerLive: true }),
+  evidence,
+  cleanup,
+};
 if (!command || !handlers[command]) {
   console.error(
     "usage: control-contexttrail <launch|doctor|drive|live-ready|live-handler|evidence|cleanup> [args]\n" +
