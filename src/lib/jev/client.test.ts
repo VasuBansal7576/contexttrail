@@ -234,8 +234,12 @@ describe("claimLocationEligibility — positive place evidence only", () => {
   it("keeps complete claim-bound spans instead of truncating at the first token", () => {
     expect(claimLocationEligibility("in Las Vegas").spans).toEqual(["Las Vegas"]);
     expect(claimLocationEligibility("in northern France").spans).toEqual(["northern France"]);
+    // a sentence-final place noun is part of the span, not a new phrase
     expect(claimLocationEligibility("This image was taken in the Old Delhi neighbourhood").spans).toEqual([
       "Old Delhi",
+    ]);
+    expect(claimLocationEligibility("A hurricane neared the Gulf Coast.").spans).toEqual([
+      "Gulf Coast",
     ]);
     expect(claimLocationEligibility("This image was taken at 10 Downing Street.").spans).toEqual([
       "10 Downing Street",
@@ -585,6 +589,161 @@ describe("claimLocationEligibility — verbatim span fidelity", () => {
       "This image was taken in são tomé.",
     ]) {
       expect(claimMayStateLocation(claim), claim).toBe(true);
+    }
+  });
+});
+
+describe("claimLocationEligibility — explicit motion-relationship complements (§16.5)", () => {
+  /**
+   * The exact claim retained from the genuine Floyd/Katrina run. "The Gulf
+   * Coast" is the complement of the motion verb "approaching", so the gate must
+   * read it as the explicit location the claim states. The place text in the
+   * claim is the evidence; nothing is inferred about the storm.
+   */
+  const RETAINED_CLAIM =
+    "This satellite image shows Hurricane Katrina approaching the Gulf Coast in August 2005.";
+
+  it("reads the place the claim explicitly names, as a motion complement", () => {
+    const r = claimLocationEligibility(RETAINED_CLAIM);
+    expect(r.eligible).toBe(true);
+    expect(r.outcome).toBe("eligible");
+    // the complete place span, not just its first token
+    expect(r.spans).toEqual(["Gulf Coast"]);
+    expect(r.reasons).toContain("motion_relationship_complement");
+  });
+
+  it("keeps the claim verbatim and the temporal text it also examined", () => {
+    const r = claimLocationEligibility(RETAINED_CLAIM);
+    expect(r.claim).toBe(RETAINED_CLAIM);
+    // the temporal object of "in" is still reported, and is not promoted
+    expect(r.unresolved).toContain("August 2005");
+    expect(r.spans).not.toContain("August 2005");
+  });
+
+  it("asks the location question through production question construction", () => {
+    const built = evidenceQuestionsWithProvenance({ claimMode: true, claim: RETAINED_CLAIM });
+    expect(built.questions.location_relation).toBeDefined();
+    expect(built.locationEligibility!.eligible).toBe(true);
+    // never in trace mode
+    const trace = evidenceQuestionsWithProvenance({ claimMode: false, claim: RETAINED_CLAIM });
+    expect(trace.questions.location_relation).toBeUndefined();
+  });
+
+  it("recognises other narrow motion complements, and only with a real place", () => {
+    // Every positive uses a name or noun the frozen lexicons already carry:
+    // this stage adds no place name and no region of its own.
+    const positives = [
+      "This image shows a storm approaching the Gulf Coast.",
+      "A hurricane neared Miami.",
+      "A hurricane neared the Gulf Coast.",
+      "The storm struck the Gulf Coast.",
+      "Wildfire devastated the Amazon.",
+    ];
+    for (const claim of positives) {
+      expect(claimMayStateLocation(claim), claim).toBe(true);
+    }
+  });
+
+  it("a motion complement that is not a place never authorises the question", () => {
+    const negatives = [
+      "This image shows a man approaching Alice.",
+      "The storm struck midnight.",
+      "The water headed toward the horizon.",
+      "The flood approached the horizon.",
+      "Floods devastated the economy.",
+    ];
+    for (const claim of negatives) {
+      expect(claimMayStateLocation(claim), claim).toBe(false);
+    }
+  });
+
+  it("distinguishes an unevaluated complement from an affirmative no-location", () => {
+    // "Tomorrowland" is a name this gate does not know: unsupported parsing,
+    // reported as unknown rather than as "the claim states no location".
+    const unknown = claimLocationEligibility("A storm is approaching Tomorrowland.");
+    expect(unknown.eligible).toBe(false);
+    expect(unknown.outcome).toBe("unknown");
+    expect(unknown.rejectedBy).toBe("unrecognised_name");
+
+    // a motion verb with no complement at all is likewise unevaluated
+    const dangling = claimLocationEligibility("The storm is approaching.");
+    expect(dangling.eligible).toBe(false);
+    expect(dangling.outcome).toBe("unknown");
+    expect(dangling.rejectedBy).toBe("unparsed_relationship");
+  });
+
+  it("temporal-only claims keep the affirmative no-location reading", () => {
+    const temporal: Array<[string, LocationRejection]> = [
+      ["This happened on Tuesday.", "temporal_reference"],
+      ["The storm struck midnight.", "temporal_reference"],
+      ["This happened in August 2005.", "temporal_reference"],
+      ["Floods hit the coast in March.", "temporal_reference"],
+    ];
+    for (const [claim, rejection] of temporal) {
+      const r = claimLocationEligibility(claim);
+      expect(r.eligible, claim).toBe(false);
+      expect(r.outcome, claim).toBe("not_eligible");
+      expect(r.rejectedBy, claim).toBe(rejection);
+    }
+    // A bare numeric year is not a place either. Its recorded reason is weaker
+    // than the cases above, because a bare number is skipped as a span head
+    // rather than evaluated; both outcomes decline the question.
+    expect(claimMayStateLocation("This image was taken in 2019.")).toBe(false);
+  });
+
+  it("preserves the prior discourse, source-ownership and topical negatives", () => {
+    const preserved: Array<[string, LocationRejection]> = [
+      ["A speech on Jordan.", "topic_or_source_reference"],
+      ["An article on Jordan.", "topic_or_source_reference"],
+      ["This image is about a speech on the river.", "topic_or_source_reference"],
+      ["This image is about a report on 10 Downing Street.", "topic_or_source_reference"],
+      ["This photograph was taken during a speech on Jordan.", "topic_or_source_reference"],
+      ["The photo was taken yesterday and focuses on Jordan smiling.", "topic_or_source_reference"],
+      ["The photograph is from Jordan Smith’s collection.", "topic_or_source_reference"],
+      ["This photograph was taken from Jordan’s Instagram account.", "topic_or_source_reference"],
+      ["This photograph is from Reuters.", "non_place_reference"],
+      ["This image shows Alice smiling.", "no_locative_construction"],
+    ];
+    for (const [claim, rejection] of preserved) {
+      const r = claimLocationEligibility(claim);
+      expect(r.eligible, claim).toBe(false);
+      expect(r.rejectedBy, claim).toBe(rejection);
+    }
+  });
+
+  it("documents a known limit: a directional preposition is not in the locative set", () => {
+    // "toward"/"towards" are not locative prepositions for this gate, so
+    // "headed toward the river" is not read through that frame. Adding them is a
+    // preposition-coverage change, deliberately outside this stage.
+    expect(claimMayStateLocation("The water headed toward the river.")).toBe(false);
+  });
+
+  it("documents a known limit: a demonym modifier is not a place name", () => {
+    // "Japanese coastline" names a place, but recognising a demonym would mean
+    // growing a nationality lexicon, which is explicitly out of scope. The
+    // outcome is a safe decline - the question is not asked - so this costs a
+    // missed question, never a wrong one. The recorded reason is imprecise: the
+    // gate classifies "Japanese" from its language entry rather than recognising
+    // it as a modifier, so the rationale is weaker than the decision.
+    const r = claimLocationEligibility("A hurricane neared the Japanese coastline.");
+    expect(r.eligible).toBe(false);
+    expect(r.spans).toEqual([]);
+  });
+
+  it("keeps the override controls: real places outside any motion or topic frame", () => {
+    const overrides: Array<[string, boolean]> = [
+      ["A speech given in Paris.", true],
+      ["A report filed at 10 Downing Street.", true],
+      ["This image was taken in Jordan.", true],
+      ["A fire on the bridge.", true],
+      ["Damage at the airport.", true],
+      ["Flooding on the Thames.", true],
+      // the discourse guard is keyed on a preposition; a place named as a motion
+      // complement is still a place the claim states
+      ["An article about a hurricane approaching the Gulf Coast.", true],
+    ];
+    for (const [claim, expected] of overrides) {
+      expect(claimMayStateLocation(claim), claim).toBe(expected);
     }
   });
 });
