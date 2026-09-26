@@ -12,17 +12,29 @@ import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   attributableSpan,
+  claimComparisonsFor,
   comparisonSelected,
+  comparisonsForOccurrence,
   dateProvenanceOf,
   dateSourceLabel,
   displayAttributionOf,
   fullExcerptText,
   identityBasis,
   identityBasisDetailOf,
+  jevDistributionsOf,
+  mediaRelationshipText,
   originStatusLabel,
   originSupportOf,
+  pageMetadataOf,
   reportingOriginLabel,
+  resultTypeLabel,
+  retrievalEngineLabel,
+  searchIdsOf,
   type AttributableSpan,
+  type ClaimComparisonView,
+  type ComparisonView,
+  type DistributionGroup,
+  type PageMetadataView,
 } from "./evidence-display";
 import {
   occurrenceDate,
@@ -42,46 +54,338 @@ interface EvidenceViewerProps {
   index: number;
   submittedImageUrl: string | null;
   claim: string | null;
-  /** Element that opened the viewer; focus returns here on close (F14). */
-  triggerRef: React.RefObject<HTMLElement | null>;
+  /**
+   * Restores focus after the viewer closes. Owned by the parent so the opener
+   * (and its fallback) is decided where the opener was recorded, and so focus
+   * can be put back synchronously as well as after unmount.
+   */
+  onRestoreFocus: () => void;
   /** Why this occurrence was opened (takeaway / divergence entry). */
   entryNote: string | null;
   /** The paired divergence endpoint id, when the open item is half of a pair. */
   pairId: string | null;
+  /** Performed context comparisons for the whole result (§14, §20, §34). */
+  comparisons: ComparisonView[];
+  /** The full result, for result-level comparison lookup; may be null. */
+  result: JsonRecord | null;
   onJumpToId: (id: string) => void;
   onClose: () => void;
   onNavigate: (index: number) => void;
 }
 
-function TechDetails({ occurrence }: { occurrence: JsonRecord }) {
+/** A labelled technical field. Null values are never rendered as blanks. */
+function Field({ label, value }: { label: string; value: string | null }) {
+  if (value === null) return null;
+  return (
+    <div className="flex gap-2">
+      <dt className="shrink-0 font-medium text-white/60">{label}:</dt>
+      <dd className="break-all">{value}</dd>
+    </div>
+  );
+}
+
+function DistributionList({ options }: { options: Array<{ label: string; value: number }> }) {
+  return (
+    <ul className="mt-1 space-y-0.5">
+      {options.map((o) => (
+        <li key={o.label} className="flex gap-2 text-xs text-white/70">
+          <span className="shrink-0">{o.label}</span>
+          <span aria-hidden="true" className="text-white/40">
+            {o.value.toFixed(3)}
+          </span>
+          <span className="sr-only">{o.value.toFixed(3)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DistributionGroupBlock({ group }: { group: DistributionGroup }) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-medium text-white/75">{group.label}</p>
+      {group.options ? (
+        <DistributionList options={group.options} />
+      ) : (
+        <p className="text-xs text-white/55">{group.notAnswered}</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A claim-relative question whose verified answers are already shown, per
+ * occurrence, in the claim-comparison block below. Pointing there instead of
+ * repeating the same numbers keeps the disclosure readable and makes the two
+ * comparison scopes unmistakable.
+ */
+function DeferredGroupBlock({ group, shownUnder }: { group: DistributionGroup; shownUnder: string }) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-medium text-white/75">{group.label}</p>
+      <p className="text-xs text-white/55">
+        Answered for this occurrence — see {shownUnder} below. Same verified answers, listed
+        once per occurrence.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Descriptive page metadata, shown as inert text. Values are rendered as text
+ * nodes inside a definition list — never as links, images, or markup — so an
+ * `og:url` carrying a `javascript:` (or any other) scheme is displayed as the
+ * descriptive string it is and can never be activated or navigated to. The
+ * validated source/canonical link above is the only navigation in the viewer.
+ */
+function PageMetadataBlock({ metadata }: { metadata: PageMetadataView }) {
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-white/75">Page metadata</p>
+      <p className="mt-1 text-xs text-white/55">
+        Descriptive text copied from the page&apos;s own structured data. It is shown as text
+        only — it is not a link, and it is not used to navigate anywhere.
+      </p>
+      {metadata.entities.length > 0 ? (
+        <ul className="mt-1 space-y-1">
+          {metadata.entities.map((entity, i) => (
+            <li key={i} className="text-xs text-white/60">
+              <span className="text-white/70">Structured data {entity.binding}:</span>
+              <dl className="mt-0.5 space-y-0.5">
+                {entity.fields.map((f) => (
+                  <div key={f.label} className="flex gap-2">
+                    <dt className="shrink-0 text-white/50">{f.label}:</dt>
+                    <dd className="break-words">{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {metadata.openGraph.length > 0 ? (
+        <dl className="mt-1 space-y-0.5">
+          {metadata.openGraph.map((pair) => (
+            <div key={pair.property} className="flex gap-2 text-xs text-white/60">
+              <dt className="shrink-0 text-white/50">{pair.property}:</dt>
+              <dd className="break-all">{pair.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </div>
+  );
+}
+
+function ComparisonBlock({
+  comparison,
+  occurrenceKey,
+}: {
+  comparison: ComparisonView;
+  occurrenceKey: string;
+}) {
+  // Direction is read from the pair's own endpoints against the occurrence
+  // being inspected, so the label can never claim the wrong side.
+  const arrives = comparison.toId === occurrenceKey;
+  return (
+    <div className="mt-2">
+      <p className="text-xs text-white/75">
+        {arrives ? "Against the previous occurrence: " : "Against the next occurrence: "}
+        {comparison.label}
+      </p>
+      {comparison.options ? (
+        <DistributionList options={comparison.options} />
+      ) : (
+        <p className="text-xs text-white/55">No pairwise answer was recorded for this pair.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Claim/context questions answered about THIS occurrence. Kept separate from
+ * the occurrence-to-occurrence block above: one dated candidate can carry a
+ * claim comparison with no adjacent pair at all, and the two answer different
+ * questions about different things.
+ */
+function ClaimComparisonBlock({ comparison }: { comparison: ClaimComparisonView }) {
+  return (
+    <div className="mt-2">
+      <p className="text-xs text-white/75">{comparison.questionLabel}</p>
+      {comparison.options.length > 0 ? (
+        <DistributionList options={comparison.options} />
+      ) : (
+        <p className="text-xs text-white/55">
+          The classification model returned no answer for this question about this occurrence.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TechnicalDetails({
+  occurrence,
+  occurrenceKey,
+  claimSubmitted,
+  comparisons,
+  claimComparisons,
+}: {
+  occurrence: JsonRecord;
+  occurrenceKey: string;
+  claimSubmitted: boolean;
+  comparisons: ComparisonView[];
+  claimComparisons: ClaimComparisonView[];
+}) {
   const dateKey =
     str(occurrence, "dateSource") ??
     str(occurrence, "publicationDateSource") ??
     str(occurrence, "publishedAtSource");
+  const searchIds = searchIdsOf(occurrence);
+  const distributions = jevDistributionsOf(occurrence, { claimSubmitted });
+  const pageMetadata = pageMetadataOf(occurrence);
+  const sourceUrl = str(occurrence, "sourceUrl") ?? str(occurrence, "url");
+
   const rows: Array<[string, string | null]> = [
-    ["Search engine", str(occurrence, "engine")],
+    ["Search ids", searchIds.length > 0 ? searchIds.join(", ") : null],
+    ["Retrieval engine", retrievalEngineLabel(occurrence)],
+    ["Result type", resultTypeLabel(occurrence)],
     ["Result position", occurrencePosition(occurrence)],
-    ["Lens result type", str(occurrence, "lensResultType") ?? str(occurrence, "resultType")],
+    ["Source URL", sourceUrl],
     ["Canonical URL", str(occurrence, "canonicalUrl")],
+    ["Media relationship", mediaRelationshipText(occurrence)],
     ["Publication-date source", dateSourceLabel(dateKey)],
-    ["Retrieval timestamp", str(occurrence, "retrievedAt") ?? str(occurrence, "retrievalTimestamp")],
-    ["Model version", str(occurrence, "jevModel") ?? str(occurrence, "modelVersion")],
+    ["Retrieved at", str(occurrence, "retrievedAt") ?? str(occurrence, "retrievalTimestamp")],
   ];
   const visible = rows.filter(([, v]) => v !== null);
-  if (visible.length === 0) return null;
+  const hasDistributionWork =
+    distributions !== null &&
+    (distributions.relevance !== null || distributions.groups.some((g) => g.options !== null));
+
+  if (
+    visible.length === 0 &&
+    !hasDistributionWork &&
+    comparisons.length === 0 &&
+    claimComparisons.length === 0 &&
+    !pageMetadata
+  ) {
+    return null;
+  }
+
   return (
     <details className="mt-4 rounded-lg bg-white/5 px-4 py-3 ring-1 ring-white/10">
       <summary className="min-h-[44px] cursor-pointer text-sm font-medium text-white/80">
         Technical details
       </summary>
-      <dl className="mt-2 space-y-1 text-xs text-white/60">
-        {visible.map(([label, value]) => (
-          <div key={label} className="flex gap-2">
-            <dt className="shrink-0 font-medium text-white/60">{label}:</dt>
-            <dd className="break-all">{value}</dd>
-          </div>
-        ))}
-      </dl>
+      {visible.length > 0 ? (
+        <dl className="mt-2 space-y-1 text-xs text-white/70">
+          {visible.map(([label, value]) => (
+            <Field key={label} label={label} value={value} />
+          ))}
+        </dl>
+      ) : (
+        <p className="mt-2 text-xs text-white/55">
+          No retrieval fields were reported for this occurrence.
+        </p>
+      )}
+      {searchIds.length === 0 ? (
+        <p className="mt-1 text-xs text-white/55">
+          The provider reported no search id for this retrieval.
+        </p>
+      ) : null}
+
+      {distributions ? (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-white/75">
+            Classification question answers
+            {distributions.model ? ` · ${distributions.model}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-white/55">
+            These are the classification model&apos;s answers to fixed questions about this page.
+            They are not a confidence, accuracy or credibility score, and they are never combined
+            into one.
+          </p>
+          {distributions.relevance ? (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-white/75">Relevance</p>
+              <DistributionList options={distributions.relevance} />
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-white/55">
+              No relevance answer was recorded for this occurrence.
+            </p>
+          )}
+          {distributions.groups.map((group) => {
+            // A claim-relative question with a verified per-occurrence answer is
+            // shown once, in the claim block; only deferred when it is really
+            // there, so an older payload without it still shows the answer.
+            const claimQuestion =
+              group.id === "contextRelation"
+                ? "context_relation"
+                : group.id === "claimRelation"
+                  ? "claim_relation"
+                  : null;
+            const deferred =
+              claimQuestion !== null &&
+              claimComparisons.some((c) => c.question === claimQuestion && c.options.length > 0);
+            return deferred ? (
+              <DeferredGroupBlock
+                key={group.id}
+                group={group}
+                shownUnder="Comparison with your claim"
+              />
+            ) : (
+              <DistributionGroupBlock key={group.id} group={group} />
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-white/55">
+          No classification answers were recorded for this occurrence.
+        </p>
+      )}
+
+      <div className="mt-3">
+        <p className="text-xs font-medium text-white/75">Context comparison</p>
+        {comparisons.length === 0 ? (
+          <p className="mt-1 text-xs text-white/55">
+            This occurrence took part in no comparison with another occurrence.
+          </p>
+        ) : (
+          <>
+            {comparisons.map((c) => (
+              <ComparisonBlock key={c.pairId} comparison={c} occurrenceKey={occurrenceKey} />
+            ))}
+            <p className="mt-1 text-xs text-white/50">
+              These compare two retrieved occurrences with each other.
+            </p>
+          </>
+        )}
+      </div>
+
+      {claimSubmitted ? (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-white/75">Comparison with your claim</p>
+          {claimComparisons.length === 0 ? (
+            <p className="mt-1 text-xs text-white/55">
+              No claim comparison was recorded for this occurrence.
+            </p>
+          ) : (
+            <>
+              {claimComparisons.map((c, i) => (
+                <ClaimComparisonBlock key={`${c.occurrenceId}-${c.question ?? i}`} comparison={c} />
+              ))}
+              <p className="mt-1 text-xs text-white/50">
+                These are this occurrence&apos;s own answers about your claim, separate from the
+                occurrence-to-occurrence comparisons above.
+              </p>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      {pageMetadata ? <PageMetadataBlock metadata={pageMetadata} /> : null}
+
+      <p className="mt-3 text-xs text-white/60">Occurrence ID: {occurrenceKey}</p>
     </details>
   );
 }
@@ -92,9 +396,11 @@ export default function EvidenceViewer({
   index,
   submittedImageUrl,
   claim,
-  triggerRef,
+  onRestoreFocus,
   entryNote,
   pairId,
+  comparisons,
+  result,
   onJumpToId,
   onClose,
   onNavigate,
@@ -151,12 +457,10 @@ export default function EvidenceViewer({
         <Dialog.Content
           aria-describedby={undefined}
           onCloseAutoFocus={(e) => {
-            // F14: return focus to the control that opened the viewer.
-            const trigger = triggerRef.current;
-            if (trigger && document.contains(trigger)) {
-              e.preventDefault();
-              trigger.focus();
-            }
+            // Backstop only: the parent restores focus synchronously as the
+            // viewer closes, so focus is never parked on <body> in between.
+            e.preventDefault();
+            onRestoreFocus();
           }}
           className="fixed inset-0 z-50 overflow-y-auto bg-deep text-white"
         >
@@ -389,8 +693,21 @@ export default function EvidenceViewer({
                     <p className="mt-5 text-sm text-white/55">No source link was retrieved for this occurrence.</p>
                   )}
 
-                  <TechDetails occurrence={occurrence} />
-                  <p className="mt-3 text-xs text-white/60">Evidence ID: {occurrenceId(occurrence, `#${index}`)}</p>
+                  <TechnicalDetails
+                    occurrence={occurrence}
+                    occurrenceKey={occurrenceId(occurrence, `#${index}`)}
+                    claimSubmitted={claim !== null}
+                    comparisons={
+                      result
+                        ? comparisonsForOccurrence(result, occurrenceId(occurrence, `#${index}`))
+                        : comparisons
+                    }
+                    claimComparisons={
+                      result
+                        ? claimComparisonsFor(result, occurrenceId(occurrence, `#${index}`))
+                        : []
+                    }
+                  />
                 </div>
               </div>
             ) : (

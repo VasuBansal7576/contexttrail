@@ -12,7 +12,7 @@
  */
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   STATUS_COPY,
@@ -34,6 +34,7 @@ import {
 } from "@/lib/stream/result-view";
 import {
   comparisonCoverageText,
+  comparisonsOf,
   dateSourceLabel,
   divergenceEndpoints,
   getPolicyReasons,
@@ -42,11 +43,14 @@ import {
   getStatusBasis,
   getUnresolvedCandidateIds,
   identityBasis,
+  isRestorableFocusTarget,
   occurrenceRole,
+  provenanceOf,
   reportingCounts,
   reportingGroupHeadline,
   reportingOriginLabel,
   viewerEntryFor,
+  type ComparisonView,
 } from "./evidence-display";
 import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge } from "@/components/ui";
@@ -107,6 +111,8 @@ export default function ResultView({
   const statusBasis = getStatusBasis(result);
   const reportingGroups = getReportingGroups(result);
   const unresolvedCandidateIds = getUnresolvedCandidateIds(result);
+  const comparisons = useMemo(() => comparisonsOf(result), [result]);
+  const provenance = useMemo(() => provenanceOf(result), [result]);
 
   const groups: TimelineGroups = useMemo(() => {
     const supportingRaw =
@@ -209,7 +215,44 @@ export default function ResultView({
     navigateViewer(idx);
   };
 
-  const closeViewer = () => setViewerIndex(null);
+  /**
+   * Put focus back where the user left it: the control that opened the viewer.
+   * When that control can no longer take focus — removed by a re-render, a tab
+   * switch, a restored result, a click that never focused it, or simply never
+   * recorded — the current view's tab keeps the keyboard user inside the page
+   * instead of dropping them on <body>.
+   */
+  const restoreViewerFocus = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (isRestorableFocusTarget(trigger)) {
+      trigger!.focus();
+      return;
+    }
+    const current = TABS.findIndex((t) => t.id === tab);
+    tabRefs.current[current >= 0 ? current : 0]?.focus();
+  }, [tab]);
+
+  const closeViewer = useCallback(() => {
+    restoreViewerFocus();
+    setViewerIndex(null);
+  }, [restoreViewerFocus]);
+
+  // Synchronous restore: the same commit that unmounts the dialog puts focus
+  // back, so it is never parked on <body> between the two.
+  const viewerWasOpen = useRef(false);
+  // Deliberately a passive effect, not a layout effect. While the modal focus
+  // trap is still registered it pulls any focus that lands outside the dialog
+  // back into the (already detached) scope, so an earlier restore is swallowed
+  // and focus ends up on <body>. The trap unregisters in the same passive
+  // flush, just before this runs, so this is the earliest point at which the
+  // restore can actually stick — the same hook Radix's own onCloseAutoFocus
+  // uses. Keeping it here as well means the settle target is correct even if
+  // the dialog goes away without that callback ever running.
+  useEffect(() => {
+    const isOpen = viewerIndex !== null;
+    if (viewerWasOpen.current && !isOpen) restoreViewerFocus();
+    viewerWasOpen.current = isOpen;
+  }, [viewerIndex, restoreViewerFocus]);
 
   /** ARIA tab keyboard pattern: arrows move focus and selection. */
   const onTabKeyDown = (e: React.KeyboardEvent, current: number) => {
@@ -549,20 +592,26 @@ export default function ResultView({
               </h3>
               {requestLog ? (
                 <>
-                  <ul className="mt-2 space-y-1 text-[15px]">
+                  <ul className="mt-2 space-y-2 text-[15px]">
                     {requestLog.map((c) => (
                       <li key={c.engine} className="text-ink/75">
-                        <Badge tone="link">{c.engine}</Badge>{" "}
+                        <Badge tone="link">{c.engineLabel}</Badge>{" "}
                         <span>
                           attempted {c.attempted ?? "—"} · returned {c.returned ?? "—"} ·
                           retained {c.retained ?? "—"}
                         </span>
+                        <p className="mt-0.5 text-xs text-ink-soft">
+                          {c.searchId
+                            ? `Search id: ${c.searchId}`
+                            : "The provider returned no search id for this request."}
+                        </p>
                       </li>
                     ))}
                   </ul>
                   <p className="mt-2 text-xs text-ink-soft">
                     Per-operation accounting from this investigation: what each retrieval
-                    attempted, what it returned, and what survived into the evidence pool.
+                    attempted, what it returned, and what survived into the evidence pool. Search
+                    ids are the provider&apos;s own identifiers for these requests.
                   </p>
                 </>
               ) : searchCounts.length === 0 ? (
@@ -594,6 +643,256 @@ export default function ResultView({
                   ? `Context comparisons: ${coverageText}.`
                   : "Comparison coverage was not reported for this investigation."}
               </p>
+
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
+                Comparisons performed
+              </h3>
+              {comparisons.length === 0 ? (
+                <p className="mt-2 text-sm text-ink-soft">
+                  No context comparison was performed in this investigation.
+                </p>
+              ) : (
+                <>
+                  <ul className="mt-2 space-y-2">
+                    {comparisons.map((c) => (
+                      <li key={c.pairId} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
+                        <p className="text-[15px] font-medium">
+                          {c.label}
+                          <span className="text-ink-soft"> · between two retrieved occurrences</span>
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {[c.fromId, c.toId].map((id, i) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => openSupportId(id)}
+                              className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                            >
+                              {i === 0 ? "Earlier: " : "Later: "}
+                              {idToTitle.get(id) ?? id} →
+                            </button>
+                          ))}
+                        </div>
+                        {c.options ? (
+                          <ul className="mt-2 space-y-0.5 text-xs text-ink-soft">
+                            {c.options.map((o) => (
+                              <li key={o.label}>
+                                {o.label}: <span className="tabular-nums">{o.value.toFixed(3)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-2 text-xs text-ink-soft">
+                            No pairwise answer was recorded for this pair.
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-ink-soft">
+                    Each row is the classification model&apos;s answer to one question about two
+                    occurrences in this investigation. These are technical answers, not confidence
+                    or credibility scores.
+                  </p>
+                </>
+              )}
+
+              {provenance?.claimContext ? (
+                <>
+                  <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
+                    Compared with your claim
+                  </h3>
+                  <p className="mt-2 border-l-2 border-ink/15 pl-3 text-[15px] leading-relaxed text-ink/75">
+                    “{provenance.claimContext.claim}”
+                  </p>
+                  <p className="mt-1 text-xs text-ink-soft">
+                    {provenance.claimContext.claimDate
+                      ? `Claim date: ${provenance.claimContext.claimDate}${
+                          provenance.claimContext.claimDatePrecision &&
+                          provenance.claimContext.claimDatePrecision !== "unknown"
+                            ? ` (${provenance.claimContext.claimDatePrecision} precision)`
+                            : ""
+                        }.`
+                      : "No usable date was parsed from the claim."}
+                  </p>
+                  {provenance.claimContext.comparisons.length === 0 ? (
+                    <p className="mt-2 text-sm text-ink-soft">
+                      No verified claim comparison was recorded for this investigation, so your
+                      claim was not scored against any occurrence.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-2">
+                      {provenance.claimContext.comparisons.map((c) => (
+                        <li key={`${c.occurrenceId}-${c.question ?? "unknown"}`} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
+                          <p className="text-[15px] font-medium">{c.questionLabel}</p>
+                          <p className="mt-0.5 text-xs text-ink-soft">
+                            About this occurrence
+                            {c.segmentKnown
+                              ? ", in an asserted context segment"
+                              : ", whose context segment was unresolved"}
+                            .
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openSupportId(c.occurrenceId)}
+                              className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                            >
+                              {idToTitle.get(c.occurrenceId) ?? c.occurrenceId} →
+                            </button>
+                          </div>
+                          {c.options.length > 0 ? (
+                            <ul className="mt-2 space-y-0.5 text-xs text-ink-soft">
+                              {c.options.map((o) => (
+                                <li key={o.label}>
+                                  {o.label}:{" "}
+                                  <span className="tabular-nums">{o.value.toFixed(3)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-2 text-xs text-ink-soft">
+                              The classification model returned no answer for this question.
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="mt-2 text-xs text-ink-soft">
+                    These rows are each occurrence&apos;s own answer about your claim. They are
+                    separate from the occurrence-to-occurrence comparisons above, and
+                    {provenance.claimContext.comparedSegmentIds.length > 0
+                      ? ` the verified answers resolved into ${provenance.claimContext.comparedSegmentIds.length} context ${
+                          provenance.claimContext.comparedSegmentIds.length === 1 ? "segment" : "segments"
+                        }.`
+                      : " no context segment was resolved from them."}
+                  </p>
+                </>
+              ) : null}
+
+              {provenance ? (
+                <>
+                  <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
+                    Evidence relationships
+                  </h3>
+                  <p className="mt-2 max-w-3xl text-sm text-ink/65">
+                    Where each occurrence came from and which asserted context it belongs to. This
+                    is the relationship record behind the timeline, listed so it can be checked —
+                    not a diagram.
+                  </p>
+                  <div className="mt-3 grid gap-6 sm:grid-cols-2">
+                    <div>
+                      <h4 className="text-sm font-medium text-ink-soft">Source domains</h4>
+                      {provenance.domains.length === 0 ? (
+                        <p className="mt-1 text-sm text-ink-soft">
+                          No source domain was recorded.
+                        </p>
+                      ) : (
+                        <ul className="mt-1 space-y-2">
+                          {provenance.domains.map((d) => (
+                            <li key={d.domain} className="text-sm text-ink/75">
+                              {d.domain}
+                              {d.occurrenceIds.length > 0 ? (
+                                <span className="mt-1 flex flex-wrap gap-3">
+                                  {d.occurrenceIds.map((id) => (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      onClick={() => openSupportId(id)}
+                                      className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                                    >
+                                      {idToTitle.get(id) ?? id} →
+                                    </button>
+                                  ))}
+                                </span>
+                              ) : (
+                                <span className="block text-xs text-ink-soft">
+                                  No occurrence was attributed to this domain.
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-ink-soft">Asserted context segments</h4>
+                      {provenance.segments.length === 0 ? (
+                        <p className="mt-1 text-sm text-ink-soft">
+                          No context segment was asserted.
+                        </p>
+                      ) : (
+                        <ul className="mt-1 space-y-2">
+                          {provenance.segments.map((s) => (
+                            <li key={s.index} className="text-sm text-ink/75">
+                              Segment {s.index + 1}
+                              {s.occurrenceIds.length > 0 ? (
+                                <span className="mt-1 flex flex-wrap gap-3">
+                                  {s.occurrenceIds.map((id) => (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      onClick={() => openSupportId(id)}
+                                      className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                                    >
+                                      {idToTitle.get(id) ?? id} →
+                                    </button>
+                                  ))}
+                                </span>
+                              ) : (
+                                <span className="block text-xs text-ink-soft">
+                                  No occurrence belongs to this segment.
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {provenance.divergences.length > 0 ? (
+                        <>
+                          <h4 className="mt-4 text-sm font-medium text-ink-soft">
+                            Divergence edges
+                          </h4>
+                          <ul className="mt-1 space-y-2">
+                            {provenance.divergences.map((d) => (
+                              <li key={d.pairId ?? `${d.fromId}|${d.toId}`} className="text-sm text-ink/75">
+                                <span className="flex flex-wrap gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => openSupportId(d.fromId)}
+                                    className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                                  >
+                                    {idToTitle.get(d.fromId) ?? d.fromId} →
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openSupportId(d.toId)}
+                                    className="min-h-[44px] text-sm font-medium text-signal-ink underline underline-offset-2"
+                                  >
+                                    {idToTitle.get(d.toId) ?? d.toId} →
+                                  </button>
+                                </span>
+                                <span className="block text-xs text-ink-soft">
+                                  Diverges at {d.observedAt ?? "an unknown observed date"}
+                                  {d.firstObserved ? " · first observed divergence" : ""}
+                                  {d.earlierUnresolved
+                                    ? " · earlier transitions unresolved"
+                                    : ""}
+                                  {d.fromSegmentKnown && d.toSegmentKnown
+                                    ? ""
+                                    : " · one side's context segment is unresolved"}
+                                  .
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                </>
+              ) : null}
 
               <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                 Reporting origins
@@ -768,9 +1067,11 @@ export default function ResultView({
         index={viewerIndex ?? 0}
         submittedImageUrl={submittedImageUrl}
         claim={claim}
-        triggerRef={triggerRef}
+        onRestoreFocus={restoreViewerFocus}
         entryNote={viewerNote}
         pairId={viewerPairId}
+        comparisons={comparisons}
+        result={result}
         onJumpToId={jumpToPair}
         onClose={closeViewer}
         onNavigate={navigateViewer}

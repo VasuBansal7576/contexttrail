@@ -6,8 +6,11 @@
 import { describe, expect, it } from "vitest";
 import {
   attributableSpan,
+  claimComparisonsFor,
   comparisonCoverageText,
   comparisonSelected,
+  comparisonsForOccurrence,
+  comparisonsOf,
   connectorInfo,
   dateProvenanceOf,
   displayAttributionOf,
@@ -21,12 +24,21 @@ import {
   identityBasisOf,
   identityMethodLabel,
   isContextualKind,
+  isRestorableFocusTarget,
+  jevDistributionsOf,
+  jevModelOf,
+  mediaRelationshipText,
   occurrenceRole,
   originStatusLabel,
   originSupportOf,
+  pageMetadataOf,
   progressRelationshipNote,
+  provenanceOf,
   reportingGroupHeadline,
+  resultTypeLabel,
+  retrievalEngineLabel,
   retrievalKindOf,
+  searchIdsOf,
   splitCompositeExcerpt,
   viewerEntryFor,
 } from "./evidence-display";
@@ -238,8 +250,14 @@ describe("U6/R2 contextual roles from the actual contract", () => {
 describe("R4 typed inspection contract", () => {
   const result = occ({
     requestLog: [
-      { engine: "lens_exact_matches", attempted: 1, returned: 2, retained: 2 },
-      { engine: "google_search_claim", attempted: 1, returned: 0, retained: 0 },
+      {
+        engine: "lens_exact_matches",
+        attempted: 1,
+        returned: 2,
+        retained: 2,
+        searchId: "CONTROLLED-exact-id",
+      },
+      { engine: "google_search_claim", attempted: 1, returned: 0, retained: 0, searchId: null },
     ],
     policyReasons: [
       {
@@ -277,10 +295,17 @@ describe("R4 typed inspection contract", () => {
     comparisonSelection: { selected: true, comparedPairIds: ["ev-1|ev-2"] },
   });
 
-  it("reads the request log with honest counts", () => {
+  it("reads the request log with honest counts and the provider search id", () => {
     const log = getRequestLog(result)!;
     expect(log).toHaveLength(2);
-    expect(log[0]).toEqual({ engine: "lens_exact_matches", attempted: 1, returned: 2, retained: 2 });
+    expect(log[0]).toEqual({
+      engine: "lens_exact_matches",
+      engineLabel: "Lens exact matches",
+      attempted: 1,
+      returned: 2,
+      retained: 2,
+      searchId: "CONTROLLED-exact-id",
+    });
     expect(getRequestLog(occ({}))).toBeNull();
   });
 
@@ -364,5 +389,384 @@ describe("R4 residual: neutral reporting-group labels", () => {
     );
     expect(reportingGroupHeadline(groups[0])).toBe("Reporting group of 1 occurrence");
     expect(groups[0].reasons).toEqual(["Separate reporting evidence"]);
+  });
+});
+
+/* ---------------- §34 typed inspection projection ----------------
+ *
+ * Shapes mirror the actual contract at the accepted backend pin (G1/G2), not
+ * invented ones. Each case pins a real published field so a contract change
+ * cannot silently change what the inspection surface claims.
+ */
+describe("§34 technical inspection", () => {
+  const distribution = occ({
+    searchIds: ["CONTROLLED-exact-id"],
+    engine: "lens_exact",
+    resultType: "exact_match",
+    sourceUrl: "https://alpha.com/story",
+    canonicalUrl: "https://alpha.com/story",
+    mediaRelationship: "EXACT_MATCH",
+    publishedAtSource: "serpapi",
+    retrievedAt: "2026-09-26T10:37:20.280Z",
+    jevModel: "jev-1.13.0",
+    jevDistributions: {
+      relevance: 0.9,
+      pageRole: {
+        reporting: 0.8,
+        factCheck: 0.05,
+        socialRepost: 0.05,
+        aggregator: 0.05,
+        commentary: 0.03,
+        other: 0.02,
+      },
+      contextRelation: null,
+      claimRelation: null,
+      locationRelation: null,
+    },
+  });
+
+  it("reads the reported search ids, engine and result type in retrieval order", () => {
+    expect(searchIdsOf(distribution)).toEqual(["CONTROLLED-exact-id"]);
+    expect(retrievalEngineLabel(distribution)).toBe("Google Lens — exact matches");
+    expect(resultTypeLabel(distribution)).toBe("Exact match collection");
+    expect(jevModelOf(distribution)).toBe("jev-1.13.0");
+    expect(mediaRelationshipText(distribution)).toBe(
+      "Exact match — reported by Google Lens",
+    );
+    expect(mediaRelationshipText(occ({ mediaRelationship: "VISUAL_LEAD" }))).toBe(
+      "Visual lead — not confirmed as the same image",
+    );
+    expect(mediaRelationshipText(occ({}))).toBeNull();
+  });
+
+  it("reports an absent search id as none, never as a placeholder id", () => {
+    expect(searchIdsOf(occ({}))).toEqual([]);
+    expect(searchIdsOf(occ({ searchIds: [] }))).toEqual([]);
+    expect(retrievalEngineLabel(occ({}))).toBeNull();
+    expect(resultTypeLabel(occ({}))).toBeNull();
+    expect(jevModelOf(occ({}))).toBeNull();
+  });
+
+  it("shows each classification question separately, never as one score", () => {
+    const view = jevDistributionsOf(distribution)!;
+    expect(view.model).toBe("jev-1.13.0");
+    expect(view.relevance).toEqual([
+      { label: "Materially relevant to the image under investigation", value: 0.9 },
+    ]);
+    const pageRole = view.groups.find((g) => g.id === "pageRole")!;
+    expect(pageRole.options!.map((o) => o.value)).toEqual([
+      0.8, 0.05, 0.05, 0.05, 0.03, 0.02,
+    ]);
+    // The whole set sums to 1 — the view must not present a total or a score.
+    const sum = pageRole.options!.reduce((acc, o) => acc + o.value, 0);
+    expect(Math.round(sum * 1000) / 1000).toBe(1);
+    expect(Object.keys(view)).not.toContain("score");
+    expect(Object.keys(view)).not.toContain("confidence");
+  });
+
+  it("explains a question the model never answered instead of showing nothing", () => {
+    const trace = jevDistributionsOf(distribution, { claimSubmitted: false })!;
+    for (const id of ["contextRelation", "claimRelation", "locationRelation"]) {
+      const group = trace.groups.find((g) => g.id === id)!;
+      expect(group.options).toBeNull();
+      expect(group.notAnswered).toBe(
+        "Not asked — no claim was submitted with this investigation.",
+      );
+    }
+    const claim = jevDistributionsOf(distribution, { claimSubmitted: true })!;
+    expect(claim.groups.find((g) => g.id === "contextRelation")!.notAnswered).toBe(
+      "No context answer was recorded for this occurrence.",
+    );
+  });
+
+  it("returns no distributions at all when the occurrence was never classified", () => {
+    expect(jevDistributionsOf(occ({}))).toBeNull();
+    expect(jevDistributionsOf(occ({ jevDistributions: null }))).toBeNull();
+    // A present-but-empty block is not an answer.
+    expect(jevDistributionsOf(occ({ jevDistributions: { pageRole: {} } }))!.relevance).toBeNull();
+  });
+
+  it("reads each performed comparison with its actual pairwise answer", () => {
+    const result = occ({
+      comparisons: [
+        {
+          pairId: "ev-1|ev-2",
+          fromOccurrenceId: "ev-1",
+          toOccurrenceId: "ev-2",
+          connector: "different_context",
+          distribution: { sameContext: 0.01, differentContext: 0.98, unclear: 0.01 },
+        },
+      ],
+    });
+    const comparisons = comparisonsOf(result);
+    expect(comparisons).toHaveLength(1);
+    expect(comparisons[0].state).toBe("different");
+    expect(comparisons[0].label).toBe("Different context — compared");
+    expect(comparisons[0].options).toEqual([
+      { label: "Same underlying context", value: 0.01 },
+      { label: "Different underlying context", value: 0.98 },
+      { label: "Not enough to tell", value: 0.01 },
+    ]);
+    expect(comparisonsForOccurrence(result, "ev-1")).toHaveLength(1);
+    expect(comparisonsForOccurrence(result, "ev-2")).toHaveLength(1);
+    expect(comparisonsForOccurrence(result, "ev-3")).toEqual([]);
+  });
+
+  it("reports an unexamined pair as not compared, with no invented answer", () => {
+    const comparisons = comparisonsOf(
+      occ({
+        comparisons: [
+          {
+            pairId: "ev-1|ev-2",
+            fromOccurrenceId: "ev-1",
+            toOccurrenceId: "ev-2",
+            connector: "unexamined",
+            distribution: null,
+          },
+        ],
+      }),
+    );
+    expect(comparisons[0].state).toBe("unexamined");
+    expect(comparisons[0].label).toBe("Not compared in this investigation");
+    expect(comparisons[0].options).toBeNull();
+  });
+
+  it("keeps a performed-but-inconclusive pair distinct from an unexamined one", () => {
+    const [c] = comparisonsOf(
+      occ({
+        comparisons: [
+          {
+            pairId: "ev-1|ev-2",
+            fromOccurrenceId: "ev-1",
+            toOccurrenceId: "ev-2",
+            connector: "uncertain",
+            distribution: { sameContext: 0.02, differentContext: 0.03, unclear: 0.95 },
+          },
+        ],
+      }),
+    );
+    expect(c.state).toBe("uncertain");
+    expect(c.label).toBe("Comparison inconclusive — performed but not established");
+    expect(c.options![2].value).toBe(0.95);
+  });
+
+  it("separates claim comparisons from occurrence pairs", () => {
+    const result = occ({
+      comparisons: [
+        {
+          pairId: "ev-1|ev-2",
+          fromOccurrenceId: "ev-1",
+          toOccurrenceId: "ev-2",
+          connector: "different_context",
+          distribution: { sameContext: 0.01, differentContext: 0.98, unclear: 0.01 },
+        },
+      ],
+      provenance: {
+        media: { id: "media" },
+        sourceDomains: [{ id: "domain:alpha.com", domain: "alpha.com", occurrenceIds: ["ev-1"] }],
+        contextSegments: [{ id: "segment:0", index: 0, occurrenceIds: ["ev-1"] }],
+        divergenceEdges: [],
+        claimContext: {
+          claim: "This photograph was taken in London in 2025.",
+          claimDate: "2025-06-01",
+          claimDatePrecision: "day",
+          comparisons: [
+            {
+              occurrenceId: "ev-1",
+              segmentId: "segment:0",
+              question: "context_relation",
+              distribution: {
+                sameContext: 0.1,
+                differentContext: 0.85,
+                historicalReference: 0.03,
+                unclear: 0.02,
+              },
+            },
+            {
+              occurrenceId: "ev-1",
+              segmentId: "segment:0",
+              question: "claim_relation",
+              distribution: { supports: 0.05, contradicts: 0.9, neutral: 0.03, insufficient: 0.02 },
+            },
+          ],
+          comparedSegmentIds: ["segment:0"],
+        },
+      },
+    });
+    // A single candidate carries claim comparisons and no pair of its own.
+    expect(comparisonsForOccurrence(result, "ev-1")).toHaveLength(1);
+    const claims = claimComparisonsFor(result, "ev-1");
+    expect(claims).toHaveLength(2);
+    expect(claims[0].questionLabel).toBe("Context of this occurrence vs. your claim");
+    expect(claims[0].options[1]).toEqual({
+      label: "Different context from the claim",
+      value: 0.85,
+    });
+    expect(claims[1].questionLabel).toBe("What this occurrence says about your claim");
+    expect(claims[1].options[1].label).toBe("Contradicts what the claim says");
+    expect(claims.every((c) => c.segmentKnown)).toBe(true);
+    expect(claimComparisonsFor(result, "ev-2")).toEqual([]);
+    const graph = provenanceOf(result)!;
+    expect(graph.claimContext!.comparedSegmentIds).toEqual(["segment:0"]);
+    // The rejected 69 shape is no longer read as claim evidence.
+    expect(graph.claimContext).not.toHaveProperty("comparedPairIds");
+  });
+
+  it("shows a claim comparison with an absent question as asked-but-empty", () => {
+    const claims = claimComparisonsFor(
+      occ({
+        provenance: {
+          claimContext: {
+            claim: "c",
+            claimDate: null,
+            claimDatePrecision: "unknown",
+            comparisons: [{ occurrenceId: "ev-1", segmentId: null, question: null, distribution: null }],
+            comparedSegmentIds: [],
+          },
+        },
+      }),
+      "ev-1",
+    );
+    expect(claims).toHaveLength(1);
+    expect(claims[0].options).toEqual([]);
+    expect(claims[0].questionLabel).toBe("Claim comparison question not identified");
+    expect(claims[0].segmentKnown).toBe(false);
+  });
+
+  it("reports no claim context in trace mode rather than an empty claim", () => {
+    expect(
+      claimComparisonsFor(
+        occ({ provenance: { claimContext: null, sourceDomains: [], contextSegments: [], divergenceEdges: [] } }),
+        "ev-1",
+      ),
+    ).toEqual([]);
+    expect(provenanceOf(occ({}))).toBeNull();
+  });
+
+  it("preserves a verified divergence whose earlier segment is unresolved", () => {
+    const graph = provenanceOf(
+      occ({
+        provenance: {
+          sourceDomains: [],
+          contextSegments: [{ id: "segment:1", index: 1, occurrenceIds: ["ev-2"] }],
+          divergenceEdges: [
+            {
+              pairId: "ev-2|ev-3",
+              fromOccurrenceId: "ev-2",
+              toOccurrenceId: "ev-3",
+              fromSegmentId: null,
+              toSegmentId: "segment:1",
+              observedAt: "2022-01-01",
+              firstObserved: true,
+              earlierTransitionsUnresolved: true,
+            },
+          ],
+          claimContext: null,
+        },
+      }),
+    )!;
+    expect(graph.divergences).toHaveLength(1);
+    expect(graph.divergences[0].pairId).toBe("ev-2|ev-3");
+    expect(graph.divergences[0].earlierUnresolved).toBe(true);
+    expect(graph.divergences[0].fromSegmentKnown).toBe(false);
+    expect(graph.divergences[0].toSegmentKnown).toBe(true);
+  });
+
+  it("renders page metadata as inert text and never as a link or markup", () => {
+    const meta = pageMetadataOf(
+      occ({
+        pageMetadata: {
+          jsonLd: [
+            {
+              binding: "root_entity",
+              types: ["NewsArticle"],
+              headline: "BOUND descriptive metadata",
+              author: ["Reuters"],
+              publisher: "Reuters",
+              description: "Image from our original reporting.",
+            },
+          ],
+          // A hostile og value is descriptive data, not navigation.
+          openGraph: {
+            "og:url": "javascript:alert('xss')",
+            "og:title": "Title <script>alert(1)</script>",
+            "og:site_name": "Example",
+          },
+        },
+      }),
+    )!;
+    expect(meta.entities[0].binding).toBe("bound to the page root entity");
+    expect(meta.entities[0].fields).toEqual([
+      { label: "Type", value: "NewsArticle" },
+      { label: "Headline", value: "BOUND descriptive metadata" },
+      { label: "Byline", value: "Reuters" },
+      { label: "Publisher", value: "Reuters" },
+      { label: "Description", value: "Image from our original reporting." },
+    ]);
+    // The value survives verbatim as a plain string, and the projection
+    // exposes no href/url/navigation field for it to be activated through.
+    expect(meta.openGraph).toEqual([
+      { property: "og:url", value: "javascript:alert('xss')" },
+      { property: "og:title", value: "Title <script>alert(1)</script>" },
+      { property: "og:site_name", value: "Example" },
+    ]);
+    for (const pair of meta.openGraph) {
+      expect(Object.keys(pair).sort()).toEqual(["property", "value"]);
+    }
+    expect(JSON.stringify(meta)).not.toMatch(/"href"|"src"|"html"/);
+  });
+
+  it("reports absent or empty page metadata as no metadata", () => {
+    expect(pageMetadataOf(occ({}))).toBeNull();
+    expect(pageMetadataOf(occ({ pageMetadata: null }))).toBeNull();
+    expect(pageMetadataOf(occ({ pageMetadata: { jsonLd: [], openGraph: {} } }))).toBeNull();
+    // An entity with no retained fields is not displayed as an empty record.
+    expect(
+      pageMetadataOf(
+        occ({ pageMetadata: { jsonLd: [{ binding: "root_entity", types: [] }], openGraph: {} } }),
+      ),
+    ).toBeNull();
+  });
+});
+
+/* ---------------- focus restoration (F14) ----------------
+ *
+ * The recorded opener is rejected for every reason it can silently swallow a
+ * focus() call, so a close never strands the user on <body>.
+ */
+describe("focus restoration target", () => {
+  const target = (over: Partial<{ tagName: string; tabIndex: number; isConnected: boolean; disabled: boolean | null }> = {}) => ({
+    tagName: "BUTTON",
+    tabIndex: 0,
+    isConnected: true,
+    disabled: false,
+    ...over,
+  });
+
+  it("accepts a live, focusable opener", () => {
+    expect(isRestorableFocusTarget(target())).toBe(true);
+  });
+
+  it("rejects <body>, which focus() cannot move to", () => {
+    // What focus falls back to when the dialog subtree is removed; treating it
+    // as an opener is what leaves the user stranded after a close.
+    expect(isRestorableFocusTarget(target({ tagName: "BODY", tabIndex: -1 }))).toBe(false);
+  });
+
+  it("rejects an opener that a re-render removed", () => {
+    expect(isRestorableFocusTarget(target({ isConnected: false }))).toBe(false);
+  });
+
+  it("rejects a disabled control", () => {
+    expect(isRestorableFocusTarget(target({ disabled: true }))).toBe(false);
+  });
+
+  it("rejects a control excluded from the tab order", () => {
+    expect(isRestorableFocusTarget(target({ tabIndex: -1 }))).toBe(false);
+  });
+
+  it("rejects a missing opener so the view can fall back to the tab", () => {
+    expect(isRestorableFocusTarget(null)).toBe(false);
+    expect(isRestorableFocusTarget(undefined)).toBe(false);
   });
 });
