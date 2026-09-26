@@ -4833,7 +4833,7 @@ const DRIVE_CASES = {
     });
     rec.check(
       "result.measurement-surface-is-the-requested-panel",
-      panelInfo.observedTab === requestedView && panelInfo.settled === true,
+      measurementSurfaceOk(requestedView, panelInfo),
       `requested "${requestedView}", observed tab "${panelInfo.observedTab}", panel ${panelInfo.panelId} ` +
         `settled=${panelInfo.settled} (${panelInfo.rowsInPanel} candidate nodes inside that panel)`,
     );
@@ -4857,17 +4857,17 @@ const DRIVE_CASES = {
       .catch(() => {});
     const faultTarget = await page.evaluate(() => window.__ctReadingOrderTarget ?? null);
     rec.note("result.reading-order-mutation-target", JSON.stringify(faultTarget));
-    // RO1: the requirement is conditioned on the fault ACTUALLY requested. With a
-    // reading fault asked for, the target must be found; with no fault, no
-    // sabotage target may exist at all and Sources must simply be accepted.
-    const readingFaultRequested = /^(reading-order-reversed|reading-order-restored)$/.test(flags.fault ?? "");
+    // RO1+RO5: the requirement is conditioned on the fault ACTUALLY requested.
+    // With a reading fault asked for, the target must be the measured panel's
+    // own Sources list and must have applied. With NO fault the only honest
+    // requirement is that NO sabotage target exists — the requested panel was
+    // already established by the check above, so requiring "Sources" here made
+    // every other valid --view a false red.
     rec.check(
       "result.reading-order-mutation-target-is-the-requested-list",
-      readingFaultRequested
-        ? faultTarget !== null && faultTarget.panelId === panelInfo.panelId && faultTarget.directRows >= 2 && faultTarget.applied === true
-        : faultTarget === null && panelInfo.observedTab === "Sources",
+      readingOrderTargetOk(flags.fault ?? null, faultTarget, panelInfo.panelId),
       faultTarget === null
-        ? "no reading-order mutation applied (baseline)"
+        ? `no reading-order mutation applied on the requested "${requestedView}" panel (baseline)`
         : `reversed ${faultTarget.selector} (tab "${faultTarget.tab}", ${faultTarget.directRows} direct visible ` +
           `li, applied=${faultTarget.applied}${faultTarget.restored ? ", then removed" : ""})`,
     );
