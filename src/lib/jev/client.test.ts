@@ -424,6 +424,86 @@ describe("claimLocationEligibility — discourse frames take a topic, not a plac
   });
 });
 
+describe("claimLocationEligibility — governing-relationship precedence", () => {
+  /**
+   * A discourse complement governs its own object. Neither a capture verb
+   * elsewhere in the clause nor the fact that the object is a genuine
+   * geographical thing may override that relationship.
+   */
+  it.each([
+    ["The photograph was taken during a speech on Jordan.", "a capture verb governing a different adjunct"],
+    ["The photo was filmed during a lecture on London.", "a capture verb governing a different adjunct"],
+    ["This image is about a speech on the river.", "a place-type noun inside the complement"],
+    ["This image is about a report on 10 Downing Street.", "a street address inside the complement"],
+  ])("does not ask for %s — %s", (claim) => {
+    const r = claimLocationEligibility(claim);
+    expect(r.eligible, claim).toBe(false);
+    expect(r.rejectedBy, claim).toBe("topic_or_source_reference");
+  });
+
+  it("asks through production question construction, not just the boolean view", () => {
+    for (const claim of [
+      "The photograph was taken during a speech on Jordan.",
+      "The photo was filmed during a lecture on London.",
+      "This image is about a speech on the river.",
+      "This image is about a report on 10 Downing Street.",
+    ]) {
+      const built = evidenceQuestionsWithProvenance({ claimMode: true, claim });
+      expect(built.questions.location_relation, claim).toBeUndefined();
+      expect(built.locationEligibility!.eligible, claim).toBe(false);
+    }
+    // and a real location still produces the question
+    const real = evidenceQuestionsWithProvenance({
+      claimMode: true,
+      claim: "This image was taken in London.",
+    });
+    expect(real.questions.location_relation).toBeDefined();
+  });
+
+  it("lets a capture verb establish geography only for its own locative relationship", () => {
+    const owns: Array<[string, boolean]> = [
+      ["This image was taken on the Thames.", true],
+      ["This was published on the record.", false],
+      ["The photograph was taken during a speech on Jordan.", false],
+      ["Flooding on the Thames.", true],
+    ];
+    for (const [claim, expected] of owns) {
+      expect(claimMayStateLocation(claim), claim).toBe(expected);
+    }
+  });
+
+  it("keeps genuine place and address positives outside any topic frame", () => {
+    const kept: Array<[string, boolean]> = [
+      ["A report filed at 10 Downing Street.", true],
+      ["Report filed at 221B Baker Street.", true],
+      ["A fire in a warehouse.", true],
+      ["A fire on the bridge.", true],
+      ["Damage at the airport.", true],
+      ["A speech given in Paris.", true],
+      ["An article published in Delhi.", true],
+      ["A protest in Amman.", true],
+      ["This image was taken in Jordan.", true],
+      ["in Las Vegas", true],
+    ];
+    for (const [claim, expected] of kept) {
+      expect(claimMayStateLocation(claim), claim).toBe(expected);
+    }
+  });
+
+  it("scopes both the discourse head and the capture verb to their own clause", () => {
+    const separate = claimLocationEligibility(
+      "There was a speech on migration and this image was taken in Berlin.",
+    );
+    expect(separate.eligible).toBe(true);
+    expect(separate.spans).toContain("Berlin");
+
+    const laterTopic = claimLocationEligibility(
+      "The photo was taken yesterday and focuses on Jordan smiling.",
+    );
+    expect(laterTopic.eligible).toBe(false);
+  });
+});
+
 describe("claimLocationEligibility — honest unknown state", () => {
   it("reports an unrecognised name as unknown, not as definitely not a place", () => {
     for (const claim of [

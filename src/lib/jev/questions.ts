@@ -808,7 +808,13 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       // a street address may begin with the number itself
       const addr = matchAddress(tokens, j);
       if (addr > 0) {
-        candidates.push({ from: j, to: j + addr - 1, evidence: "street_address", topic: false });
+        const to = j + addr - 1;
+        candidates.push({
+          from: j,
+          to,
+          evidence: "street_address",
+          topic: isTopicFrame(tokens, i, to, "street_address"),
+        });
         continue;
       }
       // A locative word with an object this gate cannot even read (a non-Latin
@@ -826,7 +832,13 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       // a street address begins with the house number
       const addr = matchAddress(tokens, j);
       if (addr > 0) {
-        candidates.push({ from: j, to: j + addr - 1, evidence: "street_address", topic: false });
+        const to = j + addr - 1;
+        candidates.push({
+          from: j,
+          to,
+          evidence: "street_address",
+          topic: isTopicFrame(tokens, i, to, "street_address"),
+        });
       }
       continue;
     }
@@ -895,6 +907,24 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
 /** True when the token carries a possessive marker. */
 function isPossessive(t: Token): boolean {
   return t.raw.includes("\u2019") || /['\u2019]s$/i.test(t.raw);
+}
+
+/**
+ * True when a capture verb *directly governs* the preposition at `index` — the
+ * nearest content word to its left is a capture verb. A capture verb establishes
+ * geography only for its own locative relationship: in "was taken during a
+ * speech on Jordan" the verb governs "during", not "on", so it says nothing
+ * about Jordan. Scoped to the clause, and to the first content word, so an
+ * unrelated verb elsewhere cannot reach across.
+ */
+function governingCaptureVerb(tokens: Token[], index: number): boolean {
+  const from = clauseStart(tokens, index);
+  for (let i = index - 1; i >= from; i--) {
+    const w = tokens[i].lower;
+    if (w.length === 0 || DETERMINERS.has(w)) continue;
+    return CAPTURE_VERBS.has(w);
+  }
+  return false;
 }
 
 /** Index of the first token of the clause containing `index`. */
@@ -973,13 +1003,23 @@ function isTopicFrame(
   evidence: PlaceEvidence | null,
 ): boolean {
   if (!TOPIC_PREPOSITIONS.has(tokens[prepositionIndex].lower)) return false;
-  // A place-type noun and a street address are self-sufficient positive
-  // evidence and are never withdrawn. A gazetteer name - and an object that
-  // matched nothing at all, whose local signals are still worth reporting -
-  // do go through this test.
-  if (evidence === "place_type_noun" || evidence === "street_address") return false;
-  if (clauseHasCaptureVerb(tokens, prepositionIndex)) return false;
+
+  // 1. A discourse complement governs, and nothing below may override it. The
+  //    complement of "a speech on X" is a subject, so a gazetteer name, a
+  //    place-type noun and a street address are all topics there, and a capture
+  //    verb elsewhere in the clause is irrelevant to this relationship.
   if (hasDiscourseHead(tokens, prepositionIndex)) return true;
+
+  // 2. Outside a discourse frame, a place-type noun and a street address are
+  //    self-sufficient positive evidence. A gazetteer name — and an object
+  //    that matched nothing at all, whose local signals are still worth
+  //    reporting — do go through the rest of this test.
+  if (evidence === "place_type_noun" || evidence === "street_address") return false;
+
+  // 3. A capture verb governing this preposition keeps the place reading.
+  if (governingCaptureVerb(tokens, prepositionIndex)) return false;
+
+  // 4. Local topic signals on the span itself.
   const next = tokens[spanTo + 1];
   if (next !== undefined) {
     if (isPossessive(next)) return true;
