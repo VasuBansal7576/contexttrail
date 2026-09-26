@@ -43,17 +43,18 @@ tracer, implementing `contexttrail_master_product_ux_architecture_spec_v1.1.md`
 
 ## Required dependencies (integration)
 
-Not yet declared in `package.json` (owned by the scaffold stream):
+Declared in `package.json`:
 
 - `chrono-node` — claim/evidence date parsing (§19.1)
 - `tldts` — PSL-aware registrable domains (§13)
-- `vitest`, `typescript`, `@types/node` — tests/typecheck
+- `jsdom` + `@mozilla/readability` — deep-read page extraction (§18, §30)
+- `vitest`, `typescript`, `@types/node`, `@types/jsdom` — tests/typecheck
 
-## Next wiring action (integration step)
+## Live wiring
 
-`src/app/api/investigate/route.ts` does not exist yet in this stream. Wire
-`runtime = "nodejs"`, `maxDuration = 60`, parse multipart `claim`,
-`timezone`, `locale`, `media` into `InvestigationInput`, and write
-`encodeEvent(...)` chunks to an `application/x-ndjson` response body while a
-runtime executor drives `SearchBudget` + these policies. Fixture fallback in
-the production route is forbidden (§40).
+`src/app/api/investigate/route.ts` streams the real pipeline over
+`application/x-ndjson` via `src/lib/investigation/server.ts` +
+`src/lib/investigation/run.ts` (SerpApi `src/lib/serpapi/`, TypeSafe Jev
+`src/lib/jev/`, safe page reads `src/lib/pages/`). Server-only env keys:
+`SERPAPI_API_KEY`, `TYPESAFE_API_KEY`, `TYPESAFE_MODEL=jev-1.13.0`.
+Fixture fallback in the production route is forbidden (§40).
