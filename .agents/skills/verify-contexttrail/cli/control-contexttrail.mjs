@@ -35,7 +35,10 @@
  *  - A live drive submits the operator's own --image/--claim-text under a
  *    --live-manifest that names the public source, its sha256, the mode/claim
  *    and the credit acknowledgement. `live-ready` validates that contract with
- *    no provider call, so readiness is provable without spending credit.
+ *    no provider call, so readiness is provable without spending credit, and
+ *    `live-handler` runs the production result/viewer handler against an
+ *    intercepted, locally declared result — live semantics, zero provider
+ *    calls, and no fixture expectation anywhere in the handler.
  */
 
 import { spawn, execFileSync } from "node:child_process";
@@ -143,6 +146,16 @@ const COMMAND_FLAGS = {
     "no-video",
   ],
   "live-ready": [...BASE_FLAGS, "manifest", "image", "claim-text", "mode"],
+  "live-handler": [
+    ...BASE_FLAGS,
+    "feature",
+    "declared-result",
+    "manifest",
+    "image",
+    "claim-text",
+    "mode",
+    "viewport",
+  ],
   evidence: [...BASE_FLAGS, "regenerate"],
   cleanup: [...BASE_FLAGS],
 };
@@ -1706,25 +1719,44 @@ const FEATURE_SPECS = {
 const FEATURE_LIST = Object.keys(FEATURE_SPECS);
 
 /**
- * Which drive each fault can actually sabotage. A fault outside this set is
- * rejected with exit 2 instead of being accepted and silently inert: an
- * accepted fault that cannot fire is a false green, which is exactly what
- * `drive landing --fault bad-selection` used to be.
+ * Which drive — and which case/view of it — each fault can actually sabotage.
+ * A fault outside that scope is rejected with exit 2 instead of being accepted
+ * and silently inert: an accepted fault that cannot fire is a false green, and
+ * feature-level scope alone is not enough. `drop-timeline-item` fires against
+ * the Timeline panel, so on `--view overview` it would remove nothing and the
+ * drive would pass; `group-mislabel` only has an assertion in the Analysis
+ * branch; the pair faults only run inside `--case pair`.
  */
-const FAULT_FEATURES = {
-  "a11y-false-green": ["accessibility"],
-  "focus-removed": ["accessibility"],
-  "anchor-broken": ["landing"],
-  "bad-selection": ["result"],
-  "drop-timeline-item": ["result"],
-  "group-mislabel": ["result"],
-  "pair-endpoint-wrong": ["viewer"],
-  "pair-note-wrong": ["viewer"],
-  "focus-return-broken": ["viewer"],
+const FAULT_SCOPE = {
+  "a11y-false-green": { features: ["accessibility"] },
+  "focus-removed": { features: ["accessibility"] },
+  "anchor-broken": { features: ["landing"] },
+  "bad-selection": { features: ["result"] },
+  "drop-timeline-item": { features: ["result"], views: ["timeline"] },
+  "group-mislabel": { features: ["result"], views: ["analysis"] },
+  "pair-endpoint-wrong": { features: ["viewer"], cases: ["pair"] },
+  "pair-note-wrong": { features: ["viewer"], cases: ["pair"] },
+  "focus-return-broken": { features: ["viewer"] },
   // Fires a provider-shaped request from any loaded page; the boundary
   // counters are what turn it into a red.
-  "unexpected-request": FEATURE_LIST,
+  "unexpected-request": { features: FEATURE_LIST },
 };
+
+/** Why a fault does not apply, or null when it does. */
+function faultScopeViolation(fault, feature, { caseName, view } = {}) {
+  const scope = FAULT_SCOPE[fault];
+  if (!scope) return `unknown fault ${fault}`;
+  if (!scope.features.includes(feature)) {
+    return `it sabotages: ${scope.features.join(", ")}`;
+  }
+  if (scope.cases && !scope.cases.includes(caseName ?? "")) {
+    return `for ${feature} it only applies to --case ${scope.cases.join("|")} (this run is --case ${caseName ?? "(default)"})`;
+  }
+  if (scope.views && !scope.views.includes(view ?? "")) {
+    return `for ${feature} it only applies to --view ${scope.views.join("|")} (this run is --view ${view ?? "(default)"})`;
+  }
+  return null;
+}
 
 /**
  * Full schema validation. Runs before any side effect: no manifest read, no
@@ -1813,11 +1845,16 @@ function parseDriveOptions() {
       fail(`unsupported --fault ${flags.fault} (supported: ${Object.keys(FAULTS).join("|")})`);
     }
     if (live) fail("--fault sabotages a controlled run and is not valid with --live");
-    const applicable = FAULT_FEATURES[flags.fault] ?? [];
-    if (!applicable.includes(feature)) {
+    // Case and view are resolved before this point (they default above), so an
+    // inapplicable combination is refused before any side effect.
+    const violation = faultScopeViolation(flags.fault, feature, {
+      caseName: flags.case,
+      view: flags.view,
+    });
+    if (violation) {
       fail(
-        `--fault ${flags.fault} cannot be applied to the ${feature} drive ` +
-          `(it sabotages: ${applicable.join(", ") || "nothing"}) — an inert fault is a false green`,
+        `--fault ${flags.fault} cannot be applied to this ${feature} drive — ${violation}. ` +
+          "An inert fault is a false green, so it is refused instead of accepted.",
       );
     }
   }
@@ -1827,6 +1864,15 @@ function parseDriveOptions() {
   }
   if (flags["live-manifest"] !== undefined && !live) {
     fail("--live-manifest is only valid with --live");
+  }
+  // An explicit fixture/case option is a controlled-run concept: a live
+  // investigation is whatever the backend returns, so comparing against (or
+  // selecting for) a controlled case would silently make the drive a lie.
+  if (live && flags.case !== undefined) {
+    fail(
+      `--case ${flags.case} is a controlled-fixture option and is not valid with --live; ` +
+        "a live run asserts the real response it receives, with no expected case to select",
+    );
   }
 
   // Mode agreement: `--mode` and the fixture's terminal result must describe
@@ -2426,9 +2472,55 @@ function fixtureViewerImages(name) {
 
 /* --------------------------------- drive -------------------------------- */
 
-async function drive() {
-  if (!positional[1]) fail("drive requires a feature (implemented: " + FEATURE_LIST.join(", ") + ")");
-  const { feature, spec, live, delayMs } = parseDriveOptions();
+/**
+ * `live-handler` runs the PRODUCTION result/viewer handler with `live: true`
+ * while the API boundary is intercepted and serves a locally declared result.
+ * It exists because the live code path can only be proven with zero provider
+ * credit: the handler asserts against the real response it receives, and the
+ * submission is intercepted before it can reach a provider.
+ */
+async function drive(opts = {}) {
+  const handlerLive = opts.handlerLive === true;
+  if (handlerLive) {
+    enforceCommandSchema("live-handler", {
+      requiredOptions: ["run-id", "feature", "manifest", "image"],
+    });
+  }
+  let feature;
+  let spec;
+  let live;
+  let delayMs = 0;
+  if (handlerLive) {
+    feature = flags.feature;
+    if (!LIVE_HANDLER_FEATURES.includes(feature)) {
+      fail(`--feature ${feature} is not exercisable through live-handler (supported: ${LIVE_HANDLER_FEATURES.join("|")})`);
+    }
+    spec = FEATURE_SPECS[feature];
+    // The live input contract, minus the credit gate: no provider request can
+    // be made on this path, so requiring RUN_LIVE_TESTS=1 would be theatre.
+    const manifest = readLiveManifest(required("manifest"));
+    const imagePath = required("image");
+    const claimText = flags["claim-text"] ?? null;
+    const mode =
+      typeof claimText === "string" && claimText.trim() !== "" ? "claim" : "trace";
+    if (mode === "claim" && (claimText === null || claimText.trim() === "")) {
+      fail("--mode claim requires --claim-text (the claim actually under test)");
+    }
+    const readiness = liveReadinessChecks({ manifest, imagePath, mode, claimText });
+    const failed = readiness.filter((c) => c.status === "FAIL");
+    if (failed.length) {
+      fail(
+        `--live-manifest failed the live input contract: ` +
+          failed.map((c) => `${c.id} (${c.detail})`).join("; "),
+      );
+    }
+    flags.entry = spec.defaultEntry ?? flags.entry;
+    flags.view = spec.defaultView ?? flags.view;
+    live = true;
+  } else {
+    if (!positional[1]) fail("drive requires a feature (implemented: " + FEATURE_LIST.join(", ") + ")");
+    ({ feature, spec, live, delayMs } = parseDriveOptions());
+  }
 
   // Credit gate BEFORE run state: a --live drive must never reach the
   // manifest, port or browser checks without the explicit credit opt-in.
@@ -2440,7 +2532,9 @@ async function drive() {
   const m = readManifest(runId);
   if (!m) fail(`no manifest for run-id ${runId}`);
   if (!pidIsOwned(m)) fail(`server pid ${m.pid} is not alive (or was reused) — relaunch`);
-  if (live && !m.live) fail("--live drive requires a run launched with --live (credentials are absent otherwise)");
+  if (live && !handlerLive && !m.live) {
+    fail("--live drive requires a run launched with --live (credentials are absent otherwise)");
+  }
 
   if (manifestSealed(runId)) {
     fail(
@@ -2452,12 +2546,20 @@ async function drive() {
   const viewport = flags.viewport ?? "desktop";
   const fault = flags.fault ?? null;
   const fixtureDrivesThisRun = featureDrivesTier(feature);
-  const tier = live ? "live" : fixtureDrivesThisRun ? "public-contract-boundary" : "real-ui";
+  const tier = handlerLive
+    ? "public-contract-boundary"
+    : live
+      ? "live"
+      : fixtureDrivesThisRun
+        ? "public-contract-boundary"
+        : "real-ui";
   const caseName = flags.case ?? null;
 
   // Resolved before any browser work: a live drive submits the operator's own
   // image/claim, a controlled drive the generated set.
   const fixtureName = live ? null : driveFixture(feature, caseName);
+  // Truthful label for the intercepted live handler: production handler code,
+  // locally declared result, zero provider calls, no real-data claim.
   const input = resolveInput(runId, {
     live,
     mode: flags.mode ?? null,
@@ -2511,7 +2613,11 @@ async function drive() {
     appRevision: m.revision,
     buildId: m.buildId,
     runnerRevision: runner.runnerRevision,
+    runnerDirty: runner.runnerDirty,
     cliSha256: runner.cliSha256,
+    // The harness files this drive actually READ, hashed now — not at seal
+    // time, which would let a later map/generator edit be attributed backward.
+    runnerFiles: runner.runnerFiles,
     startedAt: new Date(t0).toISOString(),
     outcome: "INCOMPLETE",
     complete: false,
@@ -2533,7 +2639,20 @@ async function drive() {
   let failureStack = "";
 
   try {
-    if (live) {
+    if (handlerLive) {
+      // Intercepted submission of a locally declared result. The handler runs
+      // unmodified with live semantics; the boundary blocks provider-shaped
+      // requests and serves the declared stream instead of the backend.
+      stream = await startStreamServer();
+      const declared = flags["declared-result"] ?? DEFAULT_DECLARED_RESULT;
+      stream.planFast(declared, 0);
+      session = await openSession(m, runId, viewport, {
+        fault: null,
+        streamOrigin: stream.origin,
+        mode: "controlled",
+        apiMode: "redirect",
+      });
+    } else if (live) {
       if (!flags.image) fail("--live requires --image <path>");
       session = await openSession(m, runId, viewport, {
         fault,
@@ -2576,7 +2695,7 @@ async function drive() {
     });
 
     if (session.syncBoundary) session.syncBoundary();
-    boundaryCheck(rec, boundary, live);
+    boundaryCheck(rec, boundary, live, handlerLive);
     const consoleSet = classifyConsoleSet(consoleRaw, stream?.origin ?? null);
     rec.check("console.no-unexpected-errors", consoleSet.unexpected === 0, `${consoleSet.unexpected} unexpected`);
     writeJson(path.join(driveDir, "console.json"), consoleSet);
@@ -2657,13 +2776,17 @@ async function drive() {
             typeof input.claim === "string" ? sha256(Buffer.from(input.claim, "utf8")) : null,
         }
       : null,
-    liveManifestSha256:
-      live && flags["live-manifest"] ? readLiveManifest(flags["live-manifest"]).sha256 : null,
+    liveManifestSha256: handlerLive || (live && flags["live-manifest"])
+      ? readLiveManifest(flags["live-manifest"]).sha256
+      : null,
+    liveHandler: handlerLive || undefined,
+    declaredResult: handlerLive ? (flags["declared-result"] ?? DEFAULT_DECLARED_RESULT) : undefined,
     appRevision: m.revision,
     buildId: m.buildId,
     runnerRevision: runner.runnerRevision,
     runnerDirty: runner.runnerDirty,
     cliSha256: runner.cliSha256,
+    runnerFiles: runner.runnerFiles,
     startedAt: new Date(t0).toISOString(),
     finishedAt: new Date().toISOString(),
     durationMs: Date.now() - t0,
@@ -2724,7 +2847,28 @@ function apiModeFor(feature, caseName) {
   return "redirect";
 }
 
-function boundaryCheck(rec, b, live) {
+function boundaryCheck(rec, b, live, handlerLive = false) {
+  if (handlerLive) {
+    // The live handler path, exercised with the API intercepted: the handler
+    // code is the production one, but no provider request can leave the
+    // browser, and the submission must be the local declared result.
+    rec.check(
+      "boundary.live-handler-zero-provider-attempts",
+      b.providerAttempted === 0,
+      `${b.providerAttempted} provider-shaped request(s) attempted (${JSON.stringify(b.providerCategories)})`,
+    );
+    rec.check("boundary.live-handler-mode-controlled", b.mode === "controlled", `mode=${b.mode}`);
+    rec.check(
+      "boundary.live-handler-api-redirected-to-declared-result",
+      b.apiRedirected >= 1,
+      `${b.apiRedirected} API request(s) redirected to the declared local result`,
+    );
+    rec.note(
+      "boundary.live-handler-tier",
+      "handler: production live path · result: locally declared, NOT provider truth",
+    );
+    return;
+  }
   if (live) {
     rec.check("boundary.live-mode-recorded", b.mode === "live", `mode=${b.mode}`);
     rec.note("boundary.provider-allowed", `${b.providerAllowed} provider request(s) allowed`);
@@ -3070,7 +3214,11 @@ const DRIVE_CASES = {
 
     // The selected panel is compared with the fixture it was rendered from:
     // counts must line up, and no placeholder token may reach the user.
-    const terminal = fixtureTerminal(caseName);
+    // A LIVE run has no fixture: the returned investigation is whatever the
+    // backend produced, so nothing here may be compared with controlled rows.
+    // `terminal` stays null and every fixture comparison is replaced by an
+    // observation of what was actually rendered.
+    const terminal = live ? null : fixtureTerminal(caseName);
     const panel = page.locator(`#ct-panel-${view}`);
     const panelText = await panel.innerText({ timeout: 10_000 }).catch(() => "");
     rec.check(
@@ -3079,7 +3227,12 @@ const DRIVE_CASES = {
       panelText.slice(0, 160).replace(/\s+/g, " "),
     );
 
-    if (view === "overview") {
+    if (live) {
+      // Observed-result contract: real assertions about a real response, and
+      // honest observations of the numbers — never a comparison with a
+      // controlled fixture's rows.
+      await observeResultView(page, rec, view, panel, panelText);
+    } else if (view === "overview") {
       const section = page.locator('[aria-label="Key takeaways"]');
       const expected = terminal ? asLen(terminal.takeaways) : 0;
       if (expected > 0) {
@@ -3297,6 +3450,80 @@ const DRIVE_CASES = {
     }
   },
 
+  /**
+   * Live/observed result assertions. Every check here is about the response the
+   * app actually rendered, and every count is recorded as an observation with
+   * its real value — nothing is compared with a fixture, and no expected status
+   * is invented.
+   */
+  async observeResultView(page, rec, view, panel, panelText) {
+    rec.check(`result.observed-${view}-has-content`, panelText.trim().length > 0, `${panelText.trim().length} chars`);
+    rec.check(
+      `result.observed-${view}-no-placeholder`,
+      !/\b(undefined|NaN|Invalid Date|null)\b/i.test(panelText),
+      panelText.slice(0, 160).replace(/\s+/g, " "),
+    );
+    if (view === "overview") {
+      const takeaways = await page.locator('[aria-label="Key takeaways"] li').count();
+      const metrics = await page.locator('[aria-label="Investigation result"]').innerText({ timeout: 10_000 }).catch(() => "");
+      rec.note("result.observed-takeaways", `${takeaways} takeaway row(s)`);
+      rec.note("result.observed-metrics", metrics.slice(0, 200).replace(/\s+/g, " "));
+      rec.check("result.observed-no-percentage", !/\b\d{1,3}%\b/.test(metrics), "no fabricated percentage");
+    } else if (view === "timeline") {
+      const rows = await panel.locator("ol > li").allInnerTexts();
+      rec.note("result.observed-timeline-rows", `${rows.length} row(s)`);
+      rec.note(
+        "result.observed-timeline-dates",
+        JSON.stringify(rows.map((r) => (/(20\d{2}-\d{2}-\d{2})/.exec(r) ?? [])[1] ?? null)),
+      );
+      for (const [pattern, kind] of [
+        [/same context as previous · compared/i, "same_context"],
+        [/different context from previous · compared/i, "different_context"],
+        [/comparison inconclusive — performed but not established/i, "uncertain"],
+        [/not compared in this investigation/i, "unexamined"],
+      ]) {
+        rec.note(`result.observed-timeline-connector-${kind}`, pattern.test(panelText) ? "present" : "absent");
+      }
+      // The connector copy must be the one the product defines, whatever the
+      // real investigation contained.
+      rec.check(
+        "result.observed-connector-copy-is-product-copy",
+        !/connector|kind|incomingConnector/i.test(panelText),
+        "no wire tokens in the rendered chronology",
+      );
+    } else if (view === "sources") {
+      const rows = await panel.locator('section[aria-label="Sources"] li').count();
+      rec.note("result.observed-source-rows", `${rows} source row(s)`);
+      rec.check(
+        "result.observed-sources-surface-complete",
+        rows > 0 || (await panel.getByText(/no sources were retrieved/i).count()) > 0,
+        `${rows} row(s) or an explicit empty state`,
+      );
+    } else {
+      const groups = panelText.match(/Reporting group of \d+ occurrences?/g) ?? [];
+      const pairs = /(\d+) pairs? compared/.exec(panelText);
+      const selected = /(\d+) selected(?: of (\d+))?/.exec(panelText);
+      rec.note("result.observed-reporting-groups", `${groups.length} group headline(s): ${groups.join(" | ") || "none"}`);
+      rec.note("result.observed-coverage", `pairs=${pairs?.[1] ?? "n/a"} selected=${selected?.[1] ?? "n/a"} of ${selected?.[2] ?? "n/a"}`);
+      const mislabel = panelText.match(/Shared group of \d+ occurrence/i);
+      rec.check("result.observed-reporting-group-not-mislabeled", mislabel === null, mislabel ? mislabel[0] : "neutral headline");
+      if (/Reporting group of \d+ occurrence/.test(panelText)) {
+        // Every rendered group headline must carry a real member count.
+        rec.check(
+          "result.observed-reporting-group-counts-are-numeric",
+          groups.every((g) => /Reporting group of [1-9]\d* occurrences?/.test(g)),
+          groups.join(" | ") || "no group headline",
+        );
+      } else {
+        rec.check(
+          "result.observed-reporting-group-empty-state",
+          /No resolved reporting groups were reported/i.test(panelText) || /no groups/i.test(panelText),
+          panelText.slice(0, 120).replace(/\s+/g, " "),
+        );
+      }
+    }
+  },
+
   async viewer({ page, rec, m, runId, driveDir, viewport, stream, caseName, spec, delayMs, live, input }) {
     const entry = flags.entry ?? spec.defaultEntry;
     const vcase = flags.case ?? spec.defaultCase;
@@ -3304,9 +3531,10 @@ const DRIVE_CASES = {
     // is about: the viewer fixture ships loadable, no-snippet and
     // per-occurrence images, and the pair fixture ships a real paired
     // divergence. Same resolver the drive record uses, so the retained bytes
-    // and the asserted surface are the same fixture.
-    const fixture = driveFixture("viewer", vcase);
-    if (stream) stream.planFast(fixture, delayMs);
+    // and the asserted surface are the same fixture. A LIVE run has no fixture:
+    // it asserts the dialog contract and records what the real response showed.
+    const fixture = live ? null : driveFixture("viewer", vcase);
+    if (stream && !live) stream.planFast(fixture, delayMs);
     await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
     await submitButton(page).click();
     if (stream) stream.releaseAll();
@@ -3365,7 +3593,29 @@ const DRIVE_CASES = {
     const fallback = dialog.getByText(/retrieved image unavailable/i);
     const retrievedImg = dialog.locator('img[alt^="Retrieved image"]');
 
-    if (vcase === "image-load") {
+    if (vcase === "image-load" && live) {
+      // Observed media state for a real response: what is on screen now, with no
+      // fixture row to attribute it to and no expectation to compare with.
+      await delay(1500);
+      const state = await imageState();
+      rec.note("viewer.live-observed-image-state", JSON.stringify(state));
+      rec.check(
+        "viewer.live-media-surface-honest",
+        state.hasImg
+          ? state.complete === true
+            ? state.naturalWidth > 0
+            : true // a still-loading image is not a failure at observation time
+          : state.fallback === true,
+        `hasImg=${state.hasImg} complete=${String(state.complete)} naturalWidth=${String(state.naturalWidth)} fallback=${state.fallback}`,
+      );
+      if (state.hasImg && state.submittedSrc !== null) {
+        rec.check(
+          "viewer.live-retrieved-differs-from-submitted",
+          state.src !== state.submittedSrc,
+          "the retrieved image is not the submitted one",
+        );
+      }
+    } else if (vcase === "image-load") {
       // Deterministic search for a decodable image: step through the fixture's
       // occurrences under a hard wall-clock budget, inspecting state without
       // waiting, and attribute whatever loaded back to the fixture row.
@@ -3418,6 +3668,18 @@ const DRIVE_CASES = {
         found = await dialog.getByText(/no excerpt available/i).count();
       }
       rec.check("viewer.no-excerpt-state", found > 0, `found=${found}`);
+    } else if (vcase === "pair" && live) {
+      // A paired divergence is a property of one investigation's result, so it
+      // can only be asserted against a result this harness controls. On a live
+      // response the affordance is observed when present and never demanded.
+      const pairCount = await dialog.getByRole("button", { name: /View paired divergence occurrence/i }).count();
+      const note = /Observed divergence pair/.test(await dialog.innerText());
+      rec.note("viewer.live-observed-pair-affordance", `present=${pairCount > 0} note=${note}`);
+      rec.check(
+        "viewer.live-pair-affordance-consistent",
+        pairCount === 0 || note === true,
+        "the pair control never appears without its explanatory note",
+      );
     } else if (vcase === "pair") {
       // A real paired divergence: the fixture ships a genuine
       // `firstObservedContextDivergence` whose two endpoints are occurrences
@@ -3637,10 +3899,20 @@ const DRIVE_CASES = {
     // Actual values, compared with the fixture's own row — not just "some dd
     // exists somewhere in the dialog". The open occurrence is the first item of
     // the fixture's flat viewer order at this point in the drive.
-    const order = fixtureViewerOrder(fixture);
+    const order = live ? [] : fixtureViewerOrder(fixture);
     const currentId = await viewerEvidenceId(dialog);
     const idx = order.indexOf(currentId);
-    const rows = (fixtureResult(fixture) ?? null);
+    const rows = live ? null : fixtureResult(fixture);
+    if (live) {
+      const liveLabels = await dialog.locator("dt").allTextContents();
+      const liveValues = await dialog.locator("dd").allTextContents();
+      rec.note(
+        "viewer.live-observed-technical-details",
+        JSON.stringify(
+          liveLabels.map((label, i) => [label.replace(/:\s*$/, ""), liveValues[i] ?? ""]),
+        ),
+      );
+    }
     const occurrenceRow =
       idx >= 0 && rows
         ? [
@@ -4153,7 +4425,10 @@ async function evidence() {
         boundary: d.boundary,
         appRevision: d.appRevision,
         runnerRevision: d.runnerRevision,
+        runnerDirty: d.runnerDirty ?? null,
         cliSha256: d.cliSha256,
+        // Per-drive, from the record — not the seal-time file list.
+        runnerFiles: d.runnerFiles ?? null,
         durationMs: d.durationMs,
         failure: d.failure,
         command: d.command,
@@ -4176,23 +4451,39 @@ async function evidence() {
   walk("");
 
   // Recordings that exist in the generation staging directory but belong to no
-  // drive record (an attempt that died before collecting them) are hashed and
-  // reported, never quietly dropped by the next cleanup.
+  // drive record — an attempt that was hard-interrupted before it could collect
+  // its own video. Listing a hash is not preserving a recording, so each one is
+  // COPIED into durable evidence before the seal, labelled INCOMPLETE (never as
+  // completed proof) and kept through cleanup.
   const claimedVideos = new Set(
     drives.flatMap((d) => (d.videos?.collected ?? []).map((v) => path.basename(v.file))),
   );
   const unclaimedRecordings = [];
   const stagingDir = path.join(runDir(runId), "video");
+  const orphanDir = path.join(dir, "orphan-video");
   for (const v of snapshotVideos(stagingDir)) {
     if (claimedVideos.has(v.file)) continue;
     const buf = fs.readFileSync(path.join(stagingDir, v.file));
-    unclaimedRecordings.push({
-      file: `video/${v.file}`,
+    const digest = sha256(buf);
+    if (!fs.existsSync(orphanDir)) fs.mkdirSync(orphanDir, { recursive: true });
+    const kept = path.join(orphanDir, v.file);
+    fs.copyFileSync(path.join(stagingDir, v.file), kept);
+    const entry = {
+      file: `orphan-video/${v.file}`,
       bytes: buf.length,
-      sha256: sha256(buf),
-      reason: "belongs to no finalized drive record (interrupted attempt)",
-      preserved: false,
-    });
+      sha256: digest,
+      label: "INCOMPLETE",
+      reason:
+        "belongs to no finalized drive record: the attempt was interrupted before it could " +
+        "collect its own recording. These bytes are preserved as-is and are NOT completed proof.",
+      owner: "unknown (interrupted attempt)",
+      candidateIncompleteDrives: incomplete.map((i) => i.driveId),
+      preserved: fs.existsSync(kept),
+      preservedBytes: fs.statSync(kept).size,
+      preservedSha256: sha256(fs.readFileSync(kept)),
+    };
+    writeJson(path.join(orphanDir, `${v.file}.json`), entry);
+    unclaimedRecordings.push(entry);
   }
 
   // Zero-provider live-input controls are evidence too: they prove the live
@@ -4328,11 +4619,22 @@ async function cleanup() {
   // generation-level staging directory must not remove any video. Count the
   // survivors from evidence itself rather than from the staging directory.
   const survives = countEvidenceVideos(evidenceDir(runId));
+  const orphanDir = path.join(evidenceDir(runId), "orphan-video");
+  const orphans = fs.existsSync(orphanDir)
+    ? fs.readdirSync(orphanDir).filter((f) => f.endsWith(".webm"))
+    : [];
   console.log(JSON.stringify({
     cleaned: runId,
     killed,
     evidenceArtifacts: ev,
     evidenceVideosSurviving: survives,
+    // Interrupted attempts' recordings are preserved inside evidence, so
+    // removing the staging directory must not remove any of them.
+    orphanRecordingsPreserved: orphans.length,
+    orphanRecordings: orphans.map((f) => ({
+      file: f,
+      bytes: fs.statSync(path.join(orphanDir, f)).size,
+    })),
     videoStagingRemoved: !fs.existsSync(video),
   }));
 }
@@ -4342,10 +4644,14 @@ async function cleanup() {
 const handlers = { launch, doctor, drive, "live-ready": liveReady, evidence, cleanup };
 if (!command || !handlers[command]) {
   console.error(
-    "usage: control-contexttrail <launch|doctor|drive|live-ready|evidence|cleanup> [args]\n" +
+    "usage: control-contexttrail <launch|doctor|drive|live-ready|live-handler|evidence|cleanup> [args]\n" +
       "  drive <landing|upload|investigation|result|viewer|session|accessibility> --run-id <id>\n" +
       "  live-ready --run-id <id> --manifest <path> --image <path> [--mode claim --claim-text <t>]\n" +
-      "    zero-provider validation of a live input manifest; makes no provider call",
+      "    zero-provider validation of a live input manifest; makes no provider call\n" +
+      "  live-handler --run-id <id> --feature result|viewer --manifest <path> --image <path>\n" +
+      "    [--claim-text <t>] [--declared-result <fixture>]\n" +
+      "    runs the PRODUCTION live handler against an intercepted, locally declared result;\n" +
+      "    zero provider calls, no real-data claim",
   );
   process.exit(EXIT_SCHEMA);
 }

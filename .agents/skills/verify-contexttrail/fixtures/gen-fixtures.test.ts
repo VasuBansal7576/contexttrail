@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { runInvestigation, type SearchProvider } from "../../../../src/lib/investigation/run";
 import { JEV_MODEL } from "../../../../src/lib/jev/client";
@@ -176,6 +177,101 @@ const fetchPage = async (url: string): Promise<FetchedPage> => {
     html: `<html><head><title>CONTROLLED page</title>${ld}</head><body><article><p>${"Controlled extracted text about a fixture photograph and its publication context. ".repeat(12)}</p></article></body></html>`,
   };
 };
+
+/* --------------------------- pixel-level decoding ---------------------------
+ *
+ * Distinct URLs are not distinct images: two different encodings of the same
+ * pixels (a re-encoded PNG, an extra `tEXt` chunk) give different URI strings
+ * and different bytes while rendering identically. Attribution and
+ * non-substitution can only be proved on the decoded pixels, so the controlled
+ * imagery is decoded here rather than compared as text.
+ *
+ * Scope: 8-bit, non-interlaced, truecolour (type 2) or truecolour+alpha
+ * (type 6) — which is exactly what the generator emits. Anything else returns
+ * null and is reported as undecodable rather than silently passing.
+ */
+
+type Decoded = { width: number; height: number; channels: number; pixels: Buffer };
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function decodePng(buf: Buffer): Decoded | null {
+  if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_MAGIC)) return null;
+  let off = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let interlace = 0;
+  const idat: Buffer[] = [];
+  while (off + 8 <= buf.length) {
+    const len = buf.readUInt32BE(off);
+    const type = buf.subarray(off + 4, off + 8).toString("ascii");
+    const body = buf.subarray(off + 8, off + 8 + len);
+    if (type === "IHDR") {
+      width = body.readUInt32BE(0);
+      height = body.readUInt32BE(4);
+      bitDepth = body[8] as number;
+      colorType = body[9] as number;
+      interlace = body[12] as number;
+    } else if (type === "IDAT") {
+      idat.push(Buffer.from(body));
+    } else if (type === "IEND") {
+      break;
+    }
+    off += 12 + len;
+  }
+  if (bitDepth !== 8 || interlace !== 0) return null;
+  const channels = colorType === 2 ? 3 : colorType === 6 ? 4 : 0;
+  if (channels === 0) return null;
+  const raw = zlib.inflateSync(Buffer.concat(idat));
+  const stride = width * channels;
+  const out = Buffer.alloc(height * stride);
+  let prev = Buffer.alloc(stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)] as number;
+    const line = raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride);
+    const cur = Buffer.alloc(stride);
+    for (let i = 0; i < stride; i++) {
+      const x = line[i] as number;
+      const a = i >= channels ? (cur[i - channels] as number) : 0;
+      const b = prev[i] as number;
+      const c = i >= channels ? (prev[i - channels] as number) : 0;
+      let value = x;
+      if (filter === 1) value = x + a;
+      else if (filter === 2) value = x + b;
+      else if (filter === 3) value = x + Math.floor((a + b) / 2);
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        value = x + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      cur[i] = value & 0xff;
+    }
+    cur.copy(out, y * stride);
+    prev = cur;
+  }
+  return { width, height, channels, pixels: out };
+}
+
+/** Decode a data-URI/URL image reference, or null when it is not decodable. */
+function decodeImageRef(ref: string | null | undefined): Decoded | null {
+  if (!ref) return null;
+  const m = /^data:image\/png;base64,(.+)$/.exec(ref);
+  if (!m) return null;
+  return decodePng(Buffer.from(m[1] as string, "base64"));
+}
+
+const sha256 = (b: Buffer | string): string =>
+  createHash("sha256").update(b).digest("hex");
+
+/** Identity of decoded pixels: dimensions plus a hash of the pixel bytes. */
+function pixelIdentity(img: Decoded | null): string | null {
+  if (!img) return null;
+  return `${img.width}x${img.height}x${img.channels}:${sha256(img.pixels)}`;
+}
 
 /** The transparent 1×1 PNG the harness submits as the *input* image. */
 export const SUBMITTED_1PX_BASE64 =
@@ -991,6 +1087,48 @@ describe("controlled fixture contract", () => {
         /^(fixture-[a-z0-9-]+\.example\.org|example\.(org|com|net|invalid))$/.test(host as string),
         `${name}: real host in fixture: ${host}`,
       ).toBe(true);
+    }
+  });
+
+  it.each(FIXTURE_FILES)("%s: loaded imagery is distinguishable by DECODED pixels", (name) => {
+    const result = terminalResult(readEvents(name));
+    const items = [
+      ...asArray(result["timeline"]),
+      ...asArray(result["supportingEvidence"]),
+      ...asArray(result["contextualEvidence"]),
+      ...asArray(result["undatedEvidence"]),
+    ];
+    const refs = items
+      .map((i) => str(i, "imageUrl") ?? str(i, "thumbnailUrl"))
+      .filter((u): u is string => !!u);
+    const dataRefs = refs.filter((u) => u.startsWith("data:image/png;base64,"));
+    if (dataRefs.length === 0) return; // nothing decodable to compare in this fixture
+
+    // Every controlled PNG must decode, and the decoded PIXELS — not the URI
+    // text and not the encoded bytes — must be unique. A second encoding of the
+    // same pixels has a different URL and different bytes but one identity.
+    const identities = dataRefs.map((ref) => {
+      const img = decodeImageRef(ref);
+      expect(img, `${name}: controlled image does not decode`).not.toBeNull();
+      return pixelIdentity(img) as string;
+    });
+    const dupes = identities.filter((id, i) => identities.indexOf(id) !== i);
+    expect(dupes, `${name}: identical decoded pixels across occurrences: ${[...new Set(dupes)].join(", ")}`).toEqual([]);
+
+    // Dimensions must be real, not a decoded header of nothing.
+    for (const [i, ref] of dataRefs.entries()) {
+      const img = decodeImageRef(ref) as Decoded;
+      expect(img.width, `${name}: image ${i} width`).toBeGreaterThan(0);
+      expect(img.height, `${name}: image ${i} height`).toBeGreaterThan(0);
+      expect(img.pixels.length, `${name}: image ${i} pixel buffer`).toBe(img.width * img.height * img.channels);
+    }
+
+    // Non-substitution at the pixel level: no controlled image may render the
+    // harness's submitted 1×1 transparent PNG.
+    const submitted = decodeImageRef(`data:image/png;base64,${SUBMITTED_1PX_BASE64}`);
+    const submittedId = pixelIdentity(submitted);
+    for (const id of identities) {
+      expect(id, `${name}: a controlled image renders the submitted input pixels`).not.toBe(submittedId);
     }
   });
 
