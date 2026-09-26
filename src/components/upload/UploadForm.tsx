@@ -69,7 +69,15 @@ export default function UploadForm({
           <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-ink" />
           ContextTrail
         </p>
-        <Link href="/" className="text-sm text-ink-soft hover:text-ink">
+        {/* 44px target: the only interactive control on this screen that had no
+            minimum size, while its Replace/Remove siblings set min-h-[44px] and
+            the submit uses min-h-[48px]. Appearance is unchanged — same text-sm,
+            ink-soft secondary styling, same copy, same destination; only the hit
+            area grows, with the label vertically centred inside it. */}
+        <Link
+          href="/"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm text-ink-soft hover:text-ink"
+        >
           ← Back
         </Link>
       </header>
