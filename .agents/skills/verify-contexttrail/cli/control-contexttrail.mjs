@@ -1621,6 +1621,8 @@ const FAULTS = {
   "focus-ring-hidden": "remove every focus indicator, so real keyboard focus paints nothing",
   "contrast-lowered": "lower the body text colour until the composited ratio falls under its floor",
   "tab-map-broken": "make ArrowRight/Home move focus without selecting the matching tab or panel",
+  "long-value-truncated": "clip long values to one line with overflow:hidden, so they are cut instead of wrapped",
+  "reading-order-reversed": "reverse the visual order of the result rows while leaving DOM order untouched",
 };
 
 const FAULT_SCRIPT = `window.__ctFault = (mode) => {
@@ -1664,6 +1666,23 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         const m = /^Reporting group of (\\d+) occurrence/.exec(t);
         if (m) { p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length); hit(); }
       });
+    } else if (mode === "long-value-truncated" || mode === "reading-order-reversed") {
+      if (!window.__ctLayoutFault) {
+        window.__ctLayoutFault = true;
+        const st = document.createElement("style");
+        if (mode === "long-value-truncated") {
+          // The real defect: a long value clipped to a single line. Layout-only,
+          // so the text is still in the DOM and still "present" to a text scan.
+          st.textContent =
+            "li,dd,p,span,a,td{max-height:1.4em;overflow:hidden;white-space:nowrap !important;text-overflow:clip !important;}";
+        } else {
+          // Visual order diverges from DOM order with no markup change at all.
+          st.textContent =
+            "[role='tabpanel'],section,main{display:flex !important;flex-direction:column-reverse !important;}";
+        }
+        document.head.appendChild(st);
+        hit();
+      }
     } else if (mode === "focus-ring-hidden" || mode === "contrast-lowered" || mode === "tab-map-broken") {
       // Applied once the target surface exists, then left in place: these faults
       // must survive re-renders or the assertion would be measuring nothing.
@@ -1840,6 +1859,8 @@ const FAULT_SCOPE = {
   "focus-ring-hidden": { features: ["accessibility"] },
   "contrast-lowered": { features: ["accessibility", "result"] },
   "tab-map-broken": { features: ["result"] },
+  "long-value-truncated": { features: ["result"] },
+  "reading-order-reversed": { features: ["result"] },
   "anchor-broken": { features: ["landing"] },
   "bad-selection": { features: ["result"] },
   "drop-timeline-item": { features: ["result"], views: ["timeline"] },
@@ -2383,6 +2404,85 @@ async function contrastSurvey(page, { limit = 400 } = {}) {
         "anything outside this screen: other viewports and panels are driven separately",
       ],
     };
+  }, limit);
+}
+
+/**
+ * Measured wrapping and reading order for the long-value surfaces.
+ *
+ * There is no `titleOverflow`/`textOverflow` collector in the product to read:
+ * wrapping is plain layout (`flex-wrap`, and `overflow-x-hidden` on the viewer
+ * shell as a backstop), so a gate that called a collector of that name would be
+ * asserting about something that does not exist. Everything here is measured from
+ * the rendered box instead:
+ *   - a value longer than its box must WRAP (rendered height grows with the
+ *     content) rather than be clipped by an `overflow:hidden` ancestor;
+ *   - nothing may overflow horizontally;
+ *   - visual order must match DOM order, so a CSS reorder cannot make the reading
+ *     order differ from what a screen reader and a keyboard meet.
+ */
+async function longValueLayout(page, { limit = 60 } = {}) {
+  return page.evaluate((max) => {
+    const isLong = (el) => {
+      const t = (el.textContent || "").trim();
+      return t.length >= 24;
+    };
+    const clippingAncestor = (el) => {
+      for (let n = el.parentElement; n && n.nodeType === 1; n = n.parentElement) {
+        const st = getComputedStyle(n);
+        if (/hidden|clip/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 1) return n;
+      }
+      return null;
+    };
+    const rows = [];
+    for (const el of document.querySelectorAll("li, dd, p, span, a, td, div")) {
+      if (rows.length >= max) break;
+      if (!isLong(el)) continue;
+      // only leaf-ish text elements, not every wrapper
+      if (el.children.length > 2) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) continue;
+      const style = getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden") continue;
+      const clipped = clippingAncestor(el);
+      rows.push({
+        text: (el.textContent || "").trim().slice(0, 70),
+        width: Math.round(r.width),
+        height: Math.round(r.height),
+        scrollWidth: el.scrollWidth,
+        clientWidth: el.clientWidth,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        // wraps if the content needs more than one line's worth of height
+        wraps: el.scrollHeight > el.clientHeight + 1 || parseFloat(style.lineHeight) * 1.4 < r.height,
+        whiteSpace: style.whiteSpace,
+        overflowX: el.scrollWidth - el.clientWidth,
+        clippedBy: clipped ? `${clipped.tagName.toLowerCase()}${clipped.className ? "." + String(clipped.className).split(" ")[0] : ""}` : null,
+        top: Math.round(r.top + (window.scrollY || 0)),
+        left: Math.round(r.left + (window.scrollX || 0)),
+        domIndex: Array.prototype.indexOf.call(document.querySelectorAll("*"), el),
+      });
+    }
+    // Reading order is the VISUAL order, so it must be compared against DOM order
+    // as a real coordinate comparison. Comparing DOM order with the order the
+    // rows were collected in is comparing a thing with itself: it passes under
+    // `flex-direction: column-reverse`, where the markup is untouched and the
+    // screen reads bottom-to-top.
+    const visual = rows
+      .map((r, i) => ({ i, top: r.top, left: r.left, domIndex: r.domIndex, text: r.text }))
+      .sort((a, b) => a.top - b.top || a.left - b.left);
+    let outOfOrder = null;
+    for (let k = 1; k < visual.length; k++) {
+      if (visual[k].domIndex < visual[k - 1].domIndex) {
+        outOfOrder = {
+          readsBefore: visual[k - 1].text.slice(0, 30),
+          readsAfter: visual[k].text.slice(0, 30),
+          visualOrder: visual.map((v) => v.domIndex).slice(0, 8),
+        };
+        break;
+      }
+    }
+    return { rows, outOfOrder, checked: rows.length };
   }, limit);
 }
 
@@ -3893,6 +3993,36 @@ const DRIVE_CASES = {
       live,
       input,
     });
+
+    // Measured wrapping and reading order on the result surface (no nonexistent
+    // collector): long values must wrap, nothing may overflow horizontally, no
+    // overflow:hidden ancestor may clip them, and visual order must match DOM.
+    const layout = await longValueLayout(page);
+    writeJson(path.join(driveDir, "long-value-layout.json"), layout);
+    const overflowing = layout.rows.filter((r) => r.overflowX > 1);
+    const clipped = layout.rows.filter((r) => r.clippedBy);
+    const wrapped = layout.rows.filter((r) => r.wraps);
+    rec.check(
+      "result.long-values-no-horizontal-overflow",
+      layout.checked > 0 && overflowing.length === 0,
+      overflowing.length === 0
+        ? `${layout.checked} long value(s) measured, widest overflow ${Math.max(0, ...layout.rows.map((r) => r.overflowX))}px`
+        : `${overflowing.length} overflow horizontally: ${JSON.stringify(overflowing.slice(0, 3))}`,
+    );
+    rec.check(
+      "result.long-values-wrap-not-truncate",
+      clipped.length === 0,
+      clipped.length === 0
+        ? `${wrapped.length}/${layout.checked} wrap onto multiple lines, none clipped by an overflow:hidden ancestor`
+        : `${clipped.length} clipped by overflow:hidden: ${JSON.stringify(clipped.slice(0, 3))}`,
+    );
+    rec.check(
+      "result.reading-order-matches-dom",
+      layout.outOfOrder === null,
+      layout.outOfOrder === null
+        ? `${layout.checked} long value(s) in DOM order`
+        : `visual order differs from DOM order: ${JSON.stringify(layout.outOfOrder)}`,
+    );
 
     for (const name of RESULT_TABS) await selectTab(page, rec, name);
 

@@ -122,7 +122,14 @@ These are measured in the browser on every `drive accessibility` /
 | `a11y.contrast-meets-floor` | composited contrast per visible text node — background resolved by climbing ancestors, alpha composited, 4.5:1 normal / 3:1 large | `--fault contrast-lowered` |
 | `a11y.focus-indicator-visible` | real Tab focus paints an indicator, compared with the same element unfocused | `--fault focus-ring-hidden` |
 | `a11y.reduced-motion-emulated` / `-content-settled` / `-primary-target-44px` | the reduced-motion preference is emulated, then settled visibility and a 44px primary target are required | — |
+| `result.long-values-no-horizontal-overflow` / `-wrap-not-truncate` | measured geometry on the long-value surfaces: nothing overflows horizontally, long values wrap instead of being cut, no `overflow:hidden` ancestor clips them. `--fault long-value-truncated` is red |
+| `result.reading-order-matches-dom` | **PROVISIONAL — control does not yet work.** Visual order is compared against DOM order by coordinate, but `--fault reading-order-reversed` (`column-reverse`) still passes, so this assertion is not counted as maintained and its control is owed |
 | `result.tablist-keyboard-<key>-consistent` / `-roving-tabindex` | ArrowRight ×2, Home, End, ArrowLeft move focus, `aria-selected`, the roving tabindex and the matching visible panel together | `--fault tab-map-broken` |
+
+Measured, never read from a collector: the product has no `titleOverflow` or
+`textOverflow` helper to call (checked in the pinned source — neither exists, and
+wrapping is plain `flex-wrap` layout), so asserting against such a name would be a
+false green about something that does not exist.
 
 Not yet maintained here, though accepted private evidence exists for several of
 them: per-screen composited contrast on the **dark** surfaces (landing,
