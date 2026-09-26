@@ -585,3 +585,211 @@ describe("22 — Trace headline requires a usable chronology (L1)", () => {
     expect(result?.headline).toBe("MEDIA_HISTORY_RECONSTRUCTED");
   });
 });
+
+describe("23 — G1/G2: claim-context semantics and divergence edge preservation", () => {
+  const datedHtml = (fetchedUrl: string, date: string) =>
+    `<html><head><script type="application/ld+json">${JSON.stringify({
+      "@type": "NewsArticle",
+      url: fetchedUrl,
+      headline: "Page",
+      datePublished: date,
+    })}</script></head><body><p>${"Body text. ".repeat(30)}</p></body></html>`;
+
+  /** SerpApi/Jev mocks for `n` dated exact-match occurrences; pairwise
+   *  answers come from `pairwise` in chronological order. */
+  const harness = (
+    links: string[],
+    dates: Record<string, string>,
+    classify: Record<string, unknown>,
+    pairwise: Array<Record<string, unknown>>,
+  ) => {
+    let pairCalls = 0;
+    return {
+      serpapi: {
+        uploadImage: async () => "controlled",
+        search: async (p: { engine?: string; type?: string }) => {
+          if (p.type === "exact_matches") {
+            return {
+              search_metadata: { status: "Success", id: "serp-exact" },
+              exact_matches: links.map((link, i) => ({
+                title: `item ${i}`,
+                link,
+                position: i + 1,
+              })),
+            };
+          }
+          if (p.type === "about_this_image") {
+            return {
+              search_metadata: { status: "Success", id: "serp-about" },
+              about_this_image: { sections: [] },
+            };
+          }
+          return {
+            search_metadata: { status: "Success", id: `serp-${p.engine}` },
+            visual_matches: [],
+            organic_results: [],
+            news_results: [],
+          };
+        },
+      },
+      jev: {
+        ask: async (_s: unknown, qs: Record<string, unknown>) => {
+          if ("pairwise_context" in qs) {
+            const a = pairwise[Math.min(pairCalls, pairwise.length - 1)];
+            pairCalls += 1;
+            return {
+              answers: { pairwise_context: a },
+              model: "jev-1.13.0",
+              identity: VERIFIED_JEV,
+            };
+          }
+          return { answers: classify, model: "jev-1.13.0", identity: VERIFIED_JEV };
+        },
+      },
+      fetchPage: async (url: string): Promise<FetchedPage> => ({
+        url,
+        html: datedHtml(url, dates[url] ?? "2024-01-01"),
+      }),
+    };
+  };
+
+  const CLAIM_ANSWERS = {
+    ...GOOD_ANSWERS,
+    claim_relation: {
+      type: "choice",
+      choice: "SUPPORTS",
+      probabilities: { SUPPORTS: 0.9, CONTRADICTS: 0.03, NEUTRAL: 0.04, INSUFFICIENT: 0.03 },
+    },
+  };
+  const UNCLEAR_PAIR = {
+    type: "choice",
+    choice: "UNCLEAR",
+    probabilities: { SAME_CONTEXT: 0.03, DIFFERENT_CONTEXT: 0.02, UNCLEAR: 0.95 },
+  };
+  const DIFFERENT_PAIR = {
+    type: "choice",
+    choice: "DIFFERENT_CONTEXT",
+    probabilities: { SAME_CONTEXT: 0.01, DIFFERENT_CONTEXT: 0.98, UNCLEAR: 0.01 },
+  };
+
+  const runClaim = async (deps: unknown, claim = "The image shows an event.") => {
+    const events: Array<{ type: string; result?: Record<string, unknown> }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim, timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      deps as never,
+    );
+    return events.find((e) => e.type === "investigation.completed")?.result;
+  };
+
+  type Prov = {
+    claimContext: {
+      comparisons: Array<{
+        occurrenceId: string;
+        segmentId: string | null;
+        question: string;
+        distribution: Record<string, number>;
+      }>;
+      comparedSegmentIds: string[];
+    } | null;
+    divergenceEdges: Array<{
+      pairId: string;
+      fromOccurrenceId: string;
+      toOccurrenceId: string;
+      fromSegmentId: string | null;
+      toSegmentId: string | null;
+      firstObserved: boolean;
+      earlierTransitionsUnresolved: boolean;
+    }>;
+  };
+
+  it("G1 — pairwise scores are never relabeled as claim comparisons", async () => {
+    // Astra repro: the model answered only relevance + page role — every
+    // candidate claim/context distribution is null — yet decisive
+    // pairwise edges ran. No claim comparison records may appear.
+    const NULL_RELATIONS = {
+      relevance: GOOD_ANSWERS.relevance,
+      page_role: GOOD_ANSWERS.page_role,
+    };
+    const result = await runClaim(
+      harness(
+        ["https://a.example.org/i", "https://b.example.org/i"],
+        {
+          "https://a.example.org/i": "2024-01-02",
+          "https://b.example.org/i": "2024-03-04",
+        },
+        NULL_RELATIONS,
+        [DIFFERENT_PAIR],
+      ),
+    );
+    const prov = result?.provenance as Prov | undefined;
+    expect(prov?.claimContext).not.toBeNull();
+    // No claim/context judgments exist → no claim comparison records and
+    // no compared-with segments, even though real pairwise edges exist.
+    expect(prov?.claimContext?.comparisons).toEqual([]);
+    expect(prov?.claimContext?.comparedSegmentIds).toEqual([]);
+    // The pairwise evidence is still present under its own relation type.
+    const comps = result?.comparisons as Array<{ connector: string }>;
+    expect(comps.some((c) => c.connector === "different_context")).toBe(true);
+  });
+
+  it("G1 — a single candidate's verified claim comparison is retained", async () => {
+    // One dated core occurrence: zero adjacent pairs, but real verified
+    // claim/context distributions — the claim comparison must exist.
+    const result = await runClaim(
+      harness(
+        ["https://a.example.org/i"],
+        { "https://a.example.org/i": "2024-01-02" },
+        CLAIM_ANSWERS,
+        [],
+      ),
+    );
+    const prov = result?.provenance as Prov | undefined;
+    const recs = prov?.claimContext?.comparisons ?? [];
+    expect(recs.length).toBeGreaterThanOrEqual(2);
+    const claim = recs.find((r) => r.question === "claim_relation");
+    expect(claim?.distribution.supports).toBe(0.9);
+    const ctx = recs.find((r) => r.question === "context_relation");
+    expect(ctx?.distribution.sameContext).toBe(0.9);
+    // The occurrence resolves into a segment → a real compared-with edge.
+    expect(prov?.claimContext?.comparedSegmentIds.length).toBe(1);
+  });
+
+  it("G2 — a verified later divergence survives unresolved earlier continuity", async () => {
+    // Astra repro: A(2020) B(2021) C(2022); A→B UNCLEAR, B→C DIFFERENT.
+    // Timeline correctly reports qualified first divergence B→C; the graph
+    // must keep the same edge with a null from-segment.
+    const result = await runClaim(
+      harness(
+        [
+          "https://a.example.org/i",
+          "https://b.example.org/i",
+          "https://c.example.org/i",
+        ],
+        {
+          "https://a.example.org/i": "2020-01-02",
+          "https://b.example.org/i": "2021-03-04",
+          "https://c.example.org/i": "2022-05-06",
+        },
+        GOOD_ANSWERS,
+        [UNCLEAR_PAIR, DIFFERENT_PAIR],
+      ),
+    );
+    const prov = result?.provenance as Prov | undefined;
+    expect(prov?.divergenceEdges.length).toBe(1);
+    const e = prov?.divergenceEdges[0];
+    expect(e?.firstObserved).toBe(true);
+    expect(e?.earlierTransitionsUnresolved).toBe(true);
+    // B's segment continuity was unresolved — null, not invented.
+    expect(e?.fromSegmentId).toBeNull();
+    expect(e?.toSegmentId).toBe("segment:1");
+    // The summary still names the same observed divergence.
+    const first = result?.firstObservedContextDivergence as {
+      fromOccurrenceId: string;
+      toOccurrenceId: string;
+      earlierTransitionsUnresolved: boolean;
+    } | null;
+    expect(first?.toOccurrenceId).toBe(e?.toOccurrenceId);
+    expect(first?.earlierTransitionsUnresolved).toBe(true);
+  });
+});

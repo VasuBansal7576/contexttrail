@@ -961,7 +961,24 @@ export async function runInvestigation(
 
     /* ----------------------------- FINAL_POLICY -------------------------- */
     stage("FINAL_POLICY", "started");
-    const built = buildTimeline(pool, segments, displayExcerpts, excerpts);
+    // §23/G2 — the provenance graph is the authoritative relation
+    // structure: it is built BEFORE the timeline/summary projections, and
+    // the timeline projects its canonical partition rather than
+    // re-deriving one.
+    const graph = buildProvenanceGraph({
+      candidates: pool,
+      segments,
+      claim,
+      claimDate,
+      claimDatePrecision,
+    });
+    const built = buildTimeline(
+      pool,
+      segments,
+      displayExcerpts,
+      excerpts,
+      graph.partition,
+    );
     const coverage = { ...segments.coverage, displayedDatedCore: built.timeline.length };
     // §34 request/operation log — one row per actual attempt. `retained`
     // counts the candidates from *that* attempt whose canonical URL
@@ -982,16 +999,6 @@ export async function runInvestigation(
       // or when the provider returned none. Identifier only.
       searchId: s.batch?.searchId ?? null,
     }));
-    // §23 — the typed provenance graph the result's timeline and summary
-    // both derive from: media→occurrences→domains, occurrences→segments,
-    // DIVERGES_TO edges, and (claim mode) the claim context.
-    const graph = buildProvenanceGraph({
-      candidates: pool,
-      segments,
-      claim,
-      claimDate,
-      claimDatePrecision,
-    });
     const takeaways: Takeaway[] =
       mode === "claim_check"
         ? deriveTakeaways({

@@ -11,7 +11,7 @@ import type { EvidenceCandidate, JevDistributions } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
 import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
 import { type SegmentResult } from "./divergence";
-import { partitionOccurrences } from "./provenance-graph";
+import { partitionOccurrences, type OccurrencePartition } from "./provenance-graph";
 
 /** Strong context-relationship label from a Jev judgment, else null. */
 function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
@@ -155,11 +155,12 @@ export function buildTimeline(
   /** Model-input composites keyed by candidate id — surfaced separately
    *  as `classificationContext`, never as the displayed quote. */
   modelExcerpts?: ReadonlyMap<string, string>,
+  /** §23 — the provenance graph's canonical partition when one was built;
+   *  the timeline projects it, it does not re-derive it. */
+  partition?: OccurrencePartition,
 ): BuiltTimeline {
-  // §23 — the partition comes from the provenance-graph module so the
-  // timeline's buckets and the graph's occurrence roles are one derivation.
   const { datedCore: dated, datedLead, datedContextual, undated } =
-    partitionOccurrences(candidates);
+    partition ?? partitionOccurrences(candidates);
 
   const divergenceId =
     segments?.firstObservedContextDivergence?.toOccurrenceId ?? null;

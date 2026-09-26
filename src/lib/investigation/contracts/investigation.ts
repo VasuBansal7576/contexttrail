@@ -22,7 +22,12 @@ import type {
   RetrievalKind,
   RetrievalRecord,
 } from "./evidence";
-import type { EvidenceJudgment, PairwiseContextJudgment } from "./judgment";
+import type {
+  ClaimRelation,
+  ContextRelation,
+  EvidenceJudgment,
+  PairwiseContextJudgment,
+} from "./judgment";
 
 export type InvestigationMode = "trace" | "claim_check";
 
@@ -287,12 +292,16 @@ export interface ProvenanceProjection {
     index: number;
     occurrenceIds: string[];
   }>;
-  /** K → K DIVERGES_TO edges — real asserted divergences only. */
+  /** DIVERGES_TO edges — real decisive divergences between occurrences.
+   *  A segment endpoint is null when that side's continuity was
+   *  unresolved: the verified local divergence is preserved, and no
+   *  segment or earlier continuity is invented (§23/G2). */
   divergenceEdges: Array<{
-    fromSegmentId: string;
-    toSegmentId: string;
+    pairId: string;
     fromOccurrenceId: string;
     toOccurrenceId: string;
+    fromSegmentId: string | null;
+    toSegmentId: string | null;
     observedAt: string;
     firstObserved: boolean;
     earlierTransitionsUnresolved: boolean;
@@ -302,10 +311,19 @@ export interface ProvenanceProjection {
     claim: string;
     claimDate: string | null;
     claimDatePrecision: DatePrecision;
-    /** Actually-performed comparison pair ids. */
-    comparedPairIds: string[];
-    /** KQ → K "compared with" edges — segments a performed comparison
-     *  endpoint resolved into. */
+    /** C → KQ → O/K claim comparison evidence — one record per verified
+     *  claim/context question the model answered about this claim,
+     *  carrying the actual distribution. Distinct from
+     *  occurrence↔occurrence pairwise records (§23/G1). */
+    comparisons: Array<{
+      occurrenceId: string;
+      /** O → K edge target; null when segment continuity unresolved. */
+      segmentId: string | null;
+      question: "context_relation" | "claim_relation";
+      distribution: ContextRelation | ClaimRelation;
+    }>;
+    /** KQ → K "compared with" edges — derived solely from the real
+     *  comparison records above, never from pairwise judgments. */
     comparedSegmentIds: string[];
   } | null;
 }

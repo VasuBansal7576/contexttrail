@@ -18,6 +18,10 @@ import type {
   EvidenceCandidate,
 } from "./contracts/evidence";
 import type {
+  ClaimRelation,
+  ContextRelation,
+} from "./contracts/judgment";
+import type {
   ProvenanceProjection,
   ReportingGroupSummary,
 } from "./contracts/investigation";
@@ -104,13 +108,18 @@ export interface ProvenanceContextSegment {
   occurrenceIds: string[];
 }
 
-/** K → K DIVERGES_TO edge — only real asserted divergence edges exist;
- *  uncertain/unexamined transitions produce none. */
+/** K → K DIVERGES_TO edge — the real decisive divergence relation between
+ *  two occurrences. Segment endpoints are null when that side's segment
+ *  continuity was unresolved: the verified local divergence is preserved,
+ *  no segment or earlier continuity is invented (G2). Only decisive
+ *  different_context edges exist; uncertain/unexamined transitions
+ *  produce none. */
 export interface ProvenanceDivergenceEdge {
-  fromSegmentId: string;
-  toSegmentId: string;
+  pairId: string;
   fromOccurrenceId: string;
   toOccurrenceId: string;
+  fromSegmentId: string | null;
+  toSegmentId: string | null;
   /** Observed date of the later occurrence — never a guessed time. */
   observedAt: string;
   /** True on the first observed divergence (§20.2). */
@@ -118,15 +127,29 @@ export interface ProvenanceDivergenceEdge {
   earlierTransitionsUnresolved: boolean;
 }
 
+/** §23/G1 — an actual claim-context → occurrence comparison record: the
+ *  per-candidate question the verified model answered about this claim.
+ *  Distinct from occurrence↔occurrence pairwise media-context records;
+ *  never synthesized — only accepted claim/context distributions appear. */
+export interface ProvenanceClaimComparison {
+  occurrenceId: string;
+  /** O → K edge target; null when the occurrence's segment was
+   *  unresolved or it was not in the compared run. */
+  segmentId: string | null;
+  question: "context_relation" | "claim_relation";
+  distribution: ContextRelation | ClaimRelation;
+}
+
 export interface ProvenanceClaimContext {
   id: "claim-context";
   claim: string;
   claimDate: string | null;
   claimDatePrecision: DatePrecision;
-  /** Pairwise comparison ids actually evaluated for this claim context. */
-  comparedPairIds: string[];
-  /** KQ → K "compared with" edges — segment node ids touched by an
-   *  actually-performed comparison endpoint. */
+  /** C → KQ → O/K comparison evidence — one record per verified
+   *  claim/context question answered per occurrence. */
+  comparisons: ProvenanceClaimComparison[];
+  /** KQ → K "compared with" edges — derived solely from real comparison
+   *  records above, never from pairwise occurrence judgments. */
   comparedSegmentIds: string[];
 }
 
@@ -229,60 +252,58 @@ export function buildProvenanceGraph(input: {
       occurrenceIds,
     }));
 
-  // K → K DIVERGES_TO edges from decisive different_context connectors.
-  const divergenceEdges: ProvenanceDivergenceEdge[] = [];
-  if (segments !== null) {
-    const firstObs = segments.firstObservedContextDivergence;
-    for (const [toId, connector] of segments.connectorOf) {
-      if (
-        connector.kind !== "different_context" ||
-        connector.fromOccurrenceId === null
-      ) {
-        continue;
-      }
-      const fromIdx = segments.segmentOf.get(connector.fromOccurrenceId);
-      const toIdx = segments.segmentOf.get(toId);
-      if (fromIdx === null || fromIdx === undefined) continue;
-      if (toIdx === null || toIdx === undefined) continue;
-      const observedAt =
-        firstObs !== null &&
-        firstObs.fromOccurrenceId === connector.fromOccurrenceId &&
-        firstObs.toOccurrenceId === toId
-          ? firstObs.observedAt
-          : (candidates.find((c) => c.id === toId)?.publishedAt ?? "");
-      divergenceEdges.push({
-        fromSegmentId: segmentNodeId(fromIdx),
-        toSegmentId: segmentNodeId(toIdx),
-        fromOccurrenceId: connector.fromOccurrenceId,
-        toOccurrenceId: toId,
-        observedAt,
-        firstObserved:
-          firstObs !== null &&
-          firstObs.fromOccurrenceId === connector.fromOccurrenceId &&
-          firstObs.toOccurrenceId === toId,
-        earlierTransitionsUnresolved:
-          firstObs !== null &&
-          firstObs.fromOccurrenceId === connector.fromOccurrenceId &&
-          firstObs.toOccurrenceId === toId
-            ? firstObs.earlierTransitionsUnresolved
-            : false,
-      });
-    }
-  }
+  // K → K DIVERGES_TO edges — projected from the authoritative edge
+  // records on SegmentResult, keyed on real occurrence endpoints. A side
+  // whose segment continuity was unresolved carries a null segment id;
+  // the verified local divergence is preserved, not dropped (G2).
+  const divergenceEdges: ProvenanceDivergenceEdge[] =
+    segments === null
+      ? []
+      : segments.divergenceEdges.map((e) => ({
+          pairId: e.pairId,
+          fromOccurrenceId: e.fromOccurrenceId,
+          toOccurrenceId: e.toOccurrenceId,
+          fromSegmentId:
+            e.fromSegmentIndex === null ? null : segmentNodeId(e.fromSegmentIndex),
+          toSegmentId:
+            e.toSegmentIndex === null ? null : segmentNodeId(e.toSegmentIndex),
+          observedAt: e.observedAt,
+          firstObserved: e.firstObserved,
+          earlierTransitionsUnresolved: e.earlierTransitionsUnresolved,
+        }));
 
-  // C → KQ → K claim context: the segments a performed comparison touched.
+  // C → KQ → O/K claim context (G1): explicit per-occurrence claim/context
+  // comparison records built ONLY from accepted candidate judgments —
+  // verified question, actual distribution, real occurrence/segment ids.
+  // Occurrence↔occurrence pairwise results live on the top-level
+  // `comparisons` contract, not here.
   let claimContext: ProvenanceClaimContext | null = null;
   if (input.claim !== null) {
+    const comparisons: ProvenanceClaimComparison[] = [];
     const comparedSegmentIds = new Set<string>();
-    if (segments !== null) {
-      for (const pairId of segments.coverage.comparedPairIds) {
-        const [a, b] = pairId.split("|");
-        for (const endpoint of [a, b]) {
-          const idx = segments.segmentOf.get(endpoint);
-          if (idx !== null && idx !== undefined) {
-            comparedSegmentIds.add(segmentNodeId(idx));
-          }
-        }
+    for (const c of candidates) {
+      const j = c.judgment;
+      if (j === null) continue;
+      const segIdx = segments?.segmentOf.get(c.id);
+      const segmentId =
+        segIdx === null || segIdx === undefined ? null : segmentNodeId(segIdx);
+      if (j.contextRelation !== null) {
+        comparisons.push({
+          occurrenceId: c.id,
+          segmentId,
+          question: "context_relation",
+          distribution: j.contextRelation,
+        });
+        if (segmentId !== null) comparedSegmentIds.add(segmentId);
+      }
+      if (j.claimRelation !== null) {
+        comparisons.push({
+          occurrenceId: c.id,
+          segmentId,
+          question: "claim_relation",
+          distribution: j.claimRelation,
+        });
+        if (segmentId !== null) comparedSegmentIds.add(segmentId);
       }
     }
     claimContext = {
@@ -290,7 +311,7 @@ export function buildProvenanceGraph(input: {
       claim: input.claim,
       claimDate: input.claimDate,
       claimDatePrecision: input.claimDatePrecision ?? "unknown",
-      comparedPairIds: segments?.coverage.comparedPairIds ?? [],
+      comparisons,
       comparedSegmentIds: [...comparedSegmentIds],
     };
   }
@@ -334,7 +355,10 @@ export function toProvenanceProjection(
             claim: graph.claimContext.claim,
             claimDate: graph.claimContext.claimDate,
             claimDatePrecision: graph.claimContext.claimDatePrecision,
-            comparedPairIds: [...graph.claimContext.comparedPairIds],
+            comparisons: graph.claimContext.comparisons.map((r) => ({
+              ...r,
+              distribution: { ...r.distribution },
+            })),
             comparedSegmentIds: [...graph.claimContext.comparedSegmentIds],
           },
   };
