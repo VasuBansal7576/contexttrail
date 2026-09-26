@@ -65,6 +65,65 @@ const CONTRAST = {
   lightProbabilityValue: 7.46,
 } as const;
 
+/** WCAG relative luminance / ratio, used to guard the real token pairs. */
+function luminance(hex: string): number {
+  const v = hex.replace("#", "");
+  const full = v.length === 3 ? v.split("").map((c) => c + c).join("") : v;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
+  const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function ratio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+}
+/** alpha-composite `fg` over `bg` the way a translucent token lands on paper. */
+function over(fg: string, bg: string, alpha: number): string {
+  const parse = (h: string) => {
+    const v = h.replace("#", "");
+    const full = v.length === 3 ? v.split("").map((c) => c + c).join("") : v;
+    return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16));
+  };
+  const [fr, fg2, fb] = parse(fg);
+  const [br, bg2, bb] = parse(bg);
+  const mix = (f: number, b: number) => Math.round(alpha * f + (1 - alpha) * b);
+  return `#${[mix(fr, br), mix(fg2, bg2), mix(fb, bb)]
+    .map((n) => n.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+describe("R1 — the enabled claim placeholder is readable, not decorative", () => {
+  // Independent probe at the immutable pin: the enabled 16px example measured
+  // 2.5797:1 over the composited field. The field background is `bg-white/70`
+  // on `--color-paper`, which is what the ratio is computed against.
+  const FIELD_BG = over("#ffffff", "#f6f4ef", 0.7);
+
+  it("composes the same field background the browser measured", () => {
+    // The independent probe measured the composited background as
+    // (252.3, 251.7, 250.2) in the rendered field.
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(FIELD_BG.slice(i, i + 2), 16));
+    expect(Math.abs(r - 252.3)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(g - 251.7)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(b - 250.2)).toBeLessThanOrEqual(0.5);
+  });
+
+  it("keeps the example at or above 4.5:1 on the real field", () => {
+    // `ink-soft` (#4d545c) is the token now used for the placeholder.
+    expect(ratio("#4d545c", FIELD_BG)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("records the rejected token as a real regression guard", () => {
+    // If a future change restores a 40%-alpha ink placeholder, this fails.
+    const rejected = over("#101418", FIELD_BG, 0.4);
+    expect(ratio(rejected, FIELD_BG)).toBeLessThan(4.5);
+  });
+
+  it("keeps entered text clearly darker than the example", () => {
+    // The example must stay distinguishable from a real value.
+    expect(luminance("#101418")).toBeLessThan(luminance("#4d545c"));
+  });
+});
+
 describe("U7 excerpt composites", () => {
   it("bare title-only input is not quoted", () => {
     const o = occ({ excerpt: "Title: Example title", excerptSource: "page_text" });

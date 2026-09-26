@@ -18,10 +18,17 @@ const EARTHRISE_SRC = "/illustrative-earthrise.jpg";
 const EARTHRISE_ALT =
   "Illustration: the Earthrise photograph (Apollo 8, NASA, public domain), repeated to show one image in three contexts";
 
+/**
+ * The three context cards. The time label is deliberately generic: these are
+ * invented example cards, and pairing the photograph's own year with a
+ * *report* label invited reading it as a 1968 report this tool had found. The
+ * real photo date stays in the credit line below, next to the explicit
+ * illustrative label.
+ */
 const CARDS = [
-  { label: "Earlier report", note: "One image, first seen in an earlier context.", year: "1968" },
-  { label: "Later reuse", note: "The same image, reused with a new context.", year: "Later" },
-  { label: "Submitted claim", note: "What someone says it shows today.", year: "Today" },
+  { label: "Earlier report", note: "One image, first seen in an earlier context.", time: "Earlier example" },
+  { label: "Later reuse", note: "The same image, reused with a new context.", time: "Later example" },
+  { label: "Submitted claim", note: "What someone says it shows today.", time: "Example claim" },
 ];
 
 function HeroCards() {
@@ -57,7 +64,7 @@ function HeroCards() {
             />
             <figcaption className="mt-3">
               <p className="text-sm font-semibold">
-                {card.label} <span className="font-normal text-ink-soft">· {card.year}</span>
+                {card.label} <span className="font-normal text-ink-soft">· {card.time}</span>
               </p>
               <p className="mt-1 text-xs leading-relaxed text-ink-soft">{card.note}</p>
             </figcaption>

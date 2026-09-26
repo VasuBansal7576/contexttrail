@@ -203,7 +203,13 @@ export default function UploadForm({
               onChange={(e) => onClaimChange(e.target.value)}
               placeholder="E.g. “This shows a recent incident in my city.”"
               aria-describedby="ct-claim-help"
-              className="mt-2 w-full resize-y rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15 placeholder:text-ink/40"
+              // The example keeps the `ink-soft` token, which measures 6.98:1 on
+              // this composited field. `ink/40` measured 2.58:1 here — an enabled
+              // 16px field, not the disabled-button exemption — so the example
+              // was unreadable while the field was waiting for input. The
+              // persistent label above and the entered value (`ink`) still
+              // separate label, example and content.
+              className="mt-2 w-full resize-y rounded-xl bg-white/70 px-4 py-3 text-[16px] text-ink ring-1 ring-ink/15 placeholder:text-ink-soft"
             />
             <div className="mt-1 flex items-center justify-between text-xs text-ink-soft">
               <p id="ct-claim-help">Leave blank to trace the image&apos;s history.</p>
