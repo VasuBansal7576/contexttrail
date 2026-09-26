@@ -227,25 +227,36 @@ export interface CompositeExcerpt {
 }
 
 /**
- * Split the backend's composite page excerpt ("Title: … Snippet: … body")
- * into its attributed parts. A page with no extracted body must not inherit
- * page-text attribution for a mere title/snippet wrapper.
+ * Split the backend's composite page excerpt into its attributed parts. The
+ * composite packs "Title:", "Snippet:" and body paragraphs in varying
+ * combinations, all labeled `page_text` upstream; only genuine body text
+ * earns extracted-page attribution, and the title wrapper is never quoted
+ * (the title already heads the card).
  */
 export function splitCompositeExcerpt(raw: string | null): CompositeExcerpt {
   const empty = { title: null, snippet: null, body: null };
   if (!raw) return empty;
-  const match = raw.match(/^Title:(.*?)\r?\n\r?\nSnippet:(.*?)\r?\n\r?\n([\s\S]*)$/);
-  if (!match) {
-    // A bare "Title:" wrapper with no snippet or body is not an excerpt —
-    // the title already heads the card, and quoting it would manufacture
-    // page-text attribution from nothing extracted.
-    const titleOnly = raw.match(/^Title:([^\n]*)$/);
-    if (titleOnly) return { title: titleOnly[1].trim() || null, snippet: null, body: null };
-    return { title: null, snippet: null, body: raw };
+  let rest = raw;
+  let title: string | null = null;
+  let snippet: string | null = null;
+  const titleMatch = rest.match(/^Title:([^\n]*)\r?\n\r?\n([\s\S]*)$/);
+  if (titleMatch) {
+    title = titleMatch[1].trim() || null;
+    rest = titleMatch[2];
   }
-  const title = match[1].trim() || null;
-  const snippet = match[2].trim() || null;
-  const body = match[3].trim() || null;
+  const snippetMatch = rest.match(/^Snippet:([\s\S]*?)\r?\n\r?\n([\s\S]*)$/);
+  if (snippetMatch) {
+    snippet = snippetMatch[1].trim() || null;
+    rest = snippetMatch[2];
+  } else {
+    const bareSnippet = rest.match(/^Snippet:([\s\S]*)$/);
+    if (bareSnippet) {
+      snippet = bareSnippet[1].trim() || null;
+      rest = "";
+    }
+  }
+  const body = rest.trim() || null;
+  if (title === null && snippet === null) return { title: null, snippet: null, body: raw };
   return { title, snippet, body };
 }
 
