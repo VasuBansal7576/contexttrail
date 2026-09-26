@@ -175,6 +175,22 @@ export interface SegmentResult {
     connector: Exclude<TimelineConnector["kind"], "start">;
     distribution: PairwiseContextJudgment | null;
   }>;
+  /** §23/G2 — every decisive DIVERGES_TO relation, keyed on the real
+   *  occurrence endpoints. Segment indices are null when global
+   *  continuity was unresolved for that side — a verified local
+   *  divergence is preserved rather than dropped, and no segment or
+   *  earlier continuity is invented. `firstObserved` marks the edge the
+   *  §20.2 first-observed divergence names. */
+  divergenceEdges: Array<{
+    pairId: string;
+    fromOccurrenceId: string;
+    toOccurrenceId: string;
+    fromSegmentIndex: number | null;
+    toSegmentIndex: number | null;
+    observedAt: string;
+    firstObserved: boolean;
+    earlierTransitionsUnresolved: boolean;
+  }>;
 }
 
 /**
@@ -193,6 +209,7 @@ export function buildContextSegments(
   const connectorOf = new Map<string, TimelineConnector>();
   const comparedPairsFor = new Map<string, string[]>();
   const comparisons: SegmentResult["comparisons"] = [];
+  const divergenceEdges: SegmentResult["divergenceEdges"] = [];
   const recordComparedPair = (a: string, b: string) => {
     const pk = pairKey(a, b);
     comparedPairsFor.set(a, [...(comparedPairsFor.get(a) ?? []), pk]);
@@ -233,6 +250,7 @@ export function buildContextSegments(
       },
       comparedPairsFor,
       comparisons,
+      divergenceEdges,
     };
   }
 
@@ -292,6 +310,20 @@ export function buildContextSegments(
     } else if (kind === "different_context") {
       segmentIdx += 1;
       segmentOf.set(cur.id, segmentIdx);
+      // The decisive relation is recorded on the occurrence endpoints
+      // regardless of either side's segment resolution — a verified
+      // B→C divergence survives an unresolved A→B transition (G2).
+      const unresolved = earlierUnresolved || skippedBefore(cur);
+      divergenceEdges.push({
+        pairId: pairKey(prev.id, cur.id),
+        fromOccurrenceId: prev.id,
+        toOccurrenceId: cur.id,
+        fromSegmentIndex: segmentOf.get(prev.id) ?? null,
+        toSegmentIndex: segmentOf.get(cur.id) ?? null,
+        observedAt: cur.publishedAt ?? "",
+        firstObserved: firstDivergence === null && cur.publishedAt !== null,
+        earlierTransitionsUnresolved: unresolved,
+      });
       if (firstDivergence === null && cur.publishedAt !== null) {
         firstDivergence = {
           fromOccurrenceId: prev.id,
@@ -300,7 +332,7 @@ export function buildContextSegments(
           // Unresolved means an *earlier* transition is unexamined —
           // either an uncertain edge already walked, or an eligible
           // occurrence skipped by sampling before this divergence.
-          earlierTransitionsUnresolved: earlierUnresolved || skippedBefore(cur),
+          earlierTransitionsUnresolved: unresolved,
         };
       }
     } else {
@@ -328,5 +360,6 @@ export function buildContextSegments(
     },
     comparedPairsFor,
     comparisons,
+    divergenceEdges,
   };
 }
