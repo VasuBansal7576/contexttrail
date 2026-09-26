@@ -44,6 +44,7 @@ import {
   identityBasis,
   occurrenceRole,
   reportingCounts,
+  reportingGroupHeadline,
   reportingOriginLabel,
   viewerEntryFor,
 } from "./evidence-display";
@@ -671,7 +672,7 @@ export default function ResultView({
                     return (
                       <li key={g.groupId} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
                         <p className="text-[15px] font-medium">
-                          Shared group of {g.memberCount} {g.memberCount === 1 ? "occurrence" : "occurrences"}
+                          {reportingGroupHeadline(g)}
                           {g.reasons.length > 0 ? ` · ${g.reasons.join("; ")}` : ""}
                         </p>
                         {present.length > 0 ? (
