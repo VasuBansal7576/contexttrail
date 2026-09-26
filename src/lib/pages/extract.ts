@@ -70,6 +70,25 @@ function normalizePageUrl(u: string): string {
     .toLowerCase();
 }
 
+/** Absolute page-identity URLs a node claims for itself. Relative or
+ *  fragment identifiers are not page identity and are ignored. */
+function ownPageUrls(o: Record<string, unknown>): string[] {
+  const urls: string[] = [];
+  for (const key of ["url", "@id", "mainEntityOfPage"] as const) {
+    const v = o[key];
+    const s =
+      typeof v === "string"
+        ? v
+        : typeof v === "object" && v !== null &&
+            typeof (v as Record<string, unknown>)["@id"] === "string"
+          ? ((v as Record<string, unknown>)["@id"] as string)
+          : null;
+    if (s === null || !/^https?:/i.test(s.trim())) continue;
+    urls.push(normalizePageUrl(s));
+  }
+  return urls;
+}
+
 /**
  * Walk a JSON-LD graph collecting publication dates with the entity
  * binding that produced them. A date is bound to the fetched page when
@@ -93,23 +112,7 @@ function collectEntityDates(
   }
   const o = node as Record<string, unknown>;
 
-  // Absolute page-identity URLs the node claims for itself. Relative or
-  // fragment identifiers are not page identity and are ignored.
-  const ownUrls: string[] = [];
-  if (pageUrl !== null) {
-    for (const key of ["url", "@id", "mainEntityOfPage"] as const) {
-      const v = o[key];
-      const s =
-        typeof v === "string"
-          ? v
-          : typeof v === "object" && v !== null &&
-              typeof (v as Record<string, unknown>)["@id"] === "string"
-            ? ((v as Record<string, unknown>)["@id"] as string)
-            : null;
-      if (s === null || !/^https?:/i.test(s.trim())) continue;
-      ownUrls.push(normalizePageUrl(s));
-    }
-  }
+  const ownUrls = pageUrl === null ? [] : ownPageUrls(o);
 
   let selfBound = bound;
   let contradicted = false;
@@ -142,15 +145,6 @@ function collectEntityDates(
         ? "main_entity"
         : "nested";
     collectEntityDates(v, out, pageUrl, childBound, depth + 1);
-  }
-}
-
-function rootPublicationDate(node: unknown, out: string[]): void {
-  const roots = Array.isArray(node) ? node : [node];
-  for (const r of roots) {
-    if (typeof r !== "object" || r === null) continue;
-    const v = (r as Record<string, unknown>).datePublished;
-    if (typeof v === "string" && v.trim() !== "") out.push(v.trim());
   }
 }
 
@@ -210,7 +204,20 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
         : "unbound_nested_entity",
     }));
   if (jsonLdDates.length === 0) {
-    for (const p of parsedLd) rootPublicationDate(p, jsonLdDates);
+    // The root-level fallback must not re-admit a date the binding pass
+    // already rejected: a root entity asserting a different absolute
+    // page URL identifies as another page, so its datePublished is not
+    // this page's publication date.
+    for (const p of parsedLd) {
+      const roots = Array.isArray(p) ? p : [p];
+      for (const r of roots) {
+        if (typeof r !== "object" || r === null) continue;
+        const own = normalizedUrl === null ? [] : ownPageUrls(r as Record<string, unknown>);
+        if (own.length > 0 && !own.includes(normalizedUrl ?? "")) continue;
+        const v = (r as Record<string, unknown>).datePublished;
+        if (typeof v === "string" && v.trim() !== "") jsonLdDates.push(v.trim());
+      }
+    }
     if (jsonLdDates.length > 0) jsonLdDateBinding = "root_entity";
   }
 

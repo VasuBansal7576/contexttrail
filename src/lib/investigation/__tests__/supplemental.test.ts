@@ -6,13 +6,13 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { fetchPageHtml } from "../../pages/fetch";
+import { fetchPageHtml, type FetchedPage } from "../../pages/fetch";
+import { extractPage } from "../../pages/extract";
 import {
   classifyStreamFailure,
   type InvestigationSnapshot,
 } from "../../stream/useInvestigation";
 import { runInvestigation } from "../run";
-import type { FetchedPage } from "../../pages/fetch";
 
 const VERIFIED_JEV = {
   requested: "jev-1.13.0",
@@ -205,5 +205,80 @@ describe("S4 — the 55s deadline gates new semantic work", () => {
     // finalizes with the evidence it already has.
     expect(jevCalls).toBe(0);
     expect(events.some((e) => e.type === "investigation.completed")).toBe(true);
+  });
+});
+
+/* ------------------- R2 residual — root fallback bypass ------------------- */
+
+describe("R2 residual — a contradicted root entity's date cannot re-enter via the root fallback", () => {
+  const contradictingRootHtml = (fetchedUrl: string) =>
+    `<html><head><script type="application/ld+json">${JSON.stringify({
+      "@type": "NewsArticle",
+      url: "https://other.example.org/related",
+      datePublished: "1999-01-01",
+    })}</script></head><body><article><p>${"Actual page body. ".repeat(30)}</p></article></body></html>`;
+
+  it("extractPage(html, fetchedUrl) rejects the contradicted root date outright", () => {
+    const ex = extractPage(
+      contradictingRootHtml("https://target.example.org/story"),
+      "https://target.example.org/story",
+    );
+    expect(ex.jsonLdDates).toEqual([]);
+    expect(ex.rejectedJsonLdDates).toEqual([
+      { value: "1999-01-01", reason: "contradictory_entity_binding" },
+    ]);
+  });
+
+  it("full pipeline — the contradicted root date never reaches the timeline", async () => {
+    type Item = {
+      sourceUrl: string;
+      observedAt: string | null;
+      dateProvenance: { value: string | null; rejectedCandidates: Array<{ value: string }> };
+    };
+    const events: Array<{
+      type: string;
+      result?: { timeline?: Item[]; supportingEvidence?: Item[]; undatedEvidence?: Item[] };
+    }> = [];
+    await runInvestigation(
+      { media: new Uint8Array([1]), claim: null, timezone: "UTC", locale: "en" },
+      (e) => events.push(e as never),
+      {
+        serpapi: {
+          uploadImage: async () => "controlled",
+          search: async (p: { engine?: string; type?: string }) =>
+            p.type === "exact_matches"
+              ? { exact_matches: [{ title: "exact", link: "https://unique.example.org/item" }] }
+              : p.type === "about_this_image"
+                ? { about_this_image: { sections: [] } }
+                : p.engine === "google_lens"
+                  ? { visual_matches: [{ title: "target", link: "https://target.example.org/story" }] }
+                  : p.engine === "google_news"
+                    ? { news_results: [] }
+                    : { organic_results: [] },
+        } as never,
+        jev: {
+          ask: async () => ({ answers: GOOD_ANSWERS, model: "jev-1.13.0", identity: VERIFIED_JEV }),
+        } as never,
+        fetchPage: async (url: string): Promise<FetchedPage> => ({
+          url,
+          html: url === "https://target.example.org/story"
+            ? contradictingRootHtml(url)
+            : `<html><body><article><p>${"Controlled factual page body. ".repeat(25)}</p></article></body></html>`,
+        }),
+      },
+    );
+    const result = events.find((e) => e.type === "investigation.completed")?.result;
+    const items = [
+      ...(result?.timeline ?? []),
+      ...(result?.supportingEvidence ?? []),
+      ...(result?.undatedEvidence ?? []),
+    ];
+    const target = items.find((t) => t.sourceUrl === "https://target.example.org/story");
+    expect(target).toBeDefined();
+    // The contradicted 1999 must appear only in rejectedCandidates — never
+    // as the displayed or resolved date.
+    expect(target?.dateProvenance.value).not.toBe("1999-01-01");
+    expect(target?.observedAt).not.toBe("1999-01-01");
+    expect(target?.dateProvenance.rejectedCandidates.map((r) => r.value)).toContain("1999-01-01");
   });
 });
