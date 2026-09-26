@@ -2405,15 +2405,56 @@ async function focusIndicator(page) {
         st.borderWidth,
       ].join("|");
     const focused = signature();
-    const prev = el.style.outline;
+    // An actually-unfocused observation, not a simulated one: blur the element,
+    // flush a style recalc, read the signature, then restore keyboard-origin
+    // focus. Suppressing inline styles while focus stays put can miss a rule
+    // that never had a focus-dependent value in the first place.
+    const prevOutline = el.style.outline;
     const prevShadow = el.style.boxShadow;
+    el.blur();
+    void document.body.offsetHeight;
+    const blurred = signature();
     el.style.outline = "none";
     el.style.boxShadow = "none";
-    const unfocused = signature();
-    el.style.outline = prev;
+    void document.body.offsetHeight;
+    const suppressed = signature();
+    el.style.outline = prevOutline;
     el.style.boxShadow = prevShadow;
+    el.focus();
+    void document.body.offsetHeight;
+    const unfocused = signature();
     const outline = st.outlineStyle !== "none" && parseFloat(st.outlineWidth) > 0;
     const shadow = st.boxShadow && st.boxShadow !== "none";
+    // Which properties actually differed, not merely whether the signature did:
+    // a permanent decorative shadow plus a removed focus ring changes nothing,
+    // and treating "a shadow exists" as a focus ring is a false green.
+    const props = (a) => a.split("|");
+    const diff = (a, b) =>
+      props(a)
+        .map((v, i) => (v !== props(b)[i] ? i : -1))
+        .filter((i) => i >= 0);
+    const changed = diff(focused, blurred);
+    const suppressedChanged = diff(focused, suppressed);
+    const INDICATOR_PROPS = ["outlineStyle", "outlineWidth", "outlineColor", "outlineOffset", "boxShadow"];
+    // "Paints" is stricter than "differs": an outline-offset or outline-colour
+    // change while outline-style stays `none` is invisible, and a box-shadow that
+    // is identical focused and blurred is decoration. A focus indicator is a
+    // focus-dependent change that PAINTS.
+    const paints = (sig) => {
+      const [style, width, , , shadow] = sig.split("|");
+      const outline = style !== "none" && parseFloat(width) > 0;
+      const box = shadow && shadow !== "none";
+      return { outline, box };
+    };
+    const focusedPaint = paints(focused);
+    const blurredPaint = paints(blurred);
+    const suppressedPaint = paints(suppressed);
+    const indicatorPaints =
+      (focusedPaint.outline && !blurredPaint.outline && !suppressedPaint.outline) ||
+      (focusedPaint.box && !blurredPaint.box && !suppressedPaint.box);
+    const changedProps = changed
+      .map((i) => INDICATOR_PROPS[i] ?? `border${["borderColor", "borderWidth"][i - 5] ?? i}`)
+      .filter((n) => n !== "borderundefined");
     return {
       focused: true,
       tag: el.tagName,
@@ -2421,6 +2462,20 @@ async function focusIndicator(page) {
       outline,
       shadow,
       changes: focused !== unfocused,
+      changedProps,
+      // Real blur: a permanent shadow with no focus styling is identical focused
+      // or blurred, so this is false for exactly that counterexample.
+      realFocusDifference: focused !== blurred,
+      // Suppressed inline styles: catches a ring drawn only by inline styles.
+      suppressionDifference: focused !== suppressed,
+      // A focus indicator is a CHANGE in an indicator property, seen either by a
+      // real blur or by suppressing the inline ring. A pre-existing outline or
+      // shadow is decoration, not proof that focus is visible.
+      indicatorChange: indicatorPaints,
+      focusedPaintsOutline: focusedPaint.outline,
+      focusedPaintsShadow: focusedPaint.box,
+      blurredPaintsOutline: blurredPaint.outline,
+      blurredPaintsShadow: blurredPaint.box,
     };
   });
 }
@@ -3846,7 +3901,15 @@ const DRIVE_CASES = {
     // together. A broken mapping has to turn a specific assertion red.
     await page.getByRole("tab", { name: /^Overview$/ }).first().focus();
     const tabKeys = ["ArrowRight", "ArrowRight", "Home", "End", "ArrowLeft"];
-    for (const key of tabKeys) {
+    // Where each key MUST land, taken from the documented tab order and NOT from
+    // whatever the view happened to do: ArrowRight, ArrowRight, Home, End,
+    // ArrowLeft over Overview/Timeline/Sources/Analysis must visit
+    // Timeline, Sources, Overview, Analysis, Sources. Deriving the expectation
+    // from the observed state is what let a handler that ignores every key after
+    // the first pass while remaining self-consistent.
+    const expectedSequence = [1, 2, 0, RESULT_TABS.length - 1, RESULT_TABS.length - 2];
+    for (let step = 0; step < tabKeys.length; step++) {
+      const key = tabKeys[step];
       await page.keyboard.press(key);
       await delay(180);
       const state = await page.evaluate(() => {
@@ -3866,9 +3929,19 @@ const DRIVE_CASES = {
           panelId,
           panelPresent: !!panel,
           panelVisible: !!panel && panel.getBoundingClientRect().height > 1,
+          tabStops: [...document.querySelectorAll('[role="tab"]')].filter(
+            (t) => t.getAttribute("tabindex") === "0",
+          ).length,
         };
       });
       state.key = key;
+      const want = expectedSequence[step];
+      rec.check(
+        `result.tablist-keyboard-${key.toLowerCase()}-moved`,
+        state.selectedIndex === want,
+        `expected tab ${want} ("${RESULT_TABS[want]}"), focus/selection at ${state.selectedIndex} ("${state.selectedName}") ` +
+          `after ${key} — a key that changes nothing is a failure, not a pass`,
+      );
       rec.check(
         `result.tablist-keyboard-${key.toLowerCase()}-consistent`,
         state.focusRole === "tab" &&
@@ -3879,8 +3952,9 @@ const DRIVE_CASES = {
       );
       rec.check(
         `result.tablist-keyboard-${key.toLowerCase()}-roving-tabindex`,
-        state.focusTabIndex === "0",
-        `focused tab tabindex=${state.focusTabIndex} (a roving tabindex keeps the single stop on the selected tab)`,
+        state.focusTabIndex === "0" && state.tabStops === 1,
+        `focused tab tabindex=${state.focusTabIndex}, ${state.tabStops} tab(s) in the tab order with tabindex=0 ` +
+          `(a roving tabindex keeps exactly one stop, on the selected tab)`,
       );
       rec.note(`result.tablist-keyboard-${key.toLowerCase()}-state`, JSON.stringify(state));
     }
@@ -4994,6 +5068,9 @@ const DRIVE_CASES = {
   },
 
   async accessibility({ page, rec, m, driveDir, viewport }) {
+    // The claim the reduced-motion leg submits: a real claim string, so the
+    // primary control is enabled and "usable" can mean something.
+    const claimText = "This shows a recent incident in my city.";
     await page.goto(`${m.url}/investigate`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#ct-claim");
     await aria(page, driveDir, "accessibility-initial");
@@ -5048,8 +5125,14 @@ const DRIVE_CASES = {
     if (indicator.focused) {
       rec.check(
         "a11y.focus-indicator-visible",
-        indicator.outline || indicator.shadow || indicator.changes,
-        `${indicator.tag} "${indicator.label}" outline=${indicator.outline} shadow=${indicator.shadow} changesWhenUnfocused=${indicator.changes}`,
+        indicator.indicatorChange === true,
+        `${indicator.tag} "${indicator.label}" outline=${indicator.outline} shadow=${indicator.shadow} ` +
+          `paintsOutline=${indicator.focusedPaintsOutline}/${indicator.blurredPaintsOutline} ` +
+          `paintsShadow=${indicator.focusedPaintsShadow}/${indicator.blurredPaintsShadow} ` +
+          `changed=[${(indicator.changedProps || []).join(",")}]` +
+          (indicator.indicatorChange === true
+            ? ""
+            : " — a permanent outline/shadow is decoration; focus itself must PAINT an indicator"),
       );
     } else {
       rec.note(
@@ -5057,6 +5140,105 @@ const DRIVE_CASES = {
         "focus was on <body> when the indicator was read; see focus-sequence.json for the walked order",
       );
     }
+
+    // Reduced motion is a rendered outcome, not a preference read: emulate it,
+    // then require the screen to be settled and its primary control usable. The
+    // claim field is filled first, because an empty form leaves the submit
+    // disabled — and "a disabled button is present" is not evidence that the
+    // primary action is usable.
+    await page.fill("#ct-claim", claimText);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#ct-claim", { timeout: 15_000 });
+    await page.fill("#ct-claim", claimText);
+    // Settled = the enabled state the form reaches, not merely a laid-out box:
+    // wait for the submit control to actually become enabled, then for two
+    // animation frames so a style transition has been flushed to the compositor.
+    await page
+      .waitForFunction(
+        () => {
+          const b = [...document.querySelectorAll("button")].find((x) =>
+            /start investigation/i.test(x.textContent || ""),
+          );
+          return !!b && !b.disabled && b.getAttribute("aria-disabled") !== "true";
+        },
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
+    await page
+      .evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      )
+      .catch(() => {});
+    const reduced = await page.evaluate(() => {
+      const claim = document.querySelector("#ct-claim");
+      const submit = [...document.querySelectorAll("button")].find((b) =>
+        /start investigation/i.test(b.textContent || ""),
+      );
+      const vis = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        // A box is not visibility: an element at opacity 0 (its own, or inherited
+        // from a faded group) still has width and height and would pass a
+        // geometry-only test while showing the user nothing.
+        let opacity = 1;
+        for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+          const v = Number(getComputedStyle(n).opacity);
+          if (Number.isFinite(v)) opacity *= v;
+        }
+        return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden" && opacity > 0.01;
+      };
+      const hasImage = !!document.querySelector('input[type="file"]')?.files?.length;
+      return {
+        matches: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        hasImage,
+        claimValue: claim ? claim.value.length : 0,
+        claimVisible: vis(claim),
+        claimOpacity: claim ? getComputedStyle(claim).opacity : null,
+        submitVisible: vis(submit),
+        submitEnabled: submit ? !submit.disabled && submit.getAttribute("aria-disabled") !== "true" : null,
+        submitHeight: submit ? Math.round(submit.getBoundingClientRect().height) : 0,
+        submitOpacity: submit ? getComputedStyle(submit).opacity : null,
+      };
+    });
+    rec.check(
+      "a11y.reduced-motion-emulated",
+      reduced.matches === true,
+      `prefers-reduced-motion: ${reduced.matches}`,
+    );
+    rec.check(
+      "a11y.reduced-motion-content-settled",
+      reduced.claimVisible === true && reduced.submitVisible === true,
+      `claim=${reduced.claimVisible} (opacity ${reduced.claimOpacity}) ` +
+        `submit=${reduced.submitVisible} (opacity ${reduced.submitOpacity}) after the reduced-motion reload`,
+    );
+    // The EXPECTED state, not a wish: the form permits submission only with an
+    // image attached, so on this screen (claim filled, no image) a disabled
+    // submit is correct and must not be reported as a defect. Asserting "enabled"
+    // here would be a false red; asserting the enabled state without ever
+    // attaching an image would be a false green about usability.
+    const expectEnabled = reduced.hasImage === true && reduced.claimValue > 0;
+    rec.check(
+      "a11y.reduced-motion-primary-control-usable",
+      reduced.submitEnabled === expectEnabled && (expectEnabled ? reduced.submitVisible === true : true),
+      `primary control enabled=${reduced.submitEnabled} (expected ${expectEnabled} for image=${reduced.hasImage}, ` +
+        `claimChars=${reduced.claimValue}) visible=${reduced.submitVisible} opacity=${reduced.submitOpacity}`,
+    );
+    rec.check(
+      "a11y.reduced-motion-primary-target-44px",
+      reduced.submitHeight >= 44 && (expectEnabled ? reduced.submitEnabled === true : true),
+      `primary control ${reduced.submitHeight}px tall, enabled=${reduced.submitEnabled}, under reduced motion`,
+    );
+    await shot(page, driveDir, "02-accessibility-reduced-motion");
+    await page.emulateMedia({ reducedMotion: null });
+
+    // Back to the screen as a user first meets it: the reduced-motion leg filled
+    // the claim, and a filled control does not render its placeholder — measuring
+    // contrast here would silently drop the very surface under review.
+    await page.emulateMedia({ reducedMotion: null });
+    await page.fill("#ct-claim", "");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#ct-claim", { timeout: 15_000 });
 
     // Composited contrast on this screen's own surface. No stored constant: the
     // ratio is computed from the rendered colours, so a lowered foreground is
@@ -5106,54 +5288,6 @@ const DRIVE_CASES = {
       rec.note("a11y.form-control-contrast-meets-floor", "no enabled form control rendered on this screen");
     }
 
-    // Reduced motion is a rendered outcome, not a preference read: emulate it,
-    // then require the screen to be settled and its primary control usable.
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForSelector("#ct-claim", { timeout: 15_000 });
-    await page.waitForFunction(
-      () => {
-        const el = document.querySelector("#ct-claim");
-        if (!el) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 1 && r.height > 1;
-      },
-      { timeout: 15_000 },
-    ).catch(() => {});
-    const reduced = await page.evaluate(() => {
-      const claim = document.querySelector("#ct-claim");
-      const submit = [...document.querySelectorAll("button")].find((b) =>
-        /start investigation/i.test(b.textContent || ""),
-      );
-      const vis = (el) => {
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
-      };
-      return {
-        matches: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-        claimVisible: vis(claim),
-        submitVisible: vis(submit),
-        submitHeight: submit ? Math.round(submit.getBoundingClientRect().height) : 0,
-      };
-    });
-    rec.check(
-      "a11y.reduced-motion-emulated",
-      reduced.matches === true,
-      `prefers-reduced-motion: ${reduced.matches}`,
-    );
-    rec.check(
-      "a11y.reduced-motion-content-settled",
-      reduced.claimVisible === true && reduced.submitVisible === true,
-      `claim=${reduced.claimVisible} submit=${reduced.submitVisible} after the reduced-motion reload`,
-    );
-    rec.check(
-      "a11y.reduced-motion-primary-target-44px",
-      reduced.submitHeight >= 44,
-      `primary control ${reduced.submitHeight}px tall under reduced motion`,
-    );
-    await shot(page, driveDir, "02-accessibility-reduced-motion");
-    await page.emulateMedia({ reducedMotion: null });
     rec.check(
       "a11y.no-negative-tabindex-focus",
       focusSeq.every((s) => !s || s.tabIndex >= 0),
