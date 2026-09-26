@@ -711,6 +711,92 @@ describe("claimLocationEligibility — explicit motion-relationship complements 
     }
   });
 
+  /* ---- M1: the motion path must apply the same disambiguation guards ---- */
+
+  it.each([
+    ["A man approached Jordan Smith.", "a person named after a place"],
+    ["The news devastated Paris Hilton.", "a person named after a place"],
+    ["A man approached Jordan smiling.", "a topic description, not a place"],
+    ["A reporter approached the Washington Post.", "an organisation named after a place"],
+  ])("does not ask for %s — %s", (claim) => {
+    const built = evidenceQuestionsWithProvenance({ claimMode: true, claim });
+    expect(built.questions.location_relation, claim).toBeUndefined();
+    expect(built.locationEligibility!.eligible, claim).toBe(false);
+    expect(built.locationEligibility!.spans, claim).toEqual([]);
+  });
+
+  it("records why a place-prefixed person or source phrase was refused", () => {
+    const person = claimLocationEligibility("A man approached Jordan Smith.");
+    expect(person.rejectedBy).toBe("person_reference");
+    const org = claimLocationEligibility("A reporter approached the Washington Post.");
+    expect(org.rejectedBy).toBe("non_place_reference");
+    const topic = claimLocationEligibility("A man approached Jordan smiling.");
+    expect(topic.rejectedBy).toBe("topic_or_source_reference");
+  });
+
+  /* ---- M2: the relation must not borrow a complement across a sentence ---- */
+
+  it("does not take a complement from the next sentence", () => {
+    const r = claimLocationEligibility("A man approached. Jordan smiled.");
+    expect(r.eligible).toBe(false);
+    expect(r.spans).toEqual([]);
+    // the relation is present but unevaluated, not "the claim states no location"
+    expect(r.outcome).toBe("unknown");
+    expect(r.rejectedBy).toBe("unparsed_relationship");
+  });
+
+  it("opposing control: a sentence-final place keeps its full span and stops there", () => {
+    const r = claimLocationEligibility("A storm neared the Gulf Coast. Alice waved.");
+    expect(r.eligible).toBe(true);
+    // exactly the place, never extended into the following sentence
+    expect(r.spans).toEqual(["Gulf Coast"]);
+  });
+
+  it("an unevaluated complement does not absorb the following sentence either", () => {
+    const r = claimLocationEligibility("The storm neared Tomorrowland. Alice waved.");
+    expect(r.eligible).toBe(false);
+    expect(r.unresolved).toEqual(["Tomorrowland"]);
+  });
+
+  it("keeps the M1 fixes from costing a genuine place, address or modifier", () => {
+    const kept: Array<[string, boolean]> = [
+      // the confirmed positives
+      ["This image shows a storm approaching the Gulf Coast.", true],
+      ["A hurricane neared Miami.", true],
+      ["A hurricane neared the Gulf Coast.", true],
+      ["The storm struck the Gulf Coast.", true],
+      ["Wildfire devastated the Amazon.", true],
+      ["A storm neared the Gulf Coast. Alice waved.", true],
+      // a modifier before the name
+      ["Wildfire devastated the northern forest.", true],
+      // a place that legitimately continues with a place noun
+      ["A storm neared the Gulf Coast coast.", true],
+    ];
+    for (const [claim, expected] of kept) {
+      expect(claimMayStateLocation(claim), claim).toBe(expected);
+    }
+  });
+
+  it("keeps the ownership and topic exclusions on the motion path", () => {
+    const excluded: Array<[string, string]> = [
+      ["A photographer approached Jordan's account.", "topic_or_source_reference"],
+      ["A crawler approached Jordan's collection.", "topic_or_source_reference"],
+    ];
+    for (const [claim] of excluded) {
+      expect(claimMayStateLocation(claim), claim).toBe(false);
+    }
+  });
+
+  it("documents the residual: a bare place name as a motion complement stays ambiguous", () => {
+    // "A man approached Jordan." is genuinely ambiguous - the country or a person
+    // - and the frozen lexicons cannot separate them. The existing policy admits
+    // a recognised gazetteer name, so this remains a false-positive direction.
+    // It is pinned here so the risk stays visible rather than implied.
+    const r = claimLocationEligibility("A man approached Jordan.");
+    expect(r.eligible).toBe(true);
+    expect(r.spans).toEqual(["Jordan"]);
+  });
+
   it("documents a known limit: a directional preposition is not in the locative set", () => {
     // "toward"/"towards" are not locative prepositions for this gate, so
     // "headed toward the river" is not read through that frame. Adding them is a

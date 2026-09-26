@@ -458,11 +458,19 @@ const DETERMINERS = new Set([
  * the preposition-only scan cannot see it.
  *
  * Deliberately narrow, and frozen: these verbs take a place object in ordinary
- * usage and nothing else common. Capture verbs ("photographed", "filmed",
- * "captured") are **excluded on purpose** - their place object is already
- * reachable through "in"/"at"/"on", so admitting them would widen the surface
- * without closing a demonstrated gap. A bare "hit"/"hits" is excluded because
- * it is equally a noun and an object-taking verb.
+ * usage, but they also take people, organisations and topics - "A man approached
+ * Jordan Smith", "the news devastated Paris Hilton", "a reporter approached the
+ * Washington Post". A verb list is therefore **not** by itself evidence of
+ * geography, and an earlier comment here claimed otherwise. The complement is
+ * disambiguated by {@link complementDisambiguation} before any place signal is
+ * accepted, and anything still ambiguous is reported as unknown rather than
+ * resolved in favour of geography.
+ *
+ * Capture verbs ("photographed", "filmed", "captured") are **excluded on
+ * purpose** - their place object is already reachable through "in"/"at"/"on", so
+ * admitting them would widen the surface without closing a demonstrated gap. A
+ * bare "hit"/"hits" is excluded because it is equally a noun and an
+ * object-taking verb.
  *
  * The complement must still pass the ordinary positive place tests, so
  * capitalization proves nothing here and no region is inferred: the place text
@@ -844,6 +852,13 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
     // never reaches it. A prepositional object is left to the preposition
     // machinery, which already handles it.
     if (MOTION_LOCATION_VERBS.has(t.lower)) {
+      // The relation ends with its verb. A verb that already carries sentence
+      // punctuation has no complement inside this sentence, so the next one
+      // must not be borrowed.
+      if (t.terminal) {
+        candidates.push({ from: i, to: i, evidence: null, topic: false, via: "unparsed_verb" });
+        continue;
+      }
       let k = i + 1;
       while (k < tokens.length && DETERMINERS.has(tokens[k].lower)) k += 1;
       if (k >= tokens.length) {
@@ -878,20 +893,23 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
           mTo += 1;
         }
       } else {
-        // a sentence-ending mark must not truncate a place noun
-        while (mTo + 1 < tokens.length && !isStop(tokens[mTo + 1])) {
+        // Take the rest of the noun phrase, stopping at a sentence boundary so
+        // a span never absorbs the following sentence.
+        while (mTo + 1 < tokens.length && !isStop(tokens[mTo]) && !tokens[mTo].terminal) {
           mTo += 1;
         }
       }
+      const ambiguous = complementDisambiguation(tokens, mTo);
       // The span starts at the determiner-skipping position `k`, so a modifier
       // that had to be stepped over stays inside the recorded span.
       candidates.push({
         from: k,
         to: mTo,
-        evidence: complement,
-        topic: isSourceOwnershipFrame(tokens, k, mTo),
-      via: "motion_verb",
-    });
+        // A complement that is only a place prefix is not positive evidence.
+        evidence: ambiguous === null ? complement : null,
+        topic: ambiguous !== null || isSourceOwnershipFrame(tokens, k, mTo),
+        via: "motion_verb",
+      });
     }
 
     if (!LOCATIVE_PREPOSITIONS.has(t.lower)) continue;
@@ -997,13 +1015,12 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       candidates.push({ from, to, evidence: signal, topic: topic || owned, via: "preposition" });
     } else {
       // Unresolvable object inside a locative frame: recorded, never guessed.
-      // Extend over the rest of the noun phrase. A sentence-ending mark stops
-      // the extension only after the token carrying it has been taken in, so
-      // "Juniper Chen." is recorded whole.
+      // Extend over the rest of the noun phrase. A token carrying a
+      // sentence-ending mark is taken in and the scan then stops, so
+      // "Juniper Chen." is recorded whole without absorbing a next sentence.
       let to = j;
-      while (to + 1 < tokens.length && !isStop(tokens[to + 1])) {
+      while (to + 1 < tokens.length && !isStop(tokens[to]) && !tokens[to].terminal) {
         to += 1;
-        if (tokens[to].terminal) break;
       }
       candidates.push({
         from: j,
@@ -1017,6 +1034,39 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
 
   }
   return { tokens, candidates };
+}
+
+/**
+ * Bounded disambiguation of a motion complement, applied before any place
+ * signal is accepted. Reuses the established guard pieces - possessive,
+ * participle, bare modifier, and the frozen lexicons - rather than introducing
+ * a parser.
+ *
+ * The recognised place is only a **prefix** of the phrase when a further
+ * non-place proper noun follows it in the same sentence ("Jordan Smith",
+ * "Paris Hilton", "the Washington Post"); that is a person or organisation, not
+ * a location. A sentence-final match is already a complete phrase, so nothing
+ * follows it and nothing is refused - which is what keeps "the Gulf Coast."
+ * intact in "A storm neared the Gulf Coast. Alice waved."
+ */
+function complementDisambiguation(tokens: Token[], to: number): LocationRejection | null {
+  const next = tokens[to + 1];
+  if (next === undefined || isStop(next)) return null;
+  const lower = next.lower;
+  if (PLACE_NAMES.has(lower) || PLACE_NOUNS.has(lower)) return null;
+  // the phrase is complete: the match ended the sentence
+  if (tokens[to].terminal) return null;
+  if (NON_PLACE.has(lower)) return "non_place_reference";
+  if (PERSON_ROLES.has(lower)) return "person_reference";
+  if (isPossessive(next)) return "person_reference";
+  // A capitalised continuation is read only as a *disqualifying* shape - a
+  // surname or organisation word - never as evidence that the span is a place.
+  if (/^\p{Lu}/u.test(next.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))) {
+    return "person_reference";
+  }
+  if (lower.length > 4 && lower.endsWith("ing")) return "topic_or_source_reference";
+  if (nextIsBareModifier(tokens, to)) return "topic_or_source_reference";
+  return null;
 }
 
 /** True when the token carries a possessive marker. */
@@ -1159,7 +1209,15 @@ function isSourceOwnershipFrame(tokens: Token[], from: number, to: number): bool
 
 function classifyUnresolved(tokens: Token[], c: Candidate): LocationRejection {
   if (c.via === "unparsed_verb") return "unparsed_relationship";
-  if (c.topic) return "topic_or_source_reference";
+  if (c.topic) {
+    // The prefix test belongs to the motion path; the preposition path keeps
+    // its own established reasons untouched.
+    if (c.via === "motion_verb") {
+      const specific = complementDisambiguation(tokens, c.to);
+      if (specific !== null) return specific;
+    }
+    return "topic_or_source_reference";
+  }
   for (let i = c.from; i <= c.to; i++) {
     const w = tokens[i]?.lower ?? "";
     if (TEMPORAL.has(w)) return "temporal_reference";
