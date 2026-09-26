@@ -1706,9 +1706,26 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
           st.textContent =
             "li,dd,p,span,a,td{max-height:1.4em;overflow:hidden;white-space:nowrap !important;text-overflow:clip !important;}";
         } else {
-          // Visual order diverges from DOM order with no markup change at all.
-          st.textContent =
-            "[role='tabpanel'],section,main{display:flex !important;flex-direction:column-reverse !important;}";
+          // Reverse the visual order of the panel that is ACTUALLY selected, with
+          // no markup change. A guessed container would leave the measured panel
+          // untouched, which is how an earlier version of this fault passed.
+          const selected = [...document.querySelectorAll('[role="tab"]')].find(
+            (t) => t.getAttribute("aria-selected") === "true",
+          );
+          const id = selected?.getAttribute("aria-controls");
+          const panel = id ? document.getElementById(id) : null;
+          if (panel) {
+            st.id = "ct-reading-order-fault";
+            st.textContent =
+              "#" + id + "{display:flex !important;flex-direction:column-reverse !important;}";
+            document.head.appendChild(st);
+            // the fault targets the selected panel, so the row order is reversed
+            // without re-rendering: the previous sibling order becomes the
+            // visual order and the markup is untouched.
+            window.__ctReadingOrderTarget = id;
+            hit();
+            return;
+          }
         }
         document.head.appendChild(st);
         hit();
@@ -2451,8 +2468,22 @@ async function contrastSurvey(page, { limit = 400 } = {}) {
  *   - visual order must match DOM order, so a CSS reorder cannot make the reading
  *     order differ from what a screen reader and a keyboard meet.
  */
-async function longValueLayout(page, { limit = 60 } = {}) {
-  return page.evaluate((max) => {
+/**
+ * The single comparison the reading-order verdict is derived from. Pure, so the
+ * stored verdict and any later recomputation cannot disagree: same rows in, same
+ * answer out. Missing, non-finite or vacuous data is REJECTED rather than
+ * reported as an ordered layout.
+ */
+function compareReadingOrder(layout) {
+  if (!layout || !Array.isArray(layout.rows) || layout.rows.length === 0) return false;
+  for (const r of layout.rows) {
+    if (!Number.isFinite(r.top) || !Number.isFinite(r.left) || !Number.isFinite(r.domIndex)) return false;
+  }
+  return layout.inversions === 0;
+}
+
+async function longValueLayout(page, { limit = 60, panelId = null } = {}) {
+  return page.evaluate(({ max, panel }) => {
     const isLong = (el) => {
       const t = (el.textContent || "").trim();
       return t.length >= 24;
@@ -2464,8 +2495,10 @@ async function longValueLayout(page, { limit = 60 } = {}) {
       }
       return null;
     };
+    const scope = panel ? document.getElementById(panel) : document.body;
+    if (!scope) return { rows: [], visualDomSequence: [], inversions: null, outOfOrder: null, scopeMissing: true };
     const rows = [];
-    for (const el of document.querySelectorAll("li, dd, p, span, a, td, div")) {
+    for (const el of scope.querySelectorAll("li, dd, p, span, a, td, div")) {
       if (rows.length >= max) break;
       if (!isLong(el)) continue;
       // only leaf-ish text elements, not every wrapper
@@ -2512,8 +2545,17 @@ async function longValueLayout(page, { limit = 60 } = {}) {
         break;
       }
     }
-    return { rows, outOfOrder, checked: rows.length };
-  }, limit);
+    const inversions = outOfOrder ? 1 + visual.filter((v, k) => k > 0 && v.domIndex < visual[k - 1].domIndex).length : 0;
+    return {
+      rows,
+      visualDomSequence: visual.map((v) => v.domIndex),
+      inversions,
+      outOfOrder,
+      scopeMissing: false,
+      scopeTag: scope.id ? `#${scope.id}` : scope.tagName.toLowerCase(),
+      checked: rows.length,
+    };
+  }, { max: limit, panel: panelId });
 }
 
 /** Whether the currently focused element paints a visible focus indicator.
@@ -3996,7 +4038,7 @@ const DRIVE_CASES = {
     }
   },
 
-  async result({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName, input }) {
+  async result({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName, input, viewport }) {
     const view = flags.view ?? "overview";
     if (!live && stream) stream.plan(caseName, { holds: delayMs > 0 ? 0 : 1, paceMs: delayMs });
     await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
@@ -4023,36 +4065,6 @@ const DRIVE_CASES = {
       live,
       input,
     });
-
-    // Measured wrapping and reading order on the result surface (no nonexistent
-    // collector): long values must wrap, nothing may overflow horizontally, no
-    // overflow:hidden ancestor may clip them, and visual order must match DOM.
-    const layout = await longValueLayout(page);
-    writeJson(path.join(driveDir, "long-value-layout.json"), layout);
-    const overflowing = layout.rows.filter((r) => r.overflowX > 1);
-    const clipped = layout.rows.filter((r) => r.clippedBy);
-    const wrapped = layout.rows.filter((r) => r.wraps);
-    rec.check(
-      "result.long-values-no-horizontal-overflow",
-      layout.checked > 0 && overflowing.length === 0,
-      overflowing.length === 0
-        ? `${layout.checked} long value(s) measured, widest overflow ${Math.max(0, ...layout.rows.map((r) => r.overflowX))}px`
-        : `${overflowing.length} overflow horizontally: ${JSON.stringify(overflowing.slice(0, 3))}`,
-    );
-    rec.check(
-      "result.long-values-wrap-not-truncate",
-      clipped.length === 0,
-      clipped.length === 0
-        ? `${wrapped.length}/${layout.checked} wrap onto multiple lines, none clipped by an overflow:hidden ancestor`
-        : `${clipped.length} clipped by overflow:hidden: ${JSON.stringify(clipped.slice(0, 3))}`,
-    );
-    rec.check(
-      "result.reading-order-matches-dom",
-      layout.outOfOrder === null,
-      layout.outOfOrder === null
-        ? `${layout.checked} long value(s) in DOM order`
-        : `visual order differs from DOM order: ${JSON.stringify(layout.outOfOrder)}`,
-    );
 
     for (const name of RESULT_TABS) await selectTab(page, rec, name);
 
@@ -4130,7 +4142,71 @@ const DRIVE_CASES = {
     );
     rec.check("result.no-fabricated-percentage", !/\b\d{1,3}%\b/.test(metrics), "no percentage in overview");
 
-    await selectTab(page, rec, view[0].toUpperCase() + view.slice(1));
+    const requestedView = view[0].toUpperCase() + view.slice(1);
+    await selectTab(page, rec, requestedView);
+
+    // Wrapping and reading order are properties of the panel that is ACTUALLY
+    // selected. Collecting before the tab was selected measured Overview and
+    // reported it under the requested view's name, so the row set could not
+    // disagree with DOM order even when the Sources panel really was reversed.
+    // Settle the panel first, then scope the measurement to it.
+    const panelInfo = await page.evaluate(() => {
+      const selected = [...document.querySelectorAll('[role="tab"]')].find(
+        (t) => t.getAttribute("aria-selected") === "true",
+      );
+      const id = selected?.getAttribute("aria-controls") ?? null;
+      const panel = id ? document.getElementById(id) : null;
+      if (!panel) return { observedTab: null, panelId: null, settled: false, rowsInPanel: 0 };
+      const r = panel.getBoundingClientRect();
+      return {
+        observedTab: (selected?.textContent || "").trim(),
+        panelId: id,
+        settled: r.height > 1,
+        rowsInPanel: panel.querySelectorAll("li,dd,p,span,a,td,div").length,
+      };
+    });
+    rec.check(
+      "result.measurement-surface-is-the-requested-panel",
+      panelInfo.observedTab === requestedView && panelInfo.settled === true,
+      `requested "${requestedView}", observed tab "${panelInfo.observedTab}", panel ${panelInfo.panelId} ` +
+        `settled=${panelInfo.settled} (${panelInfo.rowsInPanel} candidate nodes inside that panel)`,
+    );
+    const layout = await longValueLayout(page, { panelId: panelInfo.panelId });
+    writeJson(path.join(driveDir, "long-value-layout.json"), {
+      requestedView,
+      observedTab: panelInfo.observedTab,
+      panelId: panelInfo.panelId,
+      viewport,
+      rows: layout.rows,
+      visualDomSequence: layout.visualDomSequence,
+      inversions: layout.inversions,
+      outOfOrder: layout.outOfOrder,
+      verdict: compareReadingOrder(layout),
+    });
+    const overflowing = layout.rows.filter((r) => r.overflowX > 1);
+    const clipped = layout.rows.filter((r) => r.clippedBy);
+    rec.check(
+      "result.long-values-no-horizontal-overflow",
+      layout.rows.length > 0 && overflowing.length === 0,
+      overflowing.length === 0
+        ? `${layout.rows.length} long value(s) in panel ${panelInfo.panelId}, widest overflow ${Math.max(0, ...layout.rows.map((r) => r.overflowX))}px`
+        : `${overflowing.length} overflow horizontally: ${JSON.stringify(overflowing.slice(0, 3))}`,
+    );
+    rec.check(
+      "result.long-values-wrap-not-truncate",
+      clipped.length === 0,
+      clipped.length === 0
+        ? `${layout.rows.filter((r) => r.wraps).length}/${layout.rows.length} wrap onto multiple lines, none clipped by an overflow:hidden ancestor`
+        : `${clipped.length} clipped by overflow:hidden: ${JSON.stringify(clipped.slice(0, 3))}`,
+    );
+    rec.check(
+      "result.reading-order-matches-dom",
+      compareReadingOrder(layout) === true,
+      `${layout.rows.length} long value(s) in panel ${panelInfo.panelId}: ${layout.inversions} visual/DOM inversion(s), ` +
+        `visual domIndex order ${JSON.stringify(layout.visualDomSequence.slice(0, 8))}` +
+        (layout.outOfOrder ? ` — first divergence ${JSON.stringify(layout.outOfOrder)}` : ""),
+    );
+
     await shot(page, driveDir, `01-result-${view}`);
     await aria(page, driveDir, `result-${view}`);
 
