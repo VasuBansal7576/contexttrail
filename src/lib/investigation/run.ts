@@ -29,7 +29,7 @@ import { modeForInput, toPublicCandidate } from "./contracts/investigation";
 import type { PairwiseContextJudgment } from "./contracts/judgment";
 import { SearchBudget, type BaseSearchSlot, type SearchTicket } from "./budget";
 import { dedupeByCanonicalUrl, applyRetentionCaps, selectForClassification } from "./candidates";
-import { parseClaimDate, resolveEvidenceDate, type EvidenceDateSources } from "./dates";
+import { mergeEvidenceDateSources, parseClaimDate, resolveEvidenceDate, type EvidenceDateSources } from "./dates";
 import {
   datedCoreOccurrences,
   pairKey,
@@ -45,7 +45,7 @@ import {
 } from "./expansion";
 import { enforceIdentityInvariants } from "./identity";
 import { coreOccurrences, unresolvedOriginCount } from "./reporting-origins";
-import { CONCURRENCY, TIMEOUTS, MAX_DEEP_READ_PAGES } from "./limits";
+import { CONCURRENCY, TIMEOUTS, MAX_DEEP_READ_PAGES, MAX_JEV_CANDIDATES } from "./limits";
 import { refineReportingOrigins } from "./origin-evidence";
 import {
   buildClaimResult,
@@ -352,9 +352,9 @@ export async function runInvestigation(
     return added;
   };
 
-  /** Resolve a candidate's evidence date + excerpt provenance, then emit
-   *  evidence.discovered (once per id — see emitDiscovered). */
-  const prepareAndDiscover = (c: EvidenceCandidate): void => {
+  /** Re-resolve a candidate's date fields from its current source map
+   *  and append any newly rejected date candidates (deduped). */
+  const applyResolvedDate = (c: EvidenceCandidate): void => {
     const resolved = resolveEvidenceDate(
       dateSources.get(c.id) ?? {},
       new Date(startedAt),
@@ -363,6 +363,47 @@ export async function runInvestigation(
     c.publishedAtSource = resolved.publishedAtSource;
     c.datePrecision = resolved.datePrecision;
     c.dateStatus = resolved.dateStatus;
+    if (resolved.rejected.length > 0) {
+      const existing = c.rejectedDateCandidates ?? [];
+      const seen = new Set(existing.map((r) => `${r.value}|${r.reason}`));
+      for (const r of resolved.rejected) {
+        const key = `${r.value}|${r.reason}`;
+        if (!seen.has(key)) {
+          existing.push(r);
+          seen.add(key);
+        }
+      }
+      c.rejectedDateCandidates = existing;
+    }
+  };
+
+  /** §11/§19.2 — URL dedupe keeps one candidate per canonical URL, but
+   *  provider date texts were recorded per retrieved id. Consolidate
+   *  every retired id's date sources onto the surviving pool member so
+   *  later page precedence resolves against the URL's full source set
+   *  instead of losing merged-away dates (I2). */
+  const consolidateDateSources = (
+    retained: readonly EvidenceCandidate[],
+  ): void => {
+    const byUrl = new Map<string, EvidenceDateSources>();
+    for (const c of candidates) {
+      const src = dateSources.get(c.id);
+      if (src === undefined) continue;
+      byUrl.set(
+        c.canonicalUrl,
+        mergeEvidenceDateSources(byUrl.get(c.canonicalUrl) ?? {}, src),
+      );
+    }
+    for (const c of retained) {
+      const merged = byUrl.get(c.canonicalUrl);
+      if (merged !== undefined) dateSources.set(c.id, merged);
+    }
+  };
+
+  /** Resolve a candidate's evidence date + excerpt provenance, then emit
+   *  evidence.discovered (once per id — see emitDiscovered). */
+  const prepareAndDiscover = (c: EvidenceCandidate): void => {
+    applyResolvedDate(c);
     c.excerptSource = c.snippet !== null ? "serp_snippet" : null;
     if (c.snippet !== null) excerpts.set(c.id, c.snippet);
     emitDiscovered(c);
@@ -450,6 +491,30 @@ export async function runInvestigation(
   /** Successful Jev classifications this run — distinguishes "all calls
    *  failed" (unavailable) from an ordinary partial batch. */
   let jevSuccesses = 0;
+  /** §14 — ids admitted to the distinct-candidate classification
+   *  allowance. An attempt consumes the slot even on failure; re-asks
+   *  (deep-read refinement) and retries of an admitted id are free, but
+   *  a *new* candidate id is never admitted once the allowance is
+   *  exhausted — adaptive expansion cannot reopen it (I1). */
+  const classifiedIds = new Set<string>();
+  /** Plan a classify batch: already-admitted ids keep their slots;
+   *  fresh ids are admitted in the caller's preference order only while
+   *  allowance remains. */
+  const planClassifications = (
+    list: readonly EvidenceCandidate[],
+  ): EvidenceCandidate[] => {
+    const planned: EvidenceCandidate[] = [];
+    for (const c of list) {
+      if (classifiedIds.has(c.id)) {
+        planned.push(c);
+        continue;
+      }
+      if (classifiedIds.size >= MAX_JEV_CANDIDATES) continue;
+      classifiedIds.add(c.id);
+      planned.push(c);
+    }
+    return planned;
+  };
   /** Record the honest classification limitation for a batch result. */
   const noteClassifyOutcome = (attempted: number, succeeded: number) => {
     if (attempted === 0) return;
@@ -464,7 +529,14 @@ export async function runInvestigation(
    *  Past the deadline no new semantic work dispatches — the run finalizes
    *  with the evidence already in hand (§26/§28). */
   const classifyOne = async (c: EvidenceCandidate): Promise<boolean> => {
-    if (deps.jev === null || c.judgment !== null || deadlineHit()) return false;
+    if (
+      deps.jev === null ||
+      c.judgment !== null ||
+      !classifiedIds.has(c.id) ||
+      deadlineHit()
+    ) {
+      return false;
+    }
     telemetry.jevAttempted += 1;
     const t0 = now();
     try {
@@ -686,6 +758,7 @@ export async function runInvestigation(
           a.id.localeCompare(b.id),
       );
     let pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)));
+    consolidateDateSources(pool);
     for (const c of pool) {
       // Candidates discovered progressively already carry resolved dates;
       // retained-but-unemitted ids (dedupe survivors) resolve + emit here.
@@ -714,7 +787,7 @@ export async function runInvestigation(
 
     /* ---------------------------- FAST_CLASSIFY -------------------------- */
     stage("FAST_CLASSIFY", "started");
-    const toClassify = selectForClassification(pool);
+    const toClassify = planClassifications(selectForClassification(pool));
     if (deps.jev === null) {
       limitations.add("semantic_classification_unavailable");
       stage("FAST_CLASSIFY", "completed", "Jev unavailable");
@@ -761,6 +834,7 @@ export async function runInvestigation(
       mode === "claim_check"
         ? decideClaimExpansion(pool)
         : decideTraceExpansion(pool, relatedQueries.length > 0);
+
     let expanded = false;
     if (expansion.expand && deps.serpapi !== null && !deadlineHit()) {
       const choice =
@@ -786,6 +860,7 @@ export async function runInvestigation(
               // Rebuild from the merged candidate list so adaptive results
               // join the investigated pool (previously dropped).
               pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)));
+              consolidateDateSources(pool);
               for (const c of added) {
                 c.mediaRelationship = enforceIdentityInvariants(c);
                 prepareAndDiscover(c);
@@ -794,7 +869,9 @@ export async function runInvestigation(
                   limitations.add("near_match_verifier_disabled");
                 }
               }
-              const classifyAdded = selectForClassification(pool).filter((c) => c.judgment === null);
+              const classifyAdded = planClassifications(
+                selectForClassification(pool).filter((c) => c.judgment === null),
+              );
               if (deps.jev !== null) {
                 const results = await Promise.all(classifyAdded.map((c) => classifyOne(c)));
                 noteClassifyOutcome(results.length, results.filter(Boolean).length);
@@ -842,11 +919,7 @@ export async function runInvestigation(
           src.pageMeta = ex.metaDates[0] ?? null;
           src.pageTime = ex.timeDates[0] ?? null;
           dateSources.set(c.id, src);
-          const resolved = resolveEvidenceDate(src, new Date(startedAt));
-          c.publishedAt = resolved.publishedAt;
-          c.publishedAtSource = resolved.publishedAtSource;
-          c.datePrecision = resolved.datePrecision;
-          c.dateStatus = resolved.dateStatus;
+          applyResolvedDate(c);
           const excerpt = buildExcerpt({
             title: c.title,
             snippet: c.snippet,
@@ -877,7 +950,7 @@ export async function runInvestigation(
 
     /* -------------------------- REFINED_CLASSIFY ------------------------- */
     stage("REFINED_CLASSIFY", "started");
-    const toReclassify = pool.filter((c) => pageTexts.has(c.id));
+    const toReclassify = planClassifications(pool.filter((c) => pageTexts.has(c.id)));
     if (deps.jev !== null && toReclassify.length > 0 && !deadlineHit()) {
       // Reclassify with the page-text excerpt; keep old judgment on failure.
       const results = await Promise.all(

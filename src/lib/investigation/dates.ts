@@ -47,6 +47,10 @@ export interface EvidenceDateSources {
   pageTime?: string | null;
   /** Date text reported by SerpApi for the result. */
   serpapi?: string | null;
+  /** Additional provider date texts for the same canonical URL from
+   *  merged retrievals (§11/§19.2) — preserved for conflict resolution
+   *  rather than silently dropped with the discarded candidate id. */
+  serpapiAlternates?: string[];
 }
 
 export interface ResolvedEvidenceDate {
@@ -54,6 +58,35 @@ export interface ResolvedEvidenceDate {
   publishedAtSource: PublishedAtSource;
   datePrecision: DatePrecision;
   dateStatus: DateStatus;
+  /** Source dates rejected during resolution (page-page or merged
+   *  provider conflicts) — preserved for inspection, never dropped. */
+  rejected: Array<{ value: string; reason: string }>;
+}
+
+/**
+ * Merge two source sets for one canonical URL (§11 dedupe). The earliest
+ * provider date keeps the `serpapi` slot; every other distinct provider
+ * text is preserved in `serpapiAlternates` so disagreement stays
+ * resolvable instead of disappearing with a merged-away candidate id.
+ */
+export function mergeEvidenceDateSources(
+  a: EvidenceDateSources,
+  b: EvidenceDateSources,
+): EvidenceDateSources {
+  const raws = [
+    a.serpapi,
+    ...(a.serpapiAlternates ?? []),
+    b.serpapi,
+    ...(b.serpapiAlternates ?? []),
+  ].filter((r): r is string => r != null);
+  const distinct = [...new Set(raws)];
+  return {
+    pageJsonLd: a.pageJsonLd ?? b.pageJsonLd,
+    pageMeta: a.pageMeta ?? b.pageMeta,
+    pageTime: a.pageTime ?? b.pageTime,
+    serpapi: distinct[0] ?? null,
+    serpapiAlternates: distinct.slice(1),
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
@@ -152,7 +185,11 @@ function valueFromComponents(
   const y = start.get("year");
   const m = start.get("month");
   const d = start.get("day");
-  if (start.isCertain("day") && y !== null && m !== null && d !== null) {
+  // An explicitly certain weekday resolves to exactly one calendar day
+  // (e.g. "last Friday"): chrono already derived y/m/d deterministically
+  // from the reference, so the implied components are safe to use.
+  const dayCertain = start.isCertain("day") || start.isCertain("weekday");
+  if (dayCertain && y !== null && m !== null && d !== null) {
     return toParts(y, m, d);
   }
   if (start.isCertain("month") && y !== null && m !== null) {
@@ -206,10 +243,33 @@ function zonedReference(instant: Date, timezone?: string): Date {
   }
 }
 
+/** §19.1 — a numeric date whose two leading components are both ≤12 is
+ *  ambiguous (MM/DD vs DD/MM) with nothing to disambiguate it. Bare
+ *  hyphen pairs ("5-8") are day ranges, handled by endpoint comparison;
+ *  ISO year-first values can't match (no leading boundary inside a
+ *  4-digit run). */
+const NUMERIC_DATE_FORM =
+  /\b(\d{1,2})\s*([/.-])\s*(\d{1,2})(\s*[/.-]\s*\d{2,4})?\b/g;
+
+function hasAmbiguousNumericDate(text: string): boolean {
+  for (const m of text.matchAll(NUMERIC_DATE_FORM)) {
+    // A bare "a-b" hyphen pair without a year is a range, not a date —
+    // endpoint comparison already covers it when a date is asserted.
+    if (m[2] === "-" && m[4] === undefined) continue;
+    // Year-first forms ("2026-03-05", "2026.03.05") are unambiguous —
+    // the matched pair follows a 4-digit year, not a missing century.
+    if (/\d{4}\s*[/.-]\s*$/.test(text.slice(0, m.index))) continue;
+    if (Number(m[1]) <= 12 && Number(m[3]) <= 12) return true;
+  }
+  return false;
+}
+
 /**
  * §19.1 — extract at most one usable claim date. Multiple materially
- * different parses make the claim date ambiguous -> null (do not guess).
- * Relative dates ("today", "yesterday") resolve on the browser's IANA
+ * different parses, a single parse spanning more than one calendar value
+ * (a range like "March 5 to March 8"), or an ambiguous numeric form make
+ * the claim date ambiguous -> null (do not guess). Relative dates
+ * ("today", "yesterday", "last Friday") resolve on the browser's IANA
  * timezone wall clock, not the server's.
  */
 export function parseClaimDate(
@@ -224,6 +284,10 @@ export function parseClaimDate(
     timezone?: string;
   },
 ): ClaimDateResult {
+  if (hasAmbiguousNumericDate(claim)) {
+    return { claimDate: null, precision: "unknown", ambiguous: true };
+  }
+
   const results = chrono.parse(
     claim,
     zonedReference(opts.referenceInstant, opts.timezone),
@@ -232,9 +296,19 @@ export function parseClaimDate(
     return { claimDate: null, precision: "unknown", ambiguous: false };
   }
 
-  const values = results
-    .map((r) => valueFromComponents(r.start))
-    .filter((v): v is ParsedDateValue => v !== null);
+  const values: ParsedDateValue[] = [];
+  for (const r of results) {
+    const start = valueFromComponents(r.start);
+    if (start !== null) values.push(start);
+    if (r.end != null) {
+      const end = valueFromComponents(r.end);
+      // A range whose endpoint resolves to a different calendar value
+      // supplies more than one usable day — ambiguous, never first-day.
+      if (end !== null && (start === null || end.value !== start.value)) {
+        return { claimDate: null, precision: "unknown", ambiguous: true };
+      }
+    }
+  }
 
   const distinct = new Set(values.map((v) => v.value));
   if (values.length === 0) {
@@ -306,13 +380,23 @@ export function resolveEvidenceDate(
     { source: "page_meta", raw: sources.pageMeta },
     { source: "page_time", raw: sources.pageTime },
     { source: "serpapi", raw: sources.serpapi },
+    // §11/§19.2 — date texts merged in from other retrievals of the same
+    // canonical URL resolve against the same precedence position.
+    ...(sources.serpapiAlternates ?? []).map((raw) => ({
+      source: "serpapi" as const,
+      raw,
+    })),
   ];
 
   const parsed = ordered
     .filter((e): e is { source: PublishedAtSource; raw: string } => e.raw != null)
-    .map((e) => ({ source: e.source, value: parseDateValue(e.raw, reference) }))
+    .map((e) => ({
+      source: e.source,
+      raw: e.raw,
+      value: parseDateValue(e.raw, reference),
+    }))
     .filter(
-      (e): e is { source: PublishedAtSource; value: ParsedDateValue } =>
+      (e): e is { source: PublishedAtSource; raw: string; value: ParsedDateValue } =>
         e.value !== null,
     );
 
@@ -322,24 +406,53 @@ export function resolveEvidenceDate(
       publishedAtSource: null,
       datePrecision: "unknown",
       dateStatus: "unknown",
+      rejected: [],
     };
   }
 
   const winner = parsed[0];
-  const pageConflict = parsed
+  // Every later source that materially disagrees is preserved as a
+  // rejection — disagreements are no longer silently dropped.
+  const conflicts = parsed
     .slice(1)
-    .some(
+    .filter((e) => materiallyDisagree(e.value, winner.value))
+    .map((e) => ({
+      value: e.raw,
+      reason: PAGE_SOURCES.has(e.source)
+        ? "conflicting_page_source"
+        : "conflicting_provider_source",
+    }));
+
+  // Material disagreement with another page source nulls the date; so do
+  // multiple disagreeing provider dates for one URL — merged retrievals
+  // are one URL's sources, not one authoritative field (I2). A page
+  // winner over disagreeing provider texts stays a clean override.
+  const pageConflict =
+    PAGE_SOURCES.has(winner.source) &&
+    conflicts.length > 0 &&
+    parsed.slice(1).some(
       (e) =>
         PAGE_SOURCES.has(e.source) &&
         materiallyDisagree(e.value, winner.value),
     );
+  const providerConflict =
+    winner.source === "serpapi" && conflicts.length > 0;
 
-  if (pageConflict) {
+  if (pageConflict || providerConflict) {
     return {
       publishedAt: null,
       publishedAtSource: null,
       datePrecision: "unknown",
       dateStatus: "disputed",
+      rejected: [
+        ...conflicts,
+        {
+          value: winner.raw,
+          reason: pageConflict
+            ? "conflicting_page_source"
+            : "conflicting_provider_source",
+        },
+      ],
     };
   }
 
@@ -348,6 +461,7 @@ export function resolveEvidenceDate(
     publishedAtSource: winner.source,
     datePrecision: winner.value.precision,
     dateStatus: "usable",
+    rejected: conflicts,
   };
 }
 

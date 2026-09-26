@@ -128,13 +128,18 @@ function preferenceKey(c: EvidenceCandidate): string {
   return `${exact}${dated}${String(serpRank(c)).padStart(8, "0")}|${c.id}`;
 }
 
+/** Identity/date tier — exact-vs-not and dated-vs-not (§14 ordering). */
+function tierKey(c: EvidenceCandidate): string {
+  return preferenceKey(c).slice(0, 2);
+}
+
 /**
  * §14 — choose up to `max` (default MAX_JEV_CANDIDATES=24) candidates for
- * classification. Preference: exact visual evidence, dated evidence,
- * distinct source domains/reporting origins, earlier SERP rank.
- *
- * Deterministic two-phase selection: first take the best candidate from
- * each registrable domain, then fill remaining slots by raw preference.
+ * classification. Preference order: exact visual evidence, dated
+ * evidence, then distinct source domains/reporting origins, then SERP
+ * rank — diversity applies *within* each identity/date tier, so a second
+ * exact or dated occurrence on an already-seen domain is never displaced
+ * by a merely-diverse lower tier (I4).
  */
 export function selectForClassification(
   candidates: readonly EvidenceCandidate[],
@@ -149,20 +154,40 @@ export function selectForClassification(
   );
   const selected: EvidenceCandidate[] = [];
   const seenDomains = new Set<string>();
-  const deferred: EvidenceCandidate[] = [];
+  const seenGroups = new Set<string>();
 
-  for (const c of sorted) {
-    if (!seenDomains.has(c.registrableDomain)) {
-      selected.push(c);
-      seenDomains.add(c.registrableDomain);
-    } else {
-      deferred.push(c);
-    }
-    if (selected.length >= max) break;
-  }
-  for (const c of deferred) {
-    if (selected.length >= max) break;
+  const isNovel = (c: EvidenceCandidate): boolean =>
+    !seenDomains.has(c.registrableDomain) ||
+    (c.reportingOrigin.status !== "unresolved" &&
+      !seenGroups.has(c.reportingOrigin.groupId));
+  const admit = (c: EvidenceCandidate): void => {
     selected.push(c);
+    seenDomains.add(c.registrableDomain);
+    if (c.reportingOrigin.status !== "unresolved") {
+      seenGroups.add(c.reportingOrigin.groupId);
+    }
+  };
+
+  let i = 0;
+  while (i < sorted.length && selected.length < max) {
+    let j = i + 1;
+    while (j < sorted.length && tierKey(sorted[j]) === tierKey(sorted[i])) {
+      j += 1;
+    }
+    // Within the tier: first the domain/group-distinct candidates in
+    // rank order, then the same-domain remainders by rank — a duplicate
+    // domain inside a higher tier still outranks the entire next tier.
+    const deferred: EvidenceCandidate[] = [];
+    for (const c of sorted.slice(i, j)) {
+      if (selected.length >= max) break;
+      if (isNovel(c)) admit(c);
+      else deferred.push(c);
+    }
+    for (const c of deferred) {
+      if (selected.length >= max) break;
+      admit(c);
+    }
+    i = j;
   }
-  return selected.slice(0, max);
+  return selected;
 }
