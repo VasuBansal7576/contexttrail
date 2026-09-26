@@ -60,27 +60,39 @@ describe("F01 — reporting-origin inference needs positive attributed proof", (
     }),
   ];
 
-  it("negated staff/reporter mentions stay unresolved and cannot corroborate", () => {
+  it("negated, anonymous, or merely-mentioned reporting stays unresolved", () => {
     const [a, b] = pair();
+    const [c, d] = pair();
+    c.id = "c";
+    d.id = "d";
     refineReportingOrigins(
-      [a, b],
+      [a, b, c, d],
       new Map([
+        // Negated mentions — the outlet's staff explicitly not involved.
         [a.id, "alpha bravo charlie " + "The reporters were not involved in producing this image or this report. " + "delta echo foxtrot ".repeat(30)],
-        [b.id, "golf hotel india " + "The staff have no knowledge of the origin of this photograph. " + "juliet kilo lima ".repeat(30)],
+        // Anonymous self-assertion — no inspectable named attribution.
+        [b.id, "golf hotel india " + "Our investigation first published this photograph after verifying its source. " + "juliet kilo lima ".repeat(30)],
+        // Unattributed claim — outlet named no source at all.
+        [c.id, "mike november oscar " + "This outlet first reported the event and broke the story. " + "papa quebec romeo ".repeat(30)],
+        // Mere mention of staff — no attributed act of original reporting.
+        [d.id, "sierra tango uniform " + "The staff have no knowledge of the origin of this photograph. " + "victor whiskey xray ".repeat(30)],
       ]),
     );
-    expect(a.reportingOrigin.status).not.toBe("separate_origin_evidenced");
-    expect(b.reportingOrigin.status).not.toBe("separate_origin_evidenced");
+    for (const cand of [a, b, c, d]) {
+      expect(cand.reportingOrigin.status).not.toBe("separate_origin_evidenced");
+    }
     expect(evaluateClaimPolicy([a, b]).status).not.toBe("CONTEXT_CONFLICT");
   });
 
-  it("positive attributed original reporting does qualify", () => {
+  it("inspector-visible named attribution does qualify", () => {
     const [a, b] = pair();
     refineReportingOrigins(
       [a, b],
       new Map([
-        [a.id, "mike november oscar " + "Our investigation first published this photograph after verifying its source. " + "papa quebec romeo ".repeat(30)],
-        [b.id, "sierra tango uniform " + "Reported by Jane Doe for the Daily Examiner, who independently obtained the image. " + "victor whiskey xray ".repeat(30)],
+        // Named-person byline bound to an outlet.
+        [a.id, "yankee zulu " + "Reported by Jane Doe for the Daily Examiner, who independently obtained the image. " + "one two three ".repeat(30)],
+        // Named publisher tied to the media itself.
+        [b.id, "four five six " + "The photograph was first published by Reuters after its staff verified it. " + "seven eight nine ".repeat(30)],
       ]),
     );
     expect(a.reportingOrigin.status).toBe("separate_origin_evidenced");
@@ -251,8 +263,43 @@ describe("F05 — contextSegmentCount requires full decisive coverage", () => {
     expect(segs.contextSegmentCount).toBeNull();
   });
 
-  it("sampling that skips occurrences marks earlier transitions unresolved", () => {
+  it("an occurrence skipped BEFORE the divergence marks earlier transitions unresolved", () => {
+    // Samples 5 and 6 share the anchor's domain so novelty scoring prefers
+    // every other middle candidate — the sampled run omits 5 and 6, which
+    // precede the first divergence.
+    const items = Array.from({ length: 10 }, (_, i) =>
+      makeExact({
+        id: `sample-${i}`,
+        publishedAt: `20${10 + i}-01-01`,
+        datePrecision: "day",
+        dateStatus: "usable",
+        ...(i === 0 || i === 5 || i === 6
+          ? { domain: "anchor.example.org", registrableDomain: "anchor.example.org" }
+          : {}),
+      }),
+    );
+    const selected = selectDatedCoreOccurrences(items);
+    expect(selected.map((c) => c.id)).not.toContain("sample-5");
+    expect(selected.map((c) => c.id)).not.toContain("sample-6");
+    const judgments = new Map(
+      selected.slice(1).map((x, i) => [
+        pairKey(selected[i].id, x.id),
+        selected[i].id === "sample-4" && x.id === "sample-7"
+          ? { sameContext: 0.05, differentContext: 0.9, unclear: 0.05 }
+          : { sameContext: 0.9, differentContext: 0.05, unclear: 0.05 },
+      ]),
+    );
+    const segs = buildContextSegments(items, selected, judgments);
+    expect(segs.firstObservedContextDivergence?.toOccurrenceId).toBe("sample-7");
+    expect(segs.firstObservedContextDivergence?.earlierTransitionsUnresolved).toBe(true);
+  });
+
+  it("occurrences skipped only AFTER the divergence do not mark earlier unresolved", () => {
+    // Uniform domains keep sampling's fill order: selection omits the
+    // latest middle occurrences (7,8), which follow the first divergence.
     const { items, selected } = sampled();
+    expect(selected.map((c) => c.id)).not.toContain("sample-7");
+    expect(selected.map((c) => c.id)).not.toContain("sample-8");
     const judgments = new Map(
       selected.slice(1).map((x, i) => [
         pairKey(selected[i].id, x.id),
@@ -262,7 +309,9 @@ describe("F05 — contextSegmentCount requires full decisive coverage", () => {
       ]),
     );
     const segs = buildContextSegments(items, selected, judgments);
-    expect(segs.firstObservedContextDivergence?.earlierTransitionsUnresolved).toBe(true);
+    expect(segs.firstObservedContextDivergence?.earlierTransitionsUnresolved).toBe(false);
+    // The exact count invariant is a separate gate — still null here.
+    expect(segs.contextSegmentCount).toBeNull();
   });
 });
 
