@@ -12,6 +12,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useState } from "react";
 import {
   occurrenceDate,
   occurrenceDatePrecision,
@@ -56,38 +57,46 @@ function MatchBadge({ occurrence }: { occurrence: JsonRecord }) {
 }
 
 /**
- * Context labels appear only on assessed (compared) edges. Uncompared edges
- * must not inherit context labels — the connector text carries the meaning.
+ * Occurrence-level context classification. In claim mode this is
+ * claim-relative (U4: "Differs from claim"), while the edge label describes
+ * the adjacent-pair comparison — both facts coexist with explicit scopes.
  */
 function ContextBadge({
   occurrence,
   assessed,
+  claimMode,
 }: {
   occurrence: JsonRecord;
   assessed: boolean;
+  claimMode: boolean;
 }) {
   if (!assessed) return null;
   const raw = (str(occurrence, "contextLabel") ?? str(occurrence, "context") ?? "").toUpperCase();
   let label: string | null = null;
-  if (raw.includes("SAME")) label = "Same context";
-  else if (raw.includes("DIFFERENT")) label = "Different context";
+  if (raw.includes("SAME")) label = claimMode ? "Same as claim" : "Same context";
+  else if (raw.includes("DIFFERENT")) label = claimMode ? "Differs from claim" : "Different context";
   else if (raw.includes("HISTORICAL")) label = "Historical reference";
   else if (raw.includes("UNCLEAR") || raw.includes("UNCERTAIN")) label = "Unclear";
   else if (raw.includes("SUBMITTED") || raw.includes("CLAIM")) label = "Submitted claim";
   if (!label) return null;
-  const tone = label === "Different context" ? "conflict" : label === "Same context" ? "ok" : "neutral";
+  const tone =
+    label === "Different context" || label === "Differs from claim"
+      ? "conflict"
+      : label === "Same context" || label === "Same as claim"
+        ? "ok"
+        : "neutral";
   return <Badge tone={tone}>{label}</Badge>;
 }
 
 function ShortExcerpt({ occurrence }: { occurrence: JsonRecord }) {
   const span = attributableSpan(occurrence, 280);
-  if (!span) return <p className="mt-2 text-sm text-ink/55">No excerpt available</p>;
+  if (!span) return <p className="mt-2 text-sm text-ink-soft">No excerpt available</p>;
   return (
     <figure className="mt-2">
       <blockquote className="border-l-2 border-ink/15 pl-3 text-sm leading-relaxed text-ink/75">
         “{span.text}”
       </blockquote>
-      <figcaption className="mt-1 pl-3 text-xs text-ink/50">{span.attribution}</figcaption>
+      <figcaption className="mt-1 pl-3 text-xs text-ink-soft">{span.attribution}</figcaption>
     </figure>
   );
 }
@@ -97,6 +106,7 @@ function OccurrenceCard({
   index,
   highlight,
   assessed,
+  claimMode,
   group,
   groupLabel,
   onInspect,
@@ -106,6 +116,8 @@ function OccurrenceCard({
   highlight: boolean;
   /** True when this edge was actually compared (core dated pairs). */
   assessed: boolean;
+  /** Claim-check mode: occurrence context labels are claim-relative. */
+  claimMode: boolean;
   group: "dated" | "supporting" | "contextual" | "unknown";
   groupLabel: string | null;
   onInspect: () => void;
@@ -147,42 +159,42 @@ function OccurrenceCard({
           />
         ) : null}
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium tracking-wide text-ink/55 uppercase">
+          <p className="text-xs font-medium tracking-wide text-ink-soft uppercase">
             {date ?? "Date unknown"}
             {precision && date ? ` · ${precision} precision` : ""}
           </p>
           <h3 className="mt-1 font-medium text-ink">{title ?? "Untitled result"}</h3>
-          {domain ? <p className="text-sm text-ink/60">{domain}</p> : null}
+          {domain ? <p className="text-sm text-ink-soft">{domain}</p> : null}
           <div className="mt-2 flex flex-wrap gap-2">
             {groupLabel ? <Badge tone="neutral">{groupLabel}</Badge> : null}
             {showRole && role ? <Badge tone="neutral">{role}</Badge> : null}
             <MatchBadge occurrence={occurrence} />
-            <ContextBadge occurrence={occurrence} assessed={assessed} />
+            <ContextBadge occurrence={occurrence} assessed={assessed} claimMode={claimMode} />
             {divergence ? <Badge tone="conflict">First observed divergence</Badge> : null}
           </div>
           {identity ? (
-            <p className="mt-2 text-xs text-ink/55">Match basis: {identity.basis}.</p>
+            <p className="mt-2 text-xs text-ink-soft">Match basis: {identity.basis}.</p>
           ) : (
-            <p className="mt-2 text-xs text-ink/55">Match basis not reported.</p>
+            <p className="mt-2 text-xs text-ink-soft">Match basis not reported.</p>
           )}
           {date ? (
-            <p className="mt-1 text-xs text-ink/50">
+            <p className="mt-1 text-xs text-ink-soft">
               {dateSource ? `Publication date: ${dateSource}.` : "Date source unknown."}
               {dateNote ? ` ${dateNote}` : ""}
             </p>
           ) : (
-            <p className="mt-1 text-xs text-ink/50">
+            <p className="mt-1 text-xs text-ink-soft">
               No usable date was retrieved for this occurrence.
               {dateNote ? ` ${dateNote}` : ""}
             </p>
           )}
-          <p className="mt-1 text-xs text-ink/50">{reportingOriginLabel(occurrence)}</p>
+          <p className="mt-1 text-xs text-ink-soft">{reportingOriginLabel(occurrence)}</p>
           <ShortExcerpt occurrence={occurrence} />
           <button
             type="button"
             onClick={onInspect}
             aria-label={`Inspect evidence: ${title ?? `occurrence ${index + 1}`}`}
-            className="mt-3 inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
+            className="mt-3 inline-flex min-h-[44px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
           >
             Inspect evidence <span aria-hidden="true">→</span>
           </button>
@@ -198,7 +210,7 @@ function ConnectorEdge({ info }: { info: ConnectorInfo }) {
     <p
       className={cn(
         "mb-3 flex items-center gap-2 text-xs",
-        info.tone === "conflict" ? "text-coral" : "text-ink/55",
+        info.tone === "conflict" ? "text-coral-ink" : "text-ink-soft",
       )}
     >
       <span
@@ -217,10 +229,12 @@ function ConnectorEdge({ info }: { info: ConnectorInfo }) {
 
 interface TimelineViewProps {
   groups: TimelineGroups;
-  /** Comparison coverage line, e.g. "7 of 8 selected pairs compared". */
+  /** Comparison coverage line, e.g. "3 pairs compared across 4 selected". */
   coverageText: string | null;
   divergence: DivergenceLink | null;
   highlightId: string | null;
+  /** Claim-check mode: context labels are claim-relative. */
+  claimMode: boolean;
   onInspect: (id: string) => void;
 }
 
@@ -229,14 +243,21 @@ export default function TimelineView({
   coverageText,
   divergence,
   highlightId,
+  claimMode,
   onInspect,
 }: TimelineViewProps) {
   const reduce = useReducedMotion();
+  // Mounted flag (U2): SSR and reduced-motion render the visible final
+  // state; hidden initial states apply only after mount with motion allowed.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const { dated, unknownDate, supporting, contextual } = groups;
 
   if (dated.length === 0 && unknownDate.length === 0 && supporting.length === 0 && contextual.length === 0) {
     return (
-      <p className="rounded-xl bg-white/70 p-8 text-center text-sm text-ink/60 ring-1 ring-ink/10">
+      <p className="rounded-xl bg-white/70 p-8 text-center text-sm text-ink-soft ring-1 ring-ink/10">
         No occurrences were returned in this investigation.
       </p>
     );
@@ -273,14 +294,14 @@ export default function TimelineView({
             <button
               type="button"
               onClick={() => onInspect(divergence.endpoints.fromId)}
-              className="inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
+              className="inline-flex min-h-[44px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
             >
               Earlier: {divergence.fromTitle ?? divergence.endpoints.fromId} <span aria-hidden="true">→</span>
             </button>
             <button
               type="button"
               onClick={() => onInspect(divergence.endpoints.toId)}
-              className="inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
+              className="inline-flex min-h-[44px] items-center gap-1 text-sm font-medium text-signal-ink underline underline-offset-2"
             >
               Later: {divergence.toTitle ?? divergence.endpoints.toId} · first observed divergence{" "}
               <span aria-hidden="true">→</span>
@@ -298,10 +319,10 @@ export default function TimelineView({
             return (
               <motion.li
                 key={id}
-                initial={reduce ? false : { opacity: 0, y: 20 }}
+                initial={mounted && !reduce ? { opacity: 0, y: 20 } : false}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-40px" }}
-                transition={{ duration: 0.4 }}
+                transition={{ duration: mounted && !reduce ? 0.4 : 0 }}
                 className={cn(
                   "relative grid gap-3 border-l-2 pb-8 pl-6 last:pb-0 sm:grid-cols-[110px_1fr] sm:gap-6 sm:pl-8",
                   info.dashed ? "border-dashed border-ink/30" : "border-solid",
@@ -326,6 +347,7 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={assessed}
+                    claimMode={claimMode}
                     group="dated"
                     groupLabel={null}
                     onInspect={() => onInspect(id)}
@@ -344,10 +366,10 @@ export default function TimelineView({
 
       {supporting.length > 0 ? (
         <section aria-label="Supporting visual leads" className="mt-10">
-          <h3 className="text-sm font-semibold tracking-wide text-ink/60 uppercase">
+          <h3 className="text-sm font-semibold tracking-wide text-ink-soft uppercase">
             Supporting visual leads · not part of the core timeline
           </h3>
-          <p className="mt-1 text-xs text-ink/55">
+          <p className="mt-1 text-xs text-ink-soft">
             Visually similar material that was not confirmed as the same image. Dates here do not
             place these leads into the core history.
           </p>
@@ -361,6 +383,7 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={false}
+                    claimMode={claimMode}
                     group="supporting"
                     groupLabel="Supporting lead"
                     onInspect={() => onInspect(id)}
@@ -374,10 +397,10 @@ export default function TimelineView({
 
       {contextual.length > 0 ? (
         <section aria-label="Contextual web results" className="mt-10">
-          <h3 className="text-sm font-semibold tracking-wide text-ink/60 uppercase">
+          <h3 className="text-sm font-semibold tracking-wide text-ink-soft uppercase">
             Contextual web results · not same-media evidence
           </h3>
-          <p className="mt-1 text-xs text-ink/55">
+          <p className="mt-1 text-xs text-ink-soft">
             Related pages from web and news search. They were not confirmed to show the submitted
             image and never enter the core timeline.
           </p>
@@ -391,6 +414,7 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={false}
+                    claimMode={claimMode}
                     group="contextual"
                     groupLabel="Contextual result"
                     onInspect={() => onInspect(id)}
@@ -404,10 +428,10 @@ export default function TimelineView({
 
       {unknownDate.length > 0 ? (
         <section aria-label="Evidence with unknown dates" className="mt-10">
-          <h3 className="text-sm font-semibold tracking-wide text-ink/60 uppercase">
+          <h3 className="text-sm font-semibold tracking-wide text-ink-soft uppercase">
             Additional evidence · date unknown
           </h3>
-          <p className="mt-1 text-xs text-ink/55">
+          <p className="mt-1 text-xs text-ink-soft">
             These occurrences could not be placed on the timeline because no usable date was retrieved.
           </p>
           <ul className="mt-3 space-y-4">
@@ -420,6 +444,7 @@ export default function TimelineView({
                     index={i}
                     highlight={highlightId === id}
                     assessed={false}
+                    claimMode={claimMode}
                     group="unknown"
                     groupLabel="Date unknown"
                     onInspect={() => onInspect(id)}

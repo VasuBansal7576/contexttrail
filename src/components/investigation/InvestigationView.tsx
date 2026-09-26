@@ -10,7 +10,9 @@
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useState } from "react";
 import { KNOWN_STAGES, STAGE_LABELS, str, type JsonRecord } from "@/lib/stream/events";
+import { progressRelationshipNote } from "@/components/result/evidence-display";
 import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge, StatusDot } from "@/components/ui";
 import { cn } from "@/components/cn";
@@ -53,10 +55,7 @@ export function mergeStageList(seen: StageState[]): StageState[] {
 }
 
 function relationshipNote(evidence: JsonRecord): { label: string; tone: "info" | "neutral" } {
-  const rel = (str(evidence, "mediaRelationship") ?? str(evidence, "relationship") ?? "").toUpperCase();
-  if (rel.includes("EXACT")) return { label: "Exact match · reported by Google Lens", tone: "info" };
-  if (rel.includes("NEAR")) return { label: "Near match · locally verified", tone: "info" };
-  return { label: "Visual lead · not verified", tone: "neutral" };
+  return progressRelationshipNote(evidence);
 }
 
 interface InvestigationViewProps {
@@ -70,6 +69,12 @@ interface InvestigationViewProps {
 export default function InvestigationView({ stages, searchCounts, evidence, error, onCancel }: InvestigationViewProps) {
   const reduce = useReducedMotion();
   const fullStages = mergeStageList(stages);
+  // Mounted flag (U2): SSR and reduced-motion render the visible final
+  // state; hidden initial states apply only after mount with motion allowed.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const domains = new Set(evidence.map((e) => str(e, "domain")).filter((d): d is string => d !== null));
 
@@ -151,9 +156,9 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                     return (
                       <motion.li
                         key={key}
-                        initial={reduce ? false : { opacity: 0, y: 16 }}
+                        initial={mounted && !reduce ? { opacity: 0, y: 16 } : false}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35 }}
+                        transition={{ duration: mounted && !reduce ? 0.35 : 0 }}
                         className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10"
                       >
                         {image ? (
@@ -161,7 +166,16 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                           <img src={image} alt="" className="aspect-video w-full object-cover" loading="lazy" />
                         ) : null}
                         <div className="p-4">
-                          <Badge tone={note.tone}>{note.label}</Badge>
+                          <Badge
+                            tone={note.tone}
+                            className={
+                              note.tone === "neutral"
+                                ? "bg-white/10 text-white/85 ring-white/20"
+                                : undefined
+                            }
+                          >
+                            {note.label}
+                          </Badge>
                           <p className="mt-2 line-clamp-2 text-sm font-medium">{title ?? "Untitled result"}</p>
                           {domain ? <p className="mt-1 text-xs text-white/55">{domain}</p> : null}
                         </div>
@@ -208,7 +222,7 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                 ))}
               </ul>
             ) : null}
-            <p className="mt-6 text-xs leading-relaxed text-white/40">
+            <p className="mt-6 text-xs leading-relaxed text-white/60">
               Canceling stops new work where possible. Requests already sent may still consume provider credits.
             </p>
           </section>

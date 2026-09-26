@@ -8,9 +8,21 @@
   /* AA-safe signal for small text on light surfaces (F14: ≥4.5 on paper/white). */
   --color-signal-ink: #2f4fd0;
   --color-coral: #e45c52;
+  /* AA-safe small text on light surfaces (U5: ≥4.5 on paper and cards). */
+  --color-ink-soft: #4d545c;
+  --color-coral-ink: #b3372e;
   --color-evidence: #3e8b66;
+  --color-evidence-ink: #2c6b4e;
   --color-mist: #d8dad7;
+}
 
+/*
+ * Font aliases resolve inline (U1): the utilities reference Next's font
+ * variables directly so they resolve per element, where the body-attached
+ * font faces are in scope. A :root-scoped alias stays empty because the
+ * faces live on body.
+ */
+@theme inline {
   --font-serif: var(--font-instrument-serif), "Instrument Serif", "Iowan Old Style", Georgia,
     "Times New Roman", serif;
   --font-sans: var(--font-geist-sans), "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -22,7 +34,10 @@ html {
 }
 
 body {
-  font-family: var(--font-sans);
+  /* Reference the Next-attached variable directly: @theme inline aliases
+     are not emitted as properties, so var(--font-sans) is empty here. */
+  font-family: var(--font-geist-sans), "Geist Sans", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

@@ -16,7 +16,7 @@ export function StatusDot({ kind, label }: { kind: "ok" | "active" | "idle" | "b
   return (
     <span className="inline-flex items-center gap-2">
       {kind === "ok" ? (
-        <span aria-hidden="true" className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-evidence text-sm text-white">
+        <span aria-hidden="true" className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-evidence-ink text-sm text-white">
           ✓
         </span>
       ) : kind === "active" ? (
@@ -45,8 +45,9 @@ export function Badge({
     /* `info` is for dark surfaces; `link` is the AA-safe tone for light ones. */
     info: "bg-signal/10 text-signal ring-signal/25",
     link: "bg-signal-ink/10 text-signal-ink ring-signal-ink/25",
-    conflict: "bg-coral/10 text-coral ring-coral/25",
-    ok: "bg-evidence/10 text-evidence ring-evidence/25",
+    /* Coral text stays AA-safe via coral-ink (U5); the icon may stay coral. */
+    conflict: "bg-coral/10 text-coral-ink ring-coral/25",
+    ok: "bg-evidence/10 text-evidence-ink ring-evidence/25",
   };
   return (
     <span
