@@ -95,9 +95,18 @@ export default function ResultView({
     [viewerItems],
   );
 
-  const divergence = rec(result, "divergence");
+  const divergence = rec(result, "divergence") ?? rec(result, "firstObservedContextDivergence");
   const divergenceNote = divergence
-    ? (str(divergence, "note") ?? str(divergence, "summary") ?? "A later occurrence differs in context from an earlier one.")
+    ? (str(divergence, "note") ??
+      str(divergence, "summary") ??
+      (str(divergence, "observedAt")
+        ? `The occurrence observed ${str(divergence, "observedAt")} presents the media in a different context than the preceding one.${
+            divergence["earlierTransitionsUnresolved"] === true
+              ? " Earlier transitions are unresolved."
+              : ""
+          }`
+        : null) ??
+      "A later occurrence differs in context from an earlier one.")
     : null;
 
   const openEvidenceById = (id: string) => {

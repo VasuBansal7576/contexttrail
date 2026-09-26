@@ -19,6 +19,7 @@ import {
   occurrenceExcerpt,
   occurrenceId,
   occurrenceImage,
+  occurrencePosition,
   str,
   type JsonRecord,
 } from "@/lib/stream/result-view";
@@ -38,7 +39,7 @@ interface EvidenceViewerProps {
 function TechDetails({ occurrence }: { occurrence: JsonRecord }) {
   const rows: Array<[string, string | null]> = [
     ["Search engine", str(occurrence, "engine")],
-    ["Result position", str(occurrence, "position") ?? str(occurrence, "resultPosition")],
+    ["Result position", occurrencePosition(occurrence)],
     ["Lens result type", str(occurrence, "lensResultType") ?? str(occurrence, "resultType")],
     ["Canonical URL", str(occurrence, "canonicalUrl")],
     ["Publication-date source", occurrenceDateSource(occurrence)],

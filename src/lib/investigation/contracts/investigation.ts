@@ -14,6 +14,7 @@ import type {
   MediaRelationship,
   PublishedAtSource,
   ReportingOrigin,
+  ReportingOriginStatus,
   RetrievalKind,
   RetrievalRecord,
 } from "./evidence";
@@ -75,6 +76,32 @@ export interface TimelineItem {
   incomingConnector: TimelineConnector | null;
   /** True on the later endpoint of the first strong DIFFERENT_CONTEXT edge. */
   isFirstObservedDivergencePoint: boolean;
+  /* ---- display/provenance surface (§3.11, §3.14, §34) ---------------- */
+  /** Retrieved image for this occurrence (result image else thumbnail). */
+  imageUrl: string | null;
+  /** Bounded excerpt actually used for classification/display (§18.3). */
+  excerpt: string | null;
+  excerptSource: ExcerptSource;
+  /** Which source supplied the resolved publication date (§19.2). */
+  publishedAtSource: PublishedAtSource;
+  /** Reporting-origin status for badge display (§13). */
+  reportingOriginStatus: ReportingOriginStatus;
+  /** Strong context-relationship label from Jev when decisive, else null. */
+  contextLabel:
+    | "SAME_CONTEXT"
+    | "DIFFERENT_CONTEXT"
+    | "HISTORICAL_REFERENCE"
+    | "UNCLEAR"
+    | null;
+  serpPosition: number | null;
+  /** ISO timestamp of the first retrieval record for this candidate. */
+  retrievedAt: string | null;
+  /** Retrieval kind that produced this candidate (§34 "retrieval engine"). */
+  engine: RetrievalKind | null;
+  /** Provider result type of the first retrieval record. */
+  resultType: string | null;
+  /** Jev model version when classified (§34), else null. */
+  jevModel: string | null;
 }
 
 /** §20.2 / §22 — the first observed context divergence marker. */
