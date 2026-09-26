@@ -2847,11 +2847,6 @@ async function drive(opts = {}) {
     });
 
     if (session.syncBoundary) session.syncBoundary();
-    // Read the fault's self-report before the browser closes: an accepted fault
-    // that never fired is a red, never a green.
-    if (fault) {
-      faultHits = await page.evaluate(() => Number(window.__ctFaultHits ?? 0)).catch(() => 0);
-    }
     boundaryCheck(rec, boundary, live, handlerLive);
     const consoleSet = classifyConsoleSet(consoleRaw, stream?.origin ?? null);
     rec.check("console.no-unexpected-errors", consoleSet.unexpected === 0, `${consoleSet.unexpected} unexpected`);
@@ -2881,6 +2876,14 @@ async function drive(opts = {}) {
       await stream.close().catch(() => {});
     }
     if (session) {
+      // The fault's self-report must be read while the page is still alive and
+      // on BOTH paths: a fault that fires and trips an assertion, and a fault
+      // that trips nothing at all, both need their count recorded.
+      if (fault && session.page) {
+        faultHits = await session.page
+          .evaluate(() => Number(window.__ctFaultHits ?? 0))
+          .catch(() => 0);
+      }
       await session.context.close().catch(() => {});
       await session.browser.close().catch(() => {});
     }
