@@ -14,8 +14,10 @@ export interface PageExtraction {
   text: string | null;
   /** Paragraphs of the readable text, for excerpt composition. */
   paragraphs: string[];
-  /** datePublished-ish values from JSON-LD blocks. */
+  /** datePublished-ish values from JSON-LD blocks, bound to the fetched page's entity. */
   jsonLdDates: string[];
+  /** JSON-LD dates rejected for the page, with the binding reason. */
+  rejectedJsonLdDates: Array<{ value: string; reason: string }>;
   /** article:published_time / equivalent meta values. */
   metaDates: string[];
   /** Explicit <time datetime> values. */
@@ -47,15 +49,76 @@ function directDateFields(node: Record<string, unknown>, out: string[]): void {
   }
 }
 
-function collectEntityDates(node: unknown, out: string[]): void {
-  if (typeof node !== "object" || node === null) return;
+type Binding = "page_url" | "main_entity" | "root_entity" | "nested";
+
+interface DateCandidate {
+  value: string;
+  bound: Binding;
+}
+
+function normalizePageUrl(u: string): string {
+  return u
+    .replace(/#.*$/, "")
+    .replace(/[?].*$/, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+/**
+ * Walk a JSON-LD graph collecting publication dates with the entity
+ * binding that produced them. A date is bound to the fetched page when
+ * its entity's url/@id/mainEntityOfPage matches the fetched URL, or the
+ * entity is reached through a `mainEntity` edge, or it is a root-level
+ * publication entity. Dates on unrelated nested entities (related
+ * articles, ItemList members, embeds) are collected as `nested` and
+ * never stand in for the page's own publication date.
+ */
+function collectEntityDates(
+  node: unknown,
+  out: DateCandidate[],
+  pageUrl: string | null,
+  bound: Binding,
+  depth: number,
+): void {
+  if (typeof node !== "object" || node === null || depth > 8) return;
   if (Array.isArray(node)) {
-    for (const n of node) collectEntityDates(n, out);
+    for (const n of node) collectEntityDates(n, out, pageUrl, bound, depth);
     return;
   }
   const o = node as Record<string, unknown>;
-  if (isPublicationEntity(o)) directDateFields(o, out);
-  for (const v of Object.values(o)) collectEntityDates(v, out);
+
+  let selfBound = bound;
+  if (pageUrl !== null) {
+    for (const key of ["url", "@id", "mainEntityOfPage"] as const) {
+      const v = o[key];
+      if (typeof v === "string" && normalizePageUrl(v) === pageUrl) {
+        selfBound = "page_url";
+      } else if (
+        typeof v === "object" &&
+        v !== null &&
+        typeof (v as Record<string, unknown>)["@id"] === "string" &&
+        normalizePageUrl((v as Record<string, unknown>)["@id"] as string) === pageUrl
+      ) {
+        selfBound = "page_url";
+      }
+    }
+  }
+  if (selfBound === "nested" && depth === 0 && isPublicationEntity(o)) {
+    selfBound = "root_entity";
+  }
+
+  if (isPublicationEntity(o)) {
+    const fields: string[] = [];
+    directDateFields(o, fields);
+    for (const v of fields) out.push({ value: v, bound: selfBound });
+  }
+
+  for (const [k, v] of Object.entries(o)) {
+    // A `mainEntity` edge binds the child to the page; other children
+    // inherit their parent's binding (nested stays nested).
+    const childBound = k === "mainEntity" ? "main_entity" : selfBound;
+    collectEntityDates(v, out, pageUrl, childBound, depth + 1);
+  }
 }
 
 function rootPublicationDate(node: unknown, out: string[]): void {
@@ -80,7 +143,7 @@ const META_DATE_KEYS = new Set([
   "pubdate",
 ]);
 
-export function extractPage(html: string): PageExtraction {
+export function extractPage(html: string, pageUrl?: string): PageExtraction {
   const dom = new JSDOM(html, { contentType: "text/html" });
   const doc = dom.window.document;
 
@@ -92,8 +155,27 @@ export function extractPage(html: string): PageExtraction {
       // malformed JSON-LD is skipped, not fatal
     }
   }
-  const jsonLdDates: string[] = [];
-  for (const p of parsedLd) collectEntityDates(p, jsonLdDates);
+  const candidates: DateCandidate[] = [];
+  const normalizedUrl = pageUrl !== undefined ? normalizePageUrl(pageUrl) : null;
+  for (const p of parsedLd) collectEntityDates(p, candidates, normalizedUrl, "nested", 0);
+
+  // Strongest binding wins: a page-url-bound entity date beats a
+  // mainEntity date, which beats a root-level publication entity. Dates
+  // on entities bound to other pages (related articles, list members)
+  // are rejected with their reason preserved.
+  const rank: Record<Binding, number> = {
+    page_url: 0,
+    main_entity: 1,
+    root_entity: 2,
+    nested: 3,
+  };
+  const jsonLdDates = candidates
+    .filter((c) => c.bound !== "nested")
+    .sort((a, b) => rank[a.bound] - rank[b.bound])
+    .map((c) => c.value);
+  const rejectedJsonLdDates = candidates
+    .filter((c) => c.bound === "nested")
+    .map((c) => ({ value: c.value, reason: "unbound_nested_entity" }));
   if (jsonLdDates.length === 0) {
     for (const p of parsedLd) rootPublicationDate(p, jsonLdDates);
   }
@@ -135,7 +217,7 @@ export function extractPage(html: string): PageExtraction {
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length >= 40);
 
-  return { title, text, paragraphs, jsonLdDates, metaDates, timeDates };
+  return { title, text, paragraphs, jsonLdDates, rejectedJsonLdDates, metaDates, timeDates };
 }
 
 /* ---------------- deterministic excerpt builder (§18.3) ---------------- */

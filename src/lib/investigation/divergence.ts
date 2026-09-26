@@ -17,7 +17,7 @@
  * - dates too imprecise to order cannot create an ordered divergence edge.
  */
 
-import type { EvidenceCandidate } from "./contracts/evidence";
+import type { DatePrecision, EvidenceCandidate } from "./contracts/evidence";
 import {
   classifyPairwise,
   type PairwiseContextJudgment,
@@ -30,7 +30,48 @@ import type {
 import { isCoreOccurrence } from "./identity";
 import { MAX_DIVERGENCE_OCCURRENCES } from "./limits";
 
-/** Occurrences usable in the dated core sequence (day-precision usable dates). */
+/** Day-precision interval an observed date value covers (§20.2 ordering). */
+export function dateInterval(
+  publishedAt: string,
+  precision: DatePrecision,
+): { start: string; end: string } {
+  if (precision === "month" && /^\d{4}-\d{2}$/.test(publishedAt)) {
+    const y = Number(publishedAt.slice(0, 4));
+    const m = Number(publishedAt.slice(5, 7));
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const mm = String(m).padStart(2, "0");
+    return { start: `${publishedAt}-01`, end: `${y}-${mm}-${String(last).padStart(2, "0")}` };
+  }
+  if (precision === "year" && /^\d{4}$/.test(publishedAt)) {
+    return { start: `${publishedAt}-01-01`, end: `${publishedAt}-12-31` };
+  }
+  return { start: publishedAt, end: publishedAt };
+}
+
+/** Strict ordering: `a` is fully before `b`, no interval overlap. */
+export function strictlyBefore(a: EvidenceCandidate, b: EvidenceCandidate): boolean {
+  const ia = dateInterval(a.publishedAt ?? "", a.datePrecision);
+  const ib = dateInterval(b.publishedAt ?? "", b.datePrecision);
+  return ia.end < ib.start;
+}
+
+/** Chronological sort key — interval start, then end, then stable id. */
+export function chronoCompare(a: EvidenceCandidate, b: EvidenceCandidate): number {
+  const ia = dateInterval(a.publishedAt ?? "", a.datePrecision);
+  const ib = dateInterval(b.publishedAt ?? "", b.datePrecision);
+  return (
+    ia.start.localeCompare(ib.start) ||
+    ia.end.localeCompare(ib.end) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+/**
+ * Occurrences usable in the dated core sequence (§20.2). Usable dates of
+ * ANY known precision are eligible — the displayed timeline shows them,
+ * so coverage must count them. Ordering between adjacent items uses
+ * intervals; overlapping (unorderable) pairs cannot assert transitions.
+ */
 export function datedCoreOccurrences(
   candidates: readonly EvidenceCandidate[],
 ): EvidenceCandidate[] {
@@ -39,14 +80,10 @@ export function datedCoreOccurrences(
       (c) =>
         isCoreOccurrence(c) &&
         c.dateStatus === "usable" &&
-        c.datePrecision === "day" &&
+        c.datePrecision !== "unknown" &&
         c.publishedAt !== null,
     )
-    .sort(
-      (a, b) =>
-        (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-        a.id.localeCompare(b.id),
-    );
+    .sort(chronoCompare);
 }
 
 /**
@@ -59,11 +96,7 @@ export function selectDatedCoreOccurrences(
   datedCore: readonly EvidenceCandidate[],
   max = MAX_DIVERGENCE_OCCURRENCES,
 ): EvidenceCandidate[] {
-  const sorted = [...datedCore].sort(
-    (a, b) =>
-      (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-      a.id.localeCompare(b.id),
-  );
+  const sorted = [...datedCore].sort(chronoCompare);
   if (sorted.length <= max) return sorted;
   if (max < 2) return sorted.slice(0, max);
 
@@ -107,11 +140,7 @@ export function selectDatedCoreOccurrences(
     }
   }
 
-  return selected.sort(
-    (a, b) =>
-      (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-      a.id.localeCompare(b.id),
-  );
+  return selected.sort(chronoCompare);
 }
 
 export function pairKey(a: string, b: string): string {
@@ -183,6 +212,18 @@ export function buildContextSegments(
   for (let i = 1; i < selected.length; i++) {
     const prev = selected[i - 1];
     const cur = selected[i];
+
+    // An adjacent pair whose date intervals overlap is not strictly
+    // ordered — equal same-day dates and imprecise windows cannot
+    // manufacture an ordered transition or a divergence edge.
+    if (!strictlyBefore(prev, cur)) {
+      connectorOf.set(cur.id, { kind: "unexamined", fromOccurrenceId: prev.id });
+      allDecisive = false;
+      earlierUnresolved = true;
+      segmentOf.set(cur.id, null);
+      continue;
+    }
+
     const j = judgments.get(pairKey(prev.id, cur.id)) ?? null;
 
     let kind: TimelineConnector["kind"];

@@ -68,6 +68,7 @@ export type ReportingOriginBasis =
   | "explicit_syndication_attribution"
   | "common_originating_report"
   | "article_text_duplication"
+  | "shared_named_provider"
   | "separate_reporting_evidence"
   | "origin_unresolved_missing_evidence";
 
@@ -88,7 +89,7 @@ export type PublishedAtSource =
 export type DatePrecision = "day" | "month" | "year" | "unknown";
 export type DateStatus = "usable" | "disputed" | "unknown";
 
-export type ExcerptSource = "page_text" | "serp_snippet" | null;
+export type ExcerptSource = "page_text" | "page_composite" | "serp_snippet" | null;
 
 export interface RetrievalRecord {
   kind: RetrievalKind;

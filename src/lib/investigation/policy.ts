@@ -15,6 +15,7 @@ import {
 } from "./contracts/judgment";
 import type {
   ClaimStatus,
+  ClaimStatusBasis,
   ComparisonCoverage,
   Divergence,
   InvestigationResult,
@@ -84,6 +85,8 @@ export interface ClaimPolicyResult {
   qualifyingConflictIds: string[];
   /** Why a stronger status was withheld — deterministic reason codes. */
   limitations: LimitationCode[];
+  /** Why the status was assigned — bounded deterministic codes. */
+  basis: ClaimStatusBasis[];
 }
 
 /**
@@ -132,6 +135,7 @@ export function evaluateClaimPolicy(
         status: "CONTEXT_CONFLICT",
         qualifyingConflictIds: qualifying.map((c) => c.id),
         limitations,
+        basis: ["qualifying_conflicts_corroborated"],
       };
     }
     if (qualifying.some((c) => c.reportingOrigin.status === "unresolved")) {
@@ -141,6 +145,7 @@ export function evaluateClaimPolicy(
       status: "POSSIBLE_CONTEXT_CONFLICT",
       qualifyingConflictIds: qualifying.map((c) => c.id),
       limitations,
+      basis: ["conflicts_without_corroboration"],
     };
   }
 
@@ -152,6 +157,7 @@ export function evaluateClaimPolicy(
       status: "POSSIBLE_CONTEXT_CONFLICT",
       qualifyingConflictIds: [qualifying[0].id],
       limitations,
+      basis: ["single_qualifying_conflict"],
     };
   }
 
@@ -174,6 +180,7 @@ export function evaluateClaimPolicy(
       status: "NO_CONFLICT_FOUND",
       qualifyingConflictIds: [],
       limitations,
+      basis: ["corroborated_no_conflict"],
     };
   }
 
@@ -181,6 +188,7 @@ export function evaluateClaimPolicy(
     status: "INSUFFICIENT_EVIDENCE",
     qualifyingConflictIds: [],
     limitations,
+    basis: ["insufficient_qualifying_evidence"],
   };
 }
 
@@ -345,6 +353,7 @@ export function buildClaimResult(
   return {
     mode: "claim_check",
     status: policy.status,
+    statusBasis: policy.basis,
     claim: input.claim,
     claimDate: input.claimDate,
     doesNotProveClaimTrue: true,

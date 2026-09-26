@@ -38,24 +38,36 @@ const ATTRIBUTION_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Explicit original-reporting markers on the page itself. Eligibility
- * requires an inspector-visible *named* attribution — a person byline
- * bound to an outlet, or a named publisher tied to the media itself.
- * Anonymous assertions ("our investigation first published…", "this
- * outlet reported…", "exclusive report") and mere staff/reporter
- * mentions are unattributed claims and never qualify (§13 conservative
- * rule).
+ * Named-entity capture for source-bound attribution. A name is a run of
+ * capitalized tokens possibly joined by small connectors ("Daily
+ * Examiner", "Associated Press", "Herald & Post") — a lowercase word
+ * ends the capture, so "Reuters as a handout" yields "Reuters".
  */
-const OWN_REPORTING_PATTERNS: RegExp[] = [
-  // Named-person byline bound to an outlet: "Reported by Jane Doe for
-  // the Daily Examiner", "Written by Sam Roe for the Herald". Verb forms
-  // accept sentence-start or mid-sentence case; the name must be a real
-  // capitalized proper noun.
-  /(?:[Rr]eported|[Ii]nvestigated|[Ww]ritten|[Pp]hotographed|[Dd]ocumented) by\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b[^.]{0,60}\bfor\s+\S/,
-  // Named publisher tied to the media: "the photograph was first
-  // published by Reuters", "image obtained by the Associated Press".
-  /(?:image|photo|photograph|footage|video)\s+(?:was\s+)?(?:first\s+)?(?:published|released|obtained|verified|documented)\s+by\s+[A-Z]/,
-];
+const NAME_TAIL = `(?:\\s+(?:of|the|and)\\s+|\\s*&\\s*|\\s+)[A-Z][A-Za-z0-9.'-]*`;
+const ENTITY_NAME = `([A-Z][A-Za-z0-9.'-]*(?:${NAME_TAIL}){0,4})`;
+
+/**
+ * Explicit original-reporting markers on the page itself. Eligibility
+ * requires an inspector-visible *named* attribution bound to the media:
+ * a media-bound publisher credit ("the photograph was released by
+ * Reuters") or a named-person byline tied to a *named* outlet
+ * ("Reported by Jane Doe for the Daily Examiner").
+ *
+ * Anonymous assertions ("our investigation first published…", "this
+ * outlet reported…", "exclusive report"), unnamed bylines ("for the
+ * sports desk"), and mere staff/reporter mentions are unattributed
+ * claims and never qualify (§13 conservative rule). A named byline
+ * proves authorship at most — it cannot, alone, establish a separate
+ * acquisition/reporting origin for the media.
+ */
+const MEDIA_BOUND_PUBLISHER_PATTERN = new RegExp(
+  `(?:image|photo|photograph|footage|video)\\s+(?:was\\s+|were\\s+)?(?:first\\s+|originally\\s+)?(?:published|released|obtained|distributed|issued|verified|documented)\\s+by\\s+(?:the\\s+)?${ENTITY_NAME}`,
+  "g",
+);
+const NAMED_BYLINE_PATTERN = new RegExp(
+  `(?:[Rr]eported|[Ii]nvestigated|[Ww]ritten|[Pp]hotographed|[Dd]ocumented|[Ff]iled) by\\s+[A-Z][a-z]+(?:\\s+[A-Z][a-z]+){1,3}\\s+for\\s+(?:the\\s+)?${ENTITY_NAME}`,
+  "g",
+);
 
 /**
  * Negation markers that void an otherwise matching sentence — "the
@@ -63,6 +75,13 @@ const OWN_REPORTING_PATTERNS: RegExp[] = [
  */
 const NEGATION_PATTERN =
   /\b(?:not|no|never|neither|nor|without|denied|denies|uninvolved|unrelated|didn'?t|did not|wasn'?t|was not|weren'?t|were not|don'?t|do not|doesn'?t|does not)\b/i;
+
+/**
+ * A follow-up disclaimer voids a preceding attribution — "Reported by
+ * Jane Doe for the Herald. This attribution is false." is not evidence.
+ */
+const DISCLAIMER_PATTERN =
+  /\b(?:attribution|credit|byline|claim)\s+is\s+(?:false|incorrect|wrong|mistaken)|incorrectly attributed|falsely attributed|misattributed/i;
 
 function splitSentences(text: string): string[] {
   return text.split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim().length > 0);
@@ -96,16 +115,55 @@ export function attributedOriginDomain(text: string): string | null {
   return null;
 }
 
+/** Normalize an outlet/provider name to a comparison key. */
+function nameKey(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/^(?:the|a|an)\s+/, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** The candidate's own-outlet key: first registrable-domain label. */
+function ownOutletKey(registrableDomain: string): string {
+  return nameKey(registrableDomain.split(".")[0] ?? "");
+}
+
+/** Named attribution extracted from one candidate's fetched page text. */
+interface NamedEvidence {
+  /** Media-bound publisher credits ("the image was released by X"). */
+  mediaPublishers: string[];
+  /** Named byline outlets ("Reported by Y for the X"). */
+  bylineOutlets: string[];
+  /** Sentences carrying the attribution, retained as inspectable support. */
+  spans: string[];
+}
+
 /**
- * True when the page carries an explicit original-reporting marker in a
- * non-negated sentence. Negated or merely-mentioning text is not evidence.
+ * Extract named attribution bound to the media from page text. A
+ * sentence qualifies only when it is not negated and is not disclaimed
+ * by the sentence that follows it.
  */
-export function hasOwnReportingSignal(text: string): boolean {
-  return splitSentences(text).some(
-    (s) =>
-      !NEGATION_PATTERN.test(s) &&
-      OWN_REPORTING_PATTERNS.some((re) => re.test(s)),
-  );
+function extractNamedEvidence(text: string): NamedEvidence {
+  const out: NamedEvidence = { mediaPublishers: [], bylineOutlets: [], spans: [] };
+  const sentences = splitSentences(text);
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i];
+    if (NEGATION_PATTERN.test(s)) continue;
+    const next = sentences[i + 1] ?? "";
+    if (DISCLAIMER_PATTERN.test(next)) continue;
+    let m: RegExpExecArray | null;
+    let found = false;
+    MEDIA_BOUND_PUBLISHER_PATTERN.lastIndex = 0;
+    while ((m = MEDIA_BOUND_PUBLISHER_PATTERN.exec(s)) !== null) {
+      if (m[1]) { out.mediaPublishers.push(m[1].trim()); found = true; }
+    }
+    NAMED_BYLINE_PATTERN.lastIndex = 0;
+    while ((m = NAMED_BYLINE_PATTERN.exec(s)) !== null) {
+      if (m[1]) { out.bylineOutlets.push(m[1].trim()); found = true; }
+    }
+    if (found) out.spans.push(s.trim());
+  }
+  return out;
 }
 
 /**
@@ -175,6 +233,15 @@ export function refineReportingOrigins(
     const origin = attributedOriginDomain(text);
     if (origin === null) continue;
     if (origin === c.registrableDomain) continue; // self-attribution
+    // A named attribution matching the page's own outlet is self-
+    // attribution — it is evaluated as separate-origin evidence in the
+    // source-bound pass below, never as syndication to another origin.
+    if (
+      origin.startsWith("name:") &&
+      nameKey(origin.slice(5)) === ownOutletKey(c.registrableDomain)
+    ) {
+      continue;
+    }
     const groupId = origin.startsWith("name:") ? origin : `origin:${origin}`;
     const list = attrGroups.get(groupId) ?? [];
     list.push(c);
@@ -201,14 +268,61 @@ export function refineReportingOrigins(
     }
   }
 
-  // 3) Separate reporting evidence: explicit original-reporting markers in
-  // inspectable fetched text — never inferred from absence of a copy.
+  // 3) Source-bound named attribution. A name bound to the media must be
+  //    tied to the specific page:
+  //    - a named publisher credit for the media that names the page's OWN
+  //      outlet evidences a separate origin for that page;
+  //    - a named provider/outlet that is NOT the page's own is external
+  //      source material — candidates crediting the same named provider
+  //      share ONE group, they never become N separate origins;
+  //    - bylines without a media-bound publisher credit prove authorship
+  //      at most and leave the origin unresolved.
+  const providerGroups = new Map<string, EvidenceCandidate[]>();
+  const separate: Array<{ c: EvidenceCandidate; spans: string[] }> = [];
   for (const c of fetched) {
-    if (c.reportingOrigin.status !== "unresolved") continue;
+    if (c.reportingOrigin.status === "separate_origin_evidenced") continue;
     const text = pageTexts.get(c.id) ?? "";
-    if (!hasOwnReportingSignal(text)) continue;
+    const ev = extractNamedEvidence(text);
+    if (ev.mediaPublishers.length === 0 && ev.bylineOutlets.length === 0) continue;
+    const own = ownOutletKey(c.registrableDomain);
+    const selfBound =
+      own !== "" &&
+      ev.mediaPublishers.some((p) => nameKey(p) === own);
+    if (selfBound) {
+      separate.push({ c, spans: ev.spans });
+      continue;
+    }
+    // External named providers/outlets cluster the candidate.
+    const names = new Set<string>();
+    for (const p of [...ev.mediaPublishers, ...ev.bylineOutlets]) {
+      const k = nameKey(p);
+      if (k !== "" && k !== own) names.add(k);
+    }
+    for (const k of names) {
+      const list = providerGroups.get(k) ?? [];
+      list.push(c);
+      providerGroups.set(k, list);
+    }
+  }
+
+  for (const { c } of separate) {
+    if (c.reportingOrigin.status !== "unresolved") continue;
     markSeparateOriginEvidenced(c, `origin:${c.registrableDomain}`, [c.id]);
     changed.add(c.id);
+  }
+  for (const [k, members] of providerGroups) {
+    if (members.length < 2) continue;
+    const targets = members.filter(
+      (m) => m.reportingOrigin.status !== "separate_origin_evidenced",
+    );
+    if (targets.length === 0) continue;
+    markSharedOrigin(
+      targets,
+      `provider:${k}`,
+      ["shared_named_provider"],
+      targets.map((m) => m.id),
+    );
+    for (const m of targets) changed.add(m.id);
   }
 
   return [...changed];

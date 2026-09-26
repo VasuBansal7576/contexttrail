@@ -41,7 +41,7 @@ const UNCLEAR: PairwiseContextJudgment = {
 };
 
 describe("datedCoreOccurrences (§20)", () => {
-  it("excludes leads, unknown dates, disputed dates, and month precision", () => {
+  it("excludes leads, unknown dates, and disputed dates; keeps displayed month precision", () => {
     const ok = dated("2020-01-01", "a.com");
     const lead = makeCandidate({
       publishedAt: "2020-01-02",
@@ -52,9 +52,11 @@ describe("datedCoreOccurrences (§20)", () => {
     disputed.dateStatus = "disputed";
     const monthOnly = dated("2020-02", "c.com");
     monthOnly.datePrecision = "month";
+    // A displayed month-precision occurrence is part of the dated run —
+    // coverage must count it (§20.2 displayed-chronology accounting).
     expect(
       datedCoreOccurrences([ok, lead, disputed, monthOnly]).map((c) => c.id),
-    ).toEqual([ok.id]);
+    ).toEqual([ok.id, monthOnly.id]);
   });
 });
 

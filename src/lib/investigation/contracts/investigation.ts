@@ -10,10 +10,12 @@ import type {
   DateStatus,
   EvidenceCandidate,
   ExcerptSource,
+  IdentityBasis,
   IdentityEvidence,
   MediaRelationship,
   PublishedAtSource,
   ReportingOrigin,
+  ReportingOriginBasis,
   ReportingOriginStatus,
   RetrievalKind,
   RetrievalRecord,
@@ -86,6 +88,12 @@ export interface TimelineItem {
   publishedAtSource: PublishedAtSource;
   /** Reporting-origin status for badge display (§13). */
   reportingOriginStatus: ReportingOriginStatus;
+  /** Resolved origin group when shared/separate, else null. */
+  reportingOriginGroupId: string | null;
+  /** Why this origin status was assigned — bounded reason codes (§13). */
+  reportingOriginBasis: ReportingOriginBasis[];
+  /** How the media identity was established (§11), for inspection. */
+  identityBasis: IdentityBasis;
   /** Strong context-relationship label from Jev when decisive, else null. */
   contextLabel:
     | "SAME_CONTEXT"
@@ -186,10 +194,20 @@ export interface TraceResult extends SharedResultMetrics {
   headline: TraceHeadline;
 }
 
+/** Bounded reason codes for the deterministic claim status (§21). */
+export type ClaimStatusBasis =
+  | "qualifying_conflicts_corroborated"
+  | "single_qualifying_conflict"
+  | "conflicts_without_corroboration"
+  | "corroborated_no_conflict"
+  | "insufficient_qualifying_evidence";
+
 /** §21 — Claim-check result: one conservative deterministic status. */
 export interface ClaimResult extends SharedResultMetrics {
   mode: "claim_check";
   status: ClaimStatus;
+  /** Why the status was assigned — deterministic codes, not prose. */
+  statusBasis: ClaimStatusBasis[];
   claim: string;
   /** Parsed claim date (ISO day) or null when absent/ambiguous. */
   claimDate: string | null;

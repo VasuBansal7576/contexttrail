@@ -35,6 +35,7 @@ import {
   datedCoreOccurrences,
   pairKey,
   selectDatedCoreOccurrences,
+  strictlyBefore,
 } from "./divergence";
 import {
   chooseClaimExpansion,
@@ -44,6 +45,7 @@ import {
   type ClaimExpansionChoice,
 } from "./expansion";
 import { enforceIdentityInvariants } from "./identity";
+import { coreOccurrences, unresolvedOriginCount } from "./reporting-origins";
 import { CONCURRENCY, TIMEOUTS, MAX_DEEP_READ_PAGES } from "./limits";
 import { refineReportingOrigins } from "./origin-evidence";
 import {
@@ -76,6 +78,7 @@ import {
   type NormalizedBatch,
 } from "../serpapi/normalize";
 import { serpapiResponseFailed, type SerpapiParams } from "../serpapi/client";
+import { EXCERPT_MAX_CHARS } from "./limits";
 
 /** Minimal provider surface the orchestrator needs (§6). */
 export interface SearchProvider {
@@ -172,13 +175,19 @@ export function selectDeepReadCandidates(
 
   take(byRel(candidates.filter(hasStrongSupport))[0]);
 
+  // §18 "strongest fact-check": category priority comes BEFORE the
+  // relevance tie-break — higher-relevance commentary must not crowd out
+  // the strongest fact-check candidate.
   take(
-    byRel(
-      [...candidates].sort(
+    [...candidates]
+      .filter((c) => (c.judgment?.pageRole.factCheck ?? 0) > 0)
+      .sort(
         (a, b) =>
-          (b.judgment?.pageRole.factCheck ?? 0) - (a.judgment?.pageRole.factCheck ?? 0),
-      ),
-    )[0],
+          (b.judgment?.pageRole.factCheck ?? 0) - (a.judgment?.pageRole.factCheck ?? 0) ||
+          (b.judgment?.relevance ?? 0) - (a.judgment?.relevance ?? 0) ||
+          (a.serpPosition ?? 1e9) - (b.serpPosition ?? 1e9) ||
+          a.id.localeCompare(b.id),
+      )[0],
   );
 
   take(
@@ -238,7 +247,11 @@ export async function runInvestigation(
   const emittedEvidenceIds = new Set<string>();
   const dateSources = new Map<string, EvidenceDateSources>();
   const relatedQueries: string[] = [];
+  /** Model input — the bounded excerpt Jev actually judged (composite). */
   const excerpts = new Map<string, string>();
+  /** Displayed quote — verbatim page text when available (§18.3). What
+   *  the model judged and what the UI quotes are tracked separately. */
+  const displayExcerpts = new Map<string, string>();
   const pageTexts = new Map<string, string>();
   const limitations = new Set<LimitationCode>();
   let webContextAvailable = true;
@@ -248,15 +261,54 @@ export async function runInvestigation(
   let claimDate: string | null = null;
   let claimDatePrecision: "day" | "month" | "year" | "unknown" = "unknown";
 
+  /**
+   * Sanitized structured telemetry (§29): counts, durations, and bounded
+   * identifiers only — never URLs, request parameters, response bodies,
+   * or secrets. One record per completed stage plus a final summary.
+   */
+  const telemetry = {
+    jevAttempted: 0,
+    jevSucceeded: 0,
+    pairwiseAttempted: 0,
+    searches: [] as Array<{ slot: string; engine: string; ok: boolean; count: number }>,
+    pagesAttempted: 0,
+    pagesSucceeded: 0,
+  };
+  const logTelemetry = (record: Record<string, unknown>) => {
+    try {
+      console.info(`[investigate] telemetry ${JSON.stringify(record)}`);
+    } catch {
+      // diagnostics must never break the pipeline
+    }
+  };
+
+  const stageStartedAt = new Map<Stage, number>();
   const stage = (s: Stage, phase: "started" | "completed", detail?: string) => {
-    if (phase === "started") emit({ type: "stage.started", stage: s });
-    else emit({ type: "stage.completed", stage: s, ...(detail ? { detail } : {}) });
+    if (phase === "started") {
+      stageStartedAt.set(s, now());
+      emit({ type: "stage.started", stage: s });
+    } else {
+      const t0 = stageStartedAt.get(s);
+      emit({ type: "stage.completed", stage: s, ...(detail ? { detail } : {}) });
+      logTelemetry({
+        kind: "stage",
+        investigationId,
+        stage: s,
+        ms: t0 === undefined ? null : Math.max(0, now() - t0),
+      });
+    }
   };
 
   const emitDiscovered = (c: EvidenceCandidate) => {
     if (emittedEvidenceIds.has(c.id)) return;
     emittedEvidenceIds.add(c.id);
-    emit({ type: "evidence.discovered", evidence: toPublicCandidate(c, excerpts.get(c.id) ?? null) });
+    emit({
+      type: "evidence.discovered",
+      evidence: toPublicCandidate(
+        c,
+        displayExcerpts.get(c.id) ?? excerpts.get(c.id) ?? null,
+      ),
+    });
   };
 
   const addCandidates = (batch: NormalizedBatch | null): EvidenceCandidate[] => {
@@ -313,10 +365,12 @@ export async function runInvestigation(
       }
       ticket.succeed();
       const batch = normalize(json);
+      telemetry.searches.push({ slot, engine: engineLabel, ok: true, count: batch.reportedCount });
       emit({ type: "search.batch", engine: engineLabel, count: batch.reportedCount });
       return { slot, engineLabel, batch, failed: false };
     } catch (err) {
       logProviderFailure(`serpapi ${slot}`, err);
+      telemetry.searches.push({ slot, engine: engineLabel, ok: false, count: 0 });
       ticket.fail();
       return { slot, engineLabel, batch: null, failed: true };
     }
@@ -356,10 +410,23 @@ export async function runInvestigation(
 
   const jevLimiter = createLimiter(CONCURRENCY.jev);
   const claimHasLocation = claim !== null ? claimMayStateLocation(claim) : false;
+  /** Successful Jev classifications this run — distinguishes "all calls
+   *  failed" (unavailable) from an ordinary partial batch. */
+  let jevSuccesses = 0;
+  /** Record the honest classification limitation for a batch result. */
+  const noteClassifyOutcome = (attempted: number, succeeded: number) => {
+    if (attempted === 0) return;
+    if (succeeded === 0 && jevSuccesses === 0) {
+      limitations.add("semantic_classification_unavailable");
+    } else if (succeeded < attempted) {
+      limitations.add("semantic_classification_partial");
+    }
+  };
 
   /** §16 — classify one candidate; judgment stays null on failure (§29). */
   const classifyOne = async (c: EvidenceCandidate): Promise<boolean> => {
     if (deps.jev === null || c.judgment !== null) return false;
+    telemetry.jevAttempted += 1;
     try {
       const excerpt = excerpts.get(c.id) ?? c.snippet;
       const { answers } = await jevLimiter(() =>
@@ -375,6 +442,8 @@ export async function runInvestigation(
         return false;
       }
       c.judgment = judgment;
+      jevSuccesses += 1;
+      telemetry.jevSucceeded += 1;
       emit({ type: "evidence.classified", id: c.id, publicJudgment: judgment });
       return true;
     } catch (err) {
@@ -468,44 +537,47 @@ export async function runInvestigation(
       });
     };
 
-    const uploadAndLens = async (): Promise<SearchJobResult[]> => {
+    const uploadAndLens = async (): Promise<void> => {
       if (deps.serpapi === null || !budget.tryReserveUpload()) {
         uploadFailed = deps.serpapi !== null;
-        return failedLensJobs();
+        for (const res of failedLensJobs()) processResult(res);
+        return;
       }
       try {
         imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
       } catch (err) {
         logProviderFailure("serpapi image upload", err);
         uploadFailed = true;
-        return failedLensJobs();
+        for (const res of failedLensJobs()) processResult(res);
+        return;
       }
-      // The three Lens calls fan out concurrently (§6.3, §9.1).
-      return Promise.all([
+      // The three Lens calls fan out concurrently AND settle
+      // independently (§6.3, §9.1): each job's evidence is discovered as
+      // soon as it resolves — a slow About-this-image call can never
+      // hold back fast exact-match results.
+      await Promise.all([
         runSearch(
           "lens_all",
           "google_lens",
           { engine: "google_lens", type: "all", image_id: imageId },
           (j) => normalizeLensAllResponse(j, { retrievedAt }),
-        ),
+        ).then(processResult),
         runSearch(
           "lens_exact_matches",
           "google_lens_exact_matches",
           { engine: "google_lens", type: "exact_matches", image_id: imageId },
           (j) => normalizeExactMatchesResponse(j, { requestFailed: false, retrievedAt }),
-        ),
+        ).then(processResult),
         runSearch(
           "lens_about_this_image",
           "google_lens_about_this_image",
           { engine: "google_lens", type: "about_this_image", image_id: imageId },
           (j) => normalizeAboutThisImageResponse(j, { retrievedAt }),
-        ),
+        ).then(processResult),
       ]);
     };
 
-    jobs.push(
-      uploadAndLens().then((rs) => rs.forEach(processResult)),
-    );
+    jobs.push(uploadAndLens());
 
     await Promise.all(jobs);
     // A failed dedicated exact request is a limitation, not a silent pass.
@@ -593,9 +665,9 @@ export async function runInvestigation(
       stage("FAST_CLASSIFY", "completed", "Jev unavailable");
     } else {
       const results = await Promise.all(toClassify.map((c) => classifyOne(c)));
-      const failures = results.filter((ok) => !ok).length;
-      if (failures > 0) limitations.add("semantic_classification_partial");
-      stage("FAST_CLASSIFY", "completed", `${results.length - failures} classified`);
+      const succeeded = results.filter(Boolean).length;
+      noteClassifyOutcome(results.length, succeeded);
+      stage("FAST_CLASSIFY", "completed", `${succeeded} classified`);
     }
 
     /* ----------------------------- PRELIMINARY --------------------------- */
@@ -604,7 +676,7 @@ export async function runInvestigation(
       const preliminary = evaluateClaimPolicy(pool);
       emit({ type: "verdict.preliminary", verdict: preliminary.status });
     }
-    const partial = buildTimeline(pool, null, excerpts);
+    const partial = buildTimeline(pool, null, displayExcerpts);
     emit({ type: "provenance.partial", timeline: partial.timeline });
     stage("PRELIMINARY", "completed");
 
@@ -650,7 +722,7 @@ export async function runInvestigation(
               const classifyAdded = selectForClassification(pool).filter((c) => c.judgment === null);
               if (deps.jev !== null) {
                 const results = await Promise.all(classifyAdded.map((c) => classifyOne(c)));
-                if (results.some((ok) => !ok)) limitations.add("semantic_classification_partial");
+                noteClassifyOutcome(results.length, results.filter(Boolean).length);
               }
             }
             expanded = true;
@@ -671,9 +743,11 @@ export async function runInvestigation(
     let pageFailures = 0;
     await Promise.all(
       pages.map(async (c) => {
+        telemetry.pagesAttempted += 1;
         try {
           const page = await pageLimiter(() => deps.fetchPage(c.sourceUrl, shared.signal));
-          const ex = extractPage(page.html);
+          telemetry.pagesSucceeded += 1;
+          const ex = extractPage(page.html, page.url);
           if (ex.text !== null) {
             c.pageText = ex.text;
             pageTexts.set(c.id, ex.text);
@@ -697,7 +771,16 @@ export async function runInvestigation(
           });
           if (excerpt !== null) {
             excerpts.set(c.id, excerpt);
-            c.excerptSource = "page_text";
+            // The composite (Title:/Snippet:/paragraphs) is model input —
+            // the displayed quote must be verbatim page text. Only when a
+            // real paragraph exists may the excerpt be labeled page_text.
+            const quote = ex.paragraphs[0] ?? null;
+            if (quote !== null) {
+              displayExcerpts.set(c.id, quote.slice(0, EXCERPT_MAX_CHARS));
+              c.excerptSource = "page_text";
+            } else {
+              c.excerptSource = "page_composite";
+            }
           }
         } catch {
           pageFailures += 1; // §29: page fetch failure is non-fatal
@@ -722,13 +805,20 @@ export async function runInvestigation(
           return ok;
         }),
       );
-      if (results.some((ok) => !ok)) limitations.add("semantic_classification_partial");
+      // A failed re-ask keeps the prior validated judgment — only a
+      // never-classified candidate contributes to "unavailable".
+      noteClassifyOutcome(results.length, results.filter(Boolean).length);
     }
     stage("REFINED_CLASSIFY", "completed");
 
     /* ---------------------- REFINE_REPORTING_ORIGINS --------------------- */
     stage("REFINE_REPORTING_ORIGINS", "started");
     refineReportingOrigins(pool, pageTexts);
+    // Unresolved origins among core occurrences are a limitation in BOTH
+    // modes — Trace results must not silently hide them (§13, §29).
+    if (unresolvedOriginCount(coreOccurrences(pool)) > 0) {
+      limitations.add("reporting_origins_unresolved");
+    }
     stage("REFINE_REPORTING_ORIGINS", "completed");
 
     /* ------------------------------ CHRONOLOGY --------------------------- */
@@ -743,10 +833,19 @@ export async function runInvestigation(
     /* ------------------------------ DIVERGENCE --------------------------- */
     stage("DIVERGENCE", "started");
     const judgments = new Map<string, PairwiseContextJudgment | null>();
-    if (deps.jev !== null && selected.length >= 2 && !deadlineHit()) {
+    // Only strictly-ordered adjacent pairs are compared — an overlapping
+    // or equal-date pair cannot assert an ordered transition, so no
+    // pairwise call is made for it (§20.2).
+    const orderablePairs: Array<[EvidenceCandidate, EvidenceCandidate]> = [];
+    for (let i = 1; i < selected.length; i++) {
+      const prev = selected[i - 1];
+      const cur = selected[i];
+      if (strictlyBefore(prev, cur)) orderablePairs.push([prev, cur]);
+    }
+    if (deps.jev !== null && orderablePairs.length > 0 && !deadlineHit()) {
+      telemetry.pairwiseAttempted = orderablePairs.length;
       await Promise.all(
-        selected.slice(1).map(async (cur, i) => {
-          const prev = selected[i];
+        orderablePairs.map(async ([prev, cur]) => {
           try {
             const { answers } = await jevLimiter(() =>
               deps.jev!.ask(
@@ -767,14 +866,17 @@ export async function runInvestigation(
     if (segments.firstObservedContextDivergence !== null) {
       emit({ type: "divergence.detected", divergence: segments.firstObservedContextDivergence });
     }
-    if (segments.coverage.selected < segments.coverage.eligible || segments.coverage.comparedPairs < Math.max(0, selected.length - 1)) {
+    if (
+      segments.coverage.selected < segments.coverage.eligible ||
+      segments.coverage.comparedPairs < orderablePairs.length
+    ) {
       limitations.add("comparison_coverage_incomplete");
     }
     stage("DIVERGENCE", "completed");
 
     /* ----------------------------- FINAL_POLICY -------------------------- */
     stage("FINAL_POLICY", "started");
-    const built = buildTimeline(pool, segments, excerpts);
+    const built = buildTimeline(pool, segments, displayExcerpts);
     const coverage = segments.coverage;
     const takeaways: Takeaway[] =
       mode === "claim_check"
@@ -815,7 +917,20 @@ export async function runInvestigation(
           });
     // Stage completion precedes the terminal event — a client that stops
     // reading at investigation.completed still sees a finished stage list.
+    stage("FINAL_POLICY", "completed");
     stage("COMPLETE", "completed");
+    logTelemetry({
+      kind: "investigation",
+      investigationId,
+      mode,
+      durationMs: Math.max(0, now() - startedAt),
+      status: result.mode === "claim_check" ? result.status : result.headline,
+      candidates: pool.length,
+      searches: telemetry.searches,
+      jev: { attempted: telemetry.jevAttempted, succeeded: telemetry.jevSucceeded, pairwiseAttempted: telemetry.pairwiseAttempted },
+      pages: { attempted: telemetry.pagesAttempted, succeeded: telemetry.pagesSucceeded },
+      limitations: [...limitations],
+    });
     emit({ type: "investigation.completed", result });
   } catch {
     // Defensive: orchestration must never throw past the stream. Provider

@@ -84,20 +84,42 @@ describe("F01 — reporting-origin inference needs positive attributed proof", (
     expect(evaluateClaimPolicy([a, b]).status).not.toBe("CONTEXT_CONFLICT");
   });
 
-  it("inspector-visible named attribution does qualify", () => {
+  it("inspector-visible named attribution bound to the page's own outlet qualifies", () => {
     const [a, b] = pair();
+    a.sourceUrl = a.canonicalUrl = "https://dailyexaminer.example.org/x";
+    a.domain = a.registrableDomain = "dailyexaminer.example.org";
+    b.sourceUrl = b.canonicalUrl = "https://heraldnews.example.org/x";
+    b.domain = b.registrableDomain = "heraldnews.example.org";
     refineReportingOrigins(
       [a, b],
       new Map([
-        // Named-person byline bound to an outlet.
-        [a.id, "yankee zulu " + "Reported by Jane Doe for the Daily Examiner, who independently obtained the image. " + "one two three ".repeat(30)],
-        // Named publisher tied to the media itself.
-        [b.id, "four five six " + "The photograph was first published by Reuters after its staff verified it. " + "seven eight nine ".repeat(30)],
+        // Named-person byline AND media-bound publisher credit on the
+        // page's own outlet — source-bound acquisition/reporting evidence.
+        [a.id, "yankee zulu " + "Reported by Jane Doe for the Daily Examiner. The photograph was first published by the Daily Examiner. " + "one two three ".repeat(30)],
+        [b.id, "four five six " + "Written by Sam Roe for the Herald News. The image was released by the Herald News. " + "seven eight nine ".repeat(30)],
       ]),
     );
     expect(a.reportingOrigin.status).toBe("separate_origin_evidenced");
     expect(b.reportingOrigin.status).toBe("separate_origin_evidenced");
     expect(evaluateClaimPolicy([a, b]).status).toBe("CONTEXT_CONFLICT");
+  });
+
+  it("a byline alone, or a publisher credit naming an external provider, stays unresolved", () => {
+    const [a, b] = pair();
+    refineReportingOrigins(
+      [a, b],
+      new Map([
+        // Named byline bound to an outlet that is NOT the page's own —
+        // authorship evidence only, not media-acquisition evidence.
+        [a.id, "yankee zulu " + "Reported by Jane Doe for the Daily Examiner, who independently obtained the image. " + "one two three ".repeat(30)],
+        // Media-bound publisher credit naming an external provider —
+        // external source material, not this page's own origin.
+        [b.id, "four five six " + "The photograph was first published by Reuters after its staff verified it. " + "seven eight nine ".repeat(30)],
+      ]),
+    );
+    expect(a.reportingOrigin.status).toBe("unresolved");
+    expect(b.reportingOrigin.status).toBe("unresolved");
+    expect(evaluateClaimPolicy([a, b]).status).not.toBe("CONTEXT_CONFLICT");
   });
 });
 

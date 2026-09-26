@@ -1,4 +1,4 @@
-{"type":"investigation.started","investigationId":"e9d7c729-76b7-4e54-a194-d2d18beaeff3"}
+{"type":"investigation.started","investigationId":"0d3de655-b45e-4cad-b813-a45832845dd4"}
 {"type":"stage.started","stage":"INITIAL_RETRIEVAL"}
 {"type":"search.batch","engine":"google_search","count":0}
 {"type":"search.batch","engine":"google_news","count":0}
@@ -32,5 +32,6 @@
 {"type":"stage.started","stage":"DIVERGENCE"}
 {"type":"stage.completed","stage":"DIVERGENCE"}
 {"type":"stage.started","stage":"FINAL_POLICY"}
+{"type":"stage.completed","stage":"FINAL_POLICY"}
 {"type":"stage.completed","stage":"COMPLETE"}
-{"type":"investigation.completed","result":{"mode":"claim_check","status":"INSUFFICIENT_EVIDENCE","claim":"This controlled claim describes a fictional event today.","claimDate":"2026-09-26","doesNotProveClaimTrue":true,"webContextAvailable":true,"takeaways":[],"earliestObservedOccurrence":null,"sourceDomainCount":0,"reportingGroupCount":0,"unresolvedOriginCount":0,"contextSegmentCount":null,"firstObservedContextDivergence":null,"comparisonCoverage":{"eligible":0,"selected":0,"comparedPairs":0},"limitations":["exact_match_retrieval_unavailable","about_this_image_unavailable","insufficient_dated_occurrences"],"undatedEvidence":[],"supportingEvidence":[],"contextualEvidence":[],"timeline":[]}}
+{"type":"investigation.completed","result":{"mode":"claim_check","status":"INSUFFICIENT_EVIDENCE","statusBasis":["insufficient_qualifying_evidence"],"claim":"This controlled claim describes a fictional event today.","claimDate":"2026-09-26","doesNotProveClaimTrue":true,"webContextAvailable":true,"takeaways":[],"earliestObservedOccurrence":null,"sourceDomainCount":0,"reportingGroupCount":0,"unresolvedOriginCount":0,"contextSegmentCount":null,"firstObservedContextDivergence":null,"comparisonCoverage":{"eligible":0,"selected":0,"comparedPairs":0},"limitations":["exact_match_retrieval_unavailable","about_this_image_unavailable","insufficient_dated_occurrences"],"undatedEvidence":[],"supportingEvidence":[],"contextualEvidence":[],"timeline":[]}}

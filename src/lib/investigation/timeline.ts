@@ -11,7 +11,7 @@ import type { EvidenceCandidate } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
 import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
 import { isCoreOccurrence } from "./identity";
-import type { SegmentResult } from "./divergence";
+import { chronoCompare, type SegmentResult } from "./divergence";
 
 /** Strong context-relationship label from a Jev judgment, else null. */
 function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
@@ -54,6 +54,12 @@ function toTimelineItem(
     excerptSource: c.excerptSource,
     publishedAtSource: c.publishedAtSource,
     reportingOriginStatus: c.reportingOrigin.status,
+    reportingOriginGroupId:
+      c.reportingOrigin.status === "unresolved"
+        ? null
+        : c.reportingOrigin.groupId,
+    reportingOriginBasis: c.reportingOrigin.basis,
+    identityBasis: c.identityEvidence.basis,
     contextLabel: contextLabelOf(c),
     serpPosition: c.serpPosition,
     retrievedAt: firstRetrieval?.retrievedAt ?? null,
@@ -103,16 +109,9 @@ export function buildTimeline(
       undated.push(c);
     }
   }
-  dated.sort(
-    (a, b) =>
-      (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-      a.id.localeCompare(b.id),
-  );
-  const byDate = (a: EvidenceCandidate, b: EvidenceCandidate) =>
-    (a.publishedAt ?? "").localeCompare(b.publishedAt ?? "") ||
-    a.id.localeCompare(b.id);
-  datedLead.sort(byDate);
-  datedContextual.sort(byDate);
+  dated.sort(chronoCompare);
+  datedLead.sort(chronoCompare);
+  datedContextual.sort(chronoCompare);
 
   const divergenceId =
     segments?.firstObservedContextDivergence?.toOccurrenceId ?? null;
