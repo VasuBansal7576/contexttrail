@@ -1811,36 +1811,64 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         if (m) { p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length); hit(); }
       });
     } else if (mode === "long-value-truncated" || mode === "reading-order-reversed") {
+      // The latch is set on SUCCESS, not on entry. Setting it up front meant the
+      // fault never retried, and a fault that never applies reported green.
       if (!window.__ctLayoutFault) {
-        window.__ctLayoutFault = true;
         const st = document.createElement("style");
         if (mode === "long-value-truncated") {
           // The real defect: a long value clipped to a single line. Layout-only,
           // so the text is still in the DOM and still "present" to a text scan.
           st.textContent =
             "li,dd,p,span,a,td{max-height:1.4em;overflow:hidden;white-space:nowrap !important;text-overflow:clip !important;}";
+          window.__ctLayoutFault = true;
         } else {
-          // Reverse the visual order of the panel that is ACTUALLY selected, with
-          // no markup change. A guessed container would leave the measured panel
-          // untouched, which is how an earlier version of this fault passed.
+          // Reverse the container that ACTUALLY lays out the measured rows. An
+          // outer panel reversed nothing, because the measured rows sit deeper than
+          // its own children — so the container is discovered from the native DOM:
+          // take the same long leaf-text elements the survey measures, and reverse
+          // their nearest common ancestor. Layout only, no application source and
+          // no markup change, so the DOM order stays exactly as shipped and only
+          // the visual order moves.
           const selected = [...document.querySelectorAll('[role="tab"]')].find(
             (t) => t.getAttribute("aria-selected") === "true",
           );
           const id = selected?.getAttribute("aria-controls");
           const panel = id ? document.getElementById(id) : null;
           if (panel) {
-            st.id = "ct-reading-order-fault";
-            st.textContent =
-              "#" + id + "{display:flex !important;flex-direction:column-reverse !important;}";
-            document.head.appendChild(st);
-            // the fault targets the selected panel, so the row order is reversed
-            // without re-rendering: the previous sibling order becomes the
-            // visual order and the markup is untouched.
-            window.__ctReadingOrderTarget = id;
-            hit();
-            return;
+            const measured = [...panel.querySelectorAll("li, dd, p, span, a, td, div")].filter((el) => {
+              if (el.children.length > 2) return false;
+              if ((el.textContent || "").trim().length < 24) return false;
+              const r = el.getBoundingClientRect();
+              return r.width > 8 && r.height > 8;
+            });
+            // Reverse the containers the measured rows are actually SIBLINGS in.
+            // A single nearest-common-ancestor is the panel itself for rows spread
+            // across sections, and reversing the panel's own children leaves rows
+            // nested deeper untouched — which is why the earlier fault changed
+            // nothing. Each distinct parent of a measured row is marked instead.
+            const parents = [...new Set(measured.map((el) => el.parentElement).filter(Boolean))].filter(
+              (p) => p !== panel && measured.some((el) => el.parentElement === p),
+            );
+            if (parents.length > 0 && measured.length > 1) {
+              for (const p of parents) p.setAttribute("data-ct-roc", "1");
+              const nca = parents[0];
+              st.id = "ct-reading-order-fault";
+              st.textContent =
+                "[data-ct-roc]{display:flex !important;flex-direction:column-reverse !important;}";
+              document.head.appendChild(st);
+              window.__ctLayoutFault = true;
+              window.__ctReadingOrderTarget = {
+                panel: id,
+                containers: parents.length,
+                containerSample:
+                  nca.tagName.toLowerCase() +
+                  (nca.className ? "." + String(nca.className).trim().split(/\s+/)[0] : ""),
+                measured: measured.length,
+              };
+              hit();
+              return;
+            }
           }
-        }
         document.head.appendChild(st);
         hit();
       }
@@ -1932,6 +1960,27 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
       if (li) { li.remove(); hit(); }
     };
     const timer = setInterval(drop, 50);
+    setTimeout(() => clearInterval(timer), 30000);
+  }
+
+  // The reading-order mutation needs the SELECTED panel to be populated before it
+  // can find the container that lays the measured rows out. The observer stops
+  // firing once the DOM settles, which is before that in a real drive, so the
+  // fault never got its chance and reported green with zero mutations. Poll for
+  // it, bounded, exactly as focus-return-broken does.
+  if (mode === "reading-order-reversed") {
+    const timer = setInterval(() => {
+      if (window.__ctLayoutFault) return;
+      // The poll starts at document start, when <head> does not exist yet, and
+      // appending to it then threw on every tick — which is why this fault never
+      // applied and the drive reported zero mutations.
+      if (!document.head) return;
+      try {
+        alter();
+      } catch {
+        /* the surface is not ready yet; the next tick retries */
+      }
+    }, 100);
     setTimeout(() => clearInterval(timer), 30000);
   }
 
@@ -4285,6 +4334,15 @@ const DRIVE_CASES = {
       panelInfo.observedTab === requestedView && panelInfo.settled === true,
       `requested "${requestedView}", observed tab "${panelInfo.observedTab}", panel ${panelInfo.panelId} ` +
         `settled=${panelInfo.settled} (${panelInfo.rowsInPanel} candidate nodes inside that panel)`,
+    );
+    const faultTarget = await page.evaluate(() => window.__ctReadingOrderTarget ?? null);
+    rec.note("result.reading-order-mutation-target", JSON.stringify(faultTarget));
+    rec.check(
+      "result.reading-order-mutation-is-inside-the-measured-panel",
+      faultTarget === null || (faultTarget.panel === panelInfo.panelId && faultTarget.measured > 1),
+      faultTarget === null
+        ? "no reading-order mutation applied (baseline)"
+        : `reversed ${faultTarget.container} inside panel ${faultTarget.panel} holding ${faultTarget.measured} measured element(s)`,
     );
     const layout = await longValueLayout(page, { panelId: panelInfo.panelId });
     writeJson(path.join(driveDir, "long-value-layout.json"), {
