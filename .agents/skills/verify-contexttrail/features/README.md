@@ -109,6 +109,12 @@ the production `result`/`viewer` code runs with live semantics while the API
 boundary is intercepted and serves a locally declared result. Readiness
 manifests alone cannot show that the live path works; this can, at zero credit.
 
+## Final acceptance run
+
+`../FINAL-RUN-PLAN.md` carries the concrete per-chapter command plan, the
+CONTROLLED/LIVE/REPLAY labelling rule and the GAP list for a final accepted
+candidate. It is preparation only; nothing in it is acceptance evidence yet.
+
 ## Negative controls
 
 Red runs are part of the evidence, not an afterthought. Each feature file

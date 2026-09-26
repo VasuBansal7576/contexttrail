@@ -2517,6 +2517,32 @@ function fixtureViewerOrder(name) {
   )].map((o) => o.evidenceId ?? o.occurrenceId ?? null);
 }
 
+/**
+ * The Analysis view's two comparison surfaces, read in one pass: the
+ * "Comparison coverage" summary paragraph and the "Comparisons performed" list
+ * (or its explicit "none" sentence). Structure-tolerant: it reads whatever
+ * element follows each heading rather than assuming a tag.
+ */
+async function analysisCoverageSurface(page) {
+  return page.evaluate(() => {
+    const panel = document.querySelector("#ct-panel-analysis");
+    if (!panel) return { panel: false };
+    const heads = [...panel.querySelectorAll("h3")];
+    const after = (title) => {
+      const h = heads.find((x) => (x.textContent || "").trim() === title);
+      if (!h) return null;
+      const sib = h.nextElementSibling;
+      if (!sib) return { tag: null, text: "", items: [] };
+      return {
+        tag: sib.tagName.toLowerCase(),
+        text: (sib.textContent || "").trim(),
+        items: [...sib.querySelectorAll("li")].map((li) => (li.textContent || "").trim()),
+      };
+    };
+    return { panel: true, coverage: after("Comparison coverage"), performed: after("Comparisons performed") };
+  });
+}
+
 function escapeRe(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -3585,29 +3611,179 @@ const DRIVE_CASES = {
         panelText.length > 0 && /comparison|coverage|policy|basis|limitation/i.test(panelText),
         panelText.slice(0, 160).replace(/\s+/g, " "),
       );
-      // Numeric equality, not vocabulary: every counter the view reports must
-      // equal the fixture's own value, and the coverage sentence must carry
-      // the fixture's real pair/occurrence counts.
+      // Comparison coverage, as the product actually projects it. The summary
+      // is one of three real states — not reported, nothing selected, or an
+      // explicit count — and the performed list is a separate, countable
+      // surface. An absent count is never read as a zero, and a rendered count
+      // is never allowed to contradict the run.
       if (terminal) {
         const coverage = terminal.comparisonCoverage ?? null;
-        if (coverage && typeof coverage === "object") {
-          const pairs = typeof coverage.comparedPairs === "number" ? coverage.comparedPairs : null;
-          const selected = typeof coverage.selected === "number" ? coverage.selected : null;
-          const eligible = typeof coverage.eligible === "number" ? coverage.eligible : null;
-          if (pairs !== null && selected !== null) {
+        if (coverage === null || typeof coverage !== "object") {
+          rec.check(
+            "result.analysis-coverage-not-reported",
+            /Comparison coverage was not reported for this investigation/.test(panelText),
+            "no coverage in the result: the view must say so instead of inventing numbers",
+          );
+        } else {
+          const count = (k) => (typeof coverage[k] === "number" ? coverage[k] : null);
+          const eligible = count("eligible");
+          const selected = count("selected");
+          const compared = count("comparedPairs");
+          const comparedIds = Array.isArray(coverage.comparedPairIds) ? coverage.comparedPairIds : [];
+          const surface = await analysisCoverageSurface(page);
+          const summary = surface.coverage?.text ?? "";
+          const pairSentence = /(\d+) pairs? compared/.exec(summary);
+          const selectionSentence = /(\d+) selected(?: of (\d+))?/.exec(summary);
+          const emptySummary = /No occurrences were selected for context comparison/.test(summary);
+          const nothingPerformed = /No context comparison was performed/.test(
+            surface.performed?.text ?? "",
+          );
+          // Performed comparisons come from their OWN additive field on the
+          // result, not from the coverage counters. An absent `comparisons`
+          // array is "not reported", never "zero performed", and the two fields
+          // are only cross-checked when the result actually carries both.
+          const comparisons = Array.isArray(terminal.comparisons) ? terminal.comparisons : null;
+          const performedItems = surface.performed?.items ?? [];
+          rec.note(
+            "result.analysis-coverage-surface",
+            JSON.stringify({
+              fixture: {
+                eligible,
+                selected,
+                compared,
+                comparedPairIds: comparedIds.length,
+                comparisonsField: comparisons === null ? "not reported" : comparisons.length,
+              },
+              summary,
+              performedListed: performedItems.length,
+            }),
+          );
+
+          if (comparisons === null) {
             rec.check(
-              "result.analysis-coverage-pair-count",
-              new RegExp(`${pairs} ${pairs === 1 ? "pair" : "pairs"} compared`).test(panelText),
-              `fixture comparedPairs=${pairs}`,
+              "result.analysis-performed-list-not-invented",
+              nothingPerformed && performedItems.length === 0,
+              `the result reported no performed comparisons and the view says so (${performedItems.length} listed)`,
+            );
+            rec.note(
+              "result.analysis-performed-field-absent",
+              "this result carries no `comparisons` field: the performed list is reported as not performed, not counted as zero",
+            );
+          } else {
+            rec.check(
+              "result.analysis-performed-list-count",
+              performedItems.length === comparisons.length,
+              `result records ${comparisons.length} performed comparison(s), the view lists ${performedItems.length}`,
+            );
+            const recordedPairs = comparisons
+              .map((c) => [c?.fromOccurrenceId, c?.toOccurrenceId])
+              .filter(([a, b]) => typeof a === "string" && typeof b === "string");
+            // Occurrences this result actually displayed, with the titles the
+            // view names them by. A performed pair that names anything else is a
+            // phantom, checked against the fixture rather than against the view.
+            const displayed = new Map(
+              [
+                ...(terminal.timeline ?? []),
+                ...(terminal.supportingEvidence ?? []),
+                ...(terminal.contextualEvidence ?? []),
+                ...(terminal.undatedEvidence ?? []),
+              ]
+                .map((o) => [o.evidenceId ?? o.occurrenceId, typeof o.title === "string" ? o.title : null])
+                .filter(([id, title]) => typeof id === "string" && title !== null),
+            );
+            rec.check(
+              "result.analysis-performed-pairs-are-displayed",
+              recordedPairs.length === comparisons.length &&
+                recordedPairs.every(([a, b]) => displayed.has(a) && displayed.has(b)),
+              `every performed pair must name two displayed occurrences (${recordedPairs.length} pair(s), ${displayed.size} occurrence(s) displayed)`,
+            );
+            rec.check(
+              "result.analysis-performed-list-identity",
+              performedItems.length === recordedPairs.length &&
+                recordedPairs.every(([a, b], i) => {
+                  const item = performedItems[i] ?? "";
+                  return item.includes(displayed.get(a) ?? "\u0000") && item.includes(displayed.get(b) ?? "\u0000");
+                }),
+              "each listed comparison must name the two occurrences the result recorded, in order",
             );
           }
-          if (selected !== null && eligible !== null) {
+
+          // The summary, against the three states the product can be in.
+          if (eligible === 0 && selected === 0 && (compared === 0 || compared === null)) {
             rec.check(
-              "result.analysis-coverage-selection-counts",
-              new RegExp(`${selected} selected( of| ·)? ${eligible} eligible|${selected} selected occurrences`).test(
-                panelText,
-              ) || (eligible === 0 && /No occurrences were selected/.test(panelText)),
-              `fixture selected=${selected} eligible=${eligible}`,
+              "result.analysis-coverage-empty-state",
+              emptySummary,
+              `eligible=0 selected=0 compared=${compared ?? "null"}: the view must state that nothing was selected`,
+            );
+            rec.check(
+              "result.analysis-coverage-no-invented-pair-count",
+              pairSentence === null,
+              pairSentence
+                ? `view claims "${pairSentence[0]}" on a run that compared nothing`
+                : "no pair count claimed for an empty run",
+            );
+          } else if (compared !== null && selected !== null) {
+            rec.check(
+              "result.analysis-coverage-pair-count",
+              pairSentence !== null && Number(pairSentence[1]) === compared,
+              `fixture comparedPairs=${compared}, view says ${pairSentence ? pairSentence[0] : "no pair count"}`,
+            );
+            if (eligible !== null) {
+              rec.check(
+                "result.analysis-coverage-selection-counts",
+                selectionSentence !== null &&
+                  Number(selectionSentence[1]) === selected &&
+                  Number(selectionSentence[2] ?? selected) === eligible,
+                `fixture selected=${selected} eligible=${eligible}, view says ${
+                  selectionSentence ? selectionSentence[0] : "no selection count"
+                }`,
+              );
+            }
+          } else {
+            // A count the result did not report must not be invented. Recorded,
+            // never assumed to be zero.
+            rec.check(
+              "result.analysis-coverage-no-invented-count",
+              pairSentence === null,
+              pairSentence
+                ? `view claims "${pairSentence[0]}" but the result reported compared=${compared ?? "null"} selected=${selected ?? "null"}`
+                : "no count invented from an unreported value",
+            );
+            rec.note(
+              "result.analysis-coverage-partial",
+              `eligible=${eligible} selected=${selected} compared=${compared}`,
+            );
+          }
+
+          // Whatever was claimed must be internally possible: you cannot have
+          // compared more pairs than you selected occurrences, and an empty
+          // eligible set can never have produced a comparison.
+          if (pairSentence) {
+            const claimed = Number(pairSentence[1]);
+            // The summary and the performed list are two projections of one run.
+            // They are only comparable when the result reported both; when
+            // `comparisons` is absent there is nothing to compare against and
+            // inventing a zero there would be the very error this guards.
+            if (comparisons !== null) {
+              rec.check(
+                "result.analysis-coverage-matches-performed-list",
+                claimed === comparisons.length,
+                `summary claims ${claimed} pair(s) while the result records ${comparisons.length} performed comparison(s)`,
+              );
+            } else {
+              rec.note(
+                "result.analysis-coverage-cross-check-skipped",
+                `no \`comparisons\` field in this result, so the summary's ${claimed} pair(s) cannot be cross-checked against a list`,
+              );
+            }
+            rec.check(
+              "result.analysis-coverage-not-contradictory",
+              !(
+                (eligible === 0 && claimed > 0) ||
+                (selected !== null && claimed > selected) ||
+                (compared !== null && claimed !== compared)
+              ),
+              `view claims ${claimed} pair(s) against eligible=${eligible} selected=${selected} compared=${compared}`,
             );
           }
         }

@@ -60,3 +60,23 @@ Red controls that must keep failing: a model relabelled `jev-9.99.0`, an
 `evidence.classified` id that was never discovered, a duplicated retrieved
 image URL, a string `durationMs`, a probability of 9, and a real source host.
 
+## Mutation controls (not fixtures)
+
+`controls/coverage-mutants.mjs` derives **new, untracked** streams from copies of
+the checked-in fixtures so the Analysis comparison-coverage assertions can be
+proved to bite. No tracked fixture is ever regenerated or edited, and
+`node controls/coverage-mutants.mjs clean` removes every stream it wrote.
+
+Keep the mutants absent: `gen-fixtures.test.ts` validates every `*.ndjson` in this
+directory, so a leftover mutant would be asserted as if it were real evidence.
+A drive run against a mutant is a deliberate red control, never acceptance
+proof; its `drive.json` names the mutant and the harness run that used it is
+labelled as such.
+
+| Command | Stream written | What it proves turns red |
+| --- | --- | --- |
+| `contrary-count` | `controlled-empty-contrary-count` | a pair count claimed for a run with nothing eligible |
+| `summary-contradiction` | `controlled-empty-summary-contradiction` | performed comparisons presented for a run that selected nothing |
+| `availability` | `controlled-pair-availability-mutant` | a summary that disagrees with the result's own performed list |
+| `phantom-performed` | `controlled-pair-phantom-performed` | a performed pair naming occurrences that were never displayed |
+

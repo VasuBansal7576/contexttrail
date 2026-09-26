@@ -290,6 +290,15 @@ interactive `:3100` server or sibling worktrees. Evidence, logs, and the
 manifest are preserved; the command prints surviving artifact counts.
 Run cleanup after every failed iteration too.
 
+## Final acceptance run
+
+`FINAL-RUN-PLAN.md` is the concrete nine-feature execution and recording plan
+for a final accepted candidate: the real command for every chapter, the
+assertion IDs each one produces, the CONTROLLED / LIVE / REPLAY labelling rule,
+the red controls to run alongside, and — explicitly — the behaviours that have no
+command today and are marked GAP rather than quietly assumed. It is preparation
+only: the runner is ready, the candidate is not.
+
 ## Feature map and live gate
 
 `features/README.md` is the maintained nine-feature map; read it before
