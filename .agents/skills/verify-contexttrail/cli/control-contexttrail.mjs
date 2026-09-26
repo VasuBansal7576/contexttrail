@@ -2171,13 +2171,42 @@ function classifyConsoleSet(entries, streamOrigin) {
  * CSS regression that lowers a foreground turns the assertion red instead of
  * being masked by a recorded constant.
  */
-async function compositedContrast(page, { limit = 400 } = {}) {
+async function contrastSurvey(page, { limit = 400 } = {}) {
   return page.evaluate((max) => {
+    // Any CSS colour syntax has to resolve to sRGB + alpha, because the browser
+    // now hands back `oklab()`/`color()` for relative and mixed colours — a
+    // `::placeholder` styled with color-mix comes back as oklab. Regex-parsing
+    // only rgb()/rgba() and then falling back to a *different* colour is how a
+    // 2.58:1 placeholder was measured as 16.83:1 in an earlier version of this
+    // survey, so anything unrecognised is resolved by the engine itself (canvas
+    // paint) and reported as unresolved rather than substituted.
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const cx = canvas.getContext("2d", { willReadFrequently: true });
+    const viaCanvas = (str) => {
+      try {
+        cx.clearRect(0, 0, 1, 1);
+        cx.fillStyle = "#000000";
+        cx.fillStyle = str;
+        const normalized = cx.fillStyle;
+        cx.clearRect(0, 0, 1, 1);
+        cx.fillStyle = normalized;
+        cx.fillRect(0, 0, 1, 1);
+        const d = cx.getImageData(0, 0, 1, 1).data;
+        if (!d || (d[0] === 0 && d[1] === 0 && d[2] === 0 && d[3] === 0)) return null;
+        return { r: d[0], g: d[1], b: d[2], a: d[3] / 255, resolvedFrom: normalized };
+      } catch {
+        return null;
+      }
+    };
     const parse = (c) => {
       const m = /rgba?\(([^)]+)\)/.exec(c || "");
-      if (!m) return null;
-      const parts = m[1].split(",").map((x) => parseFloat(x));
-      return { r: parts[0] ?? 0, g: parts[1] ?? 0, b: parts[2] ?? 0, a: parts.length > 3 ? parts[3] : 1 };
+      if (m) {
+        const parts = m[1].split(/[,\s/]+/).filter((x) => x !== "").map((x) => parseFloat(x));
+        return { r: parts[0] ?? 0, g: parts[1] ?? 0, b: parts[2] ?? 0, a: parts.length > 3 ? parts[3] : 1 };
+      }
+      if (!c) return null;
+      return viaCanvas(c);
     };
     const over = (fg, bg) => ({
       r: fg.r * fg.a + bg.r * (1 - fg.a),
@@ -2197,14 +2226,25 @@ async function compositedContrast(page, { limit = 400 } = {}) {
       const lb = lum(b);
       return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
     };
+    // A group `opacity` fades its text AND its own background together, so the
+    // accumulated product multiplies whatever alpha each layer carries. This is
+    // the difference between "grey text" and "grey text inside a 40% group".
+    const groupOpacity = (el) => {
+      let o = 1;
+      for (let n = el; n && n.nodeType === 1 && n !== document.documentElement; n = n.parentElement) {
+        const v = Number(getComputedStyle(n).opacity);
+        if (Number.isFinite(v)) o *= v;
+      }
+      return o;
+    };
     const effectiveBg = (el) => {
       const stack = [];
       let node = el;
       while (node && node.nodeType === 1) {
         const bg = parse(getComputedStyle(node).backgroundColor);
         if (bg && bg.a > 0) {
-          stack.push(bg);
-          if (bg.a >= 0.999) break;
+          stack.push({ ...bg, a: bg.a * groupOpacity(node) });
+          if (bg.a * groupOpacity(node) >= 0.999) break;
         }
         node = node.parentElement;
       }
@@ -2212,44 +2252,137 @@ async function compositedContrast(page, { limit = 400 } = {}) {
       for (let i = stack.length - 1; i >= 0; i--) base = over(stack[i], base);
       return base;
     };
+    const floorsFor = (st) => {
+      const size = parseFloat(st.fontSize) || 0;
+      const weight = Number(st.fontWeight) || 400;
+      const large = size >= 24 || (size >= 18.66 && weight >= 700);
+      return { size, weight, large, floor: large ? 3 : 4.5 };
+    };
+    const visible = (el) => {
+      const st = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return (
+        st.visibility !== "hidden" &&
+        st.display !== "none" &&
+        Number(st.opacity) > 0.01 &&
+        rect.width > 1 &&
+        rect.height > 1
+      );
+    };
+    const row = (kind, label, el, color, extra) => {
+      const st = getComputedStyle(el);
+      const bg = effectiveBg(el);
+      // The colour under test is the one supplied (a pseudo-element's own), and
+      // only if it cannot be resolved at all do we say so.
+      const fg = parse(color);
+      if (!fg) {
+        return {
+          kind,
+          label: String(label || "").slice(0, 60),
+          unresolved: true,
+          color: color || "(none)",
+          floor: 4.5,
+          ratio: 0,
+        };
+      }
+      const composited = over({ ...fg, a: fg.a * groupOpacity(el) }, bg);
+      const { size, large, floor } = floorsFor(st);
+      return {
+        kind,
+        label: String(label || "").slice(0, 60),
+        ratio: Number(ratio(composited, bg).toFixed(2)),
+        fontSize: size,
+        large,
+        floor,
+        color: color || st.color,
+        groupOpacity: Number(groupOpacity(el).toFixed(3)),
+        ...extra,
+      };
+    };
     const out = [];
+    const skipped = [];
+    // 1. every visible text node, as before
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node && out.length < max) {
+    for (let node = walker.nextNode(); node && out.length < max; ) {
       const text = (node.textContent || "").trim();
       const parent = node.parentElement;
-      if (text.length > 0 && parent) {
-        const st = getComputedStyle(parent);
-        const rect = parent.getBoundingClientRect();
-        const visible =
-          st.visibility !== "hidden" &&
-          st.display !== "none" &&
-          Number(st.opacity) > 0.1 &&
-          rect.width > 1 &&
-          rect.height > 1 &&
-          rect.bottom > 0 &&
-          rect.top < (window.innerHeight || 0) * 4;
-        if (visible) {
-          const fg = parse(st.color);
-          if (fg) {
-            const bg = effectiveBg(parent);
-            const composited = over(fg, bg);
-            const size = parseFloat(st.fontSize) || 0;
-            const weight = Number(st.fontWeight) || 400;
-            const large = size >= 24 || (size >= 18.66 && weight >= 700);
-            out.push({
-              text: text.slice(0, 60),
-              ratio: Number(ratio(composited, bg).toFixed(2)),
-              fontSize: size,
-              large,
-              floor: large ? 3 : 4.5,
-            });
-          }
+      if (text && parent && visible(parent) && !parent.closest("[aria-hidden=\'true\']")) {
+        // The same exemption the control pass applies, or one surface would be
+        // reported twice: a label inside a disabled control is exempt under WCAG
+        // 1.4.3 as a text node too, and calling it a finding would be wrong.
+        const inactive = parent.closest(
+          "button[disabled], [aria-disabled=\'true\'], fieldset[disabled], option[disabled]",
+        );
+        if (inactive) {
+          skipped.push({
+            kind: "text-node",
+            label: text.slice(0, 40),
+            reason: `inside an inactive control (${inactive.tagName.toLowerCase()}${inactive.id ? "#" + inactive.id : ""}): WCAG 1.4.3 exempts inactive components`,
+          });
+        } else {
+          const r = row("text-node", text, parent, getComputedStyle(parent).color, {});
+          if (r) out.push(r);
         }
       }
       node = walker.nextNode();
     }
-    return out;
+    // 2. form controls: the value text a user can see, and the placeholder an
+    //    EMPTY control shows. A placeholder on a filled control is not rendered,
+    //    so measuring it there would be a green that proves nothing.
+    for (const el of document.querySelectorAll("input,textarea,select,button")) {
+      if (!visible(el)) continue;
+      const st = getComputedStyle(el);
+      const tag = el.tagName.toLowerCase();
+      if (el.disabled || el.getAttribute("aria-disabled") === "true") {
+        skipped.push({ kind: `${tag}-value`, label: el.id || tag, reason: "disabled: WCAG 1.4.3 exempts inactive components" });
+        continue;
+      }
+      if (el.closest("[aria-hidden=\'true\']")) {
+        skipped.push({ kind: `${tag}-value`, label: el.id || tag, reason: "aria-hidden" });
+        continue;
+      }
+      if (tag === "select") {
+        skipped.push({ kind: "select-value", label: el.id || "select", reason: "option text is rendered by the UA, not measurable in the light DOM" });
+      } else if (tag !== "button") {
+        const r = row(`${tag}-value`, el.id || tag, el, st.color, { focused: document.activeElement === el });
+        if (r) out.push(r);
+      }
+      const placeholderText = el.getAttribute("placeholder") || "";
+      if (placeholderText) {
+        const empty = tag === "input" || tag === "textarea" ? String(el.value ?? "").length === 0 : false;
+        if (empty) {
+          const ph = getComputedStyle(el, "::placeholder");
+          const r = row(
+            `${tag}::placeholder`,
+            placeholderText,
+            el,
+            ph.color,
+            { pseudo: "::placeholder", placeholderVisible: true },
+          );
+          if (r) out.push(r);
+        } else {
+          skipped.push({
+            kind: `${tag}::placeholder`,
+            label: placeholderText.slice(0, 30),
+            reason: "control has a value, so the placeholder is not rendered",
+          });
+        }
+      }
+    }
+    return {
+      rows: out.slice(0, max),
+      skipped: skipped.slice(0, 40),
+      // Stated so the survey can never be read as a whole-AA claim: these are the
+      // things it does NOT measure.
+      notCovered: [
+        "background images and gradients behind text",
+        "canvas, SVG fills and icon strokes",
+        "text in shadow DOM or inside a web component",
+        "content scrolled out of the measured region",
+        "focus/hover/active state colours of controls",
+        "anything outside this screen: other viewports and panels are driven separately",
+      ],
+    };
   }, limit);
 }
 
@@ -4927,17 +5060,51 @@ const DRIVE_CASES = {
 
     // Composited contrast on this screen's own surface. No stored constant: the
     // ratio is computed from the rendered colours, so a lowered foreground is
-    // caught here rather than excused by a previous measurement.
-    const contrastRows = await compositedContrast(page);
-    writeJson(path.join(driveDir, "contrast-composited.json"), { viewport, rows: contrastRows });
+    // caught here rather than excused by a previous measurement. The survey
+    // covers visible text nodes AND form-control value text AND the placeholder
+    // an empty control renders; a text-node-only survey silently skipped exactly
+    // the case an independent design review found at 2.58:1.
+    const survey = await contrastSurvey(page);
+    const contrastRows = survey.rows;
+    writeJson(path.join(driveDir, "contrast-composited.json"), {
+      viewport,
+      rows: contrastRows,
+      skipped: survey.skipped,
+      notCovered: survey.notCovered,
+    });
+    rec.note(
+      "a11y.contrast-survey-scope",
+      JSON.stringify({
+        measured: contrastRows.length,
+        byKind: contrastRows.reduce((acc, r) => ((acc[r.kind] = (acc[r.kind] || 0) + 1), acc), {}),
+        exempted: survey.skipped.length,
+        notCovered: survey.notCovered,
+        claim: "text nodes + form-control value text + rendered ::placeholder, on this screen only; NOT a whole-AA claim",
+      }),
+    );
     const belowFloor = contrastRows.filter((r) => r.ratio < r.floor);
     rec.check(
       "a11y.contrast-meets-floor",
       contrastRows.length > 0 && belowFloor.length === 0,
       belowFloor.length === 0
-        ? `${contrastRows.length} visible text node(s), lowest ${Math.min(...contrastRows.map((r) => r.ratio)).toFixed(2)}:1`
-        : `${belowFloor.length}/${contrastRows.length} below floor: ${JSON.stringify(belowFloor.slice(0, 3))}`,
+        ? `${contrastRows.length} measured surface(s), lowest ${Math.min(...contrastRows.map((r) => r.ratio)).toFixed(2)}:1`
+        : `${belowFloor.length}/${contrastRows.length} below floor: ${JSON.stringify(belowFloor.slice(0, 4))}`,
     );
+    // The form-control subset on its own, so a placeholder failure is
+    // attributable to the control and not buried in a text-node count.
+    const controlRows = contrastRows.filter((r) => r.kind !== "text-node");
+    if (controlRows.length > 0) {
+      const controlLow = controlRows.filter((r) => r.ratio < r.floor);
+      rec.check(
+        "a11y.form-control-contrast-meets-floor",
+        controlLow.length === 0,
+        controlLow.length === 0
+          ? `${controlRows.length} form surface(s), lowest ${Math.min(...controlRows.map((r) => r.ratio)).toFixed(2)}:1 (${controlRows.map((r) => r.kind).join(", ")})`
+          : `${controlLow.length}/${controlRows.length} form surface(s) below floor: ${JSON.stringify(controlLow.slice(0, 4))}`,
+      );
+    } else {
+      rec.note("a11y.form-control-contrast-meets-floor", "no enabled form control rendered on this screen");
+    }
 
     // Reduced motion is a rendered outcome, not a preference read: emulate it,
     // then require the screen to be settled and its primary control usable.
