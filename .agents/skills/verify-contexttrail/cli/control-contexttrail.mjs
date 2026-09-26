@@ -2105,21 +2105,70 @@ function verifyRetainedStreams(expected, read) {
   });
 }
 
-/** Files the run PLANNED to retain, projected to expectation fields only. */
+/**
+ * Files the run PLANNED to retain, projected to expectation fields only.
+ *
+ * Returns expectations AND the problems found, because a missing or malformed plan
+ * must not read as "nothing was planned". Every stream-ownership drive writes a plan;
+ * if one is absent or unreadable, that is a broken seal, not an empty one. A missing
+ * plan is reported separately from a schema error, and a plan whose entry is
+ * missing the fields the validator needs is a schema error rather than a silently
+ * skipped entry.
+ */
 function plannedRetainedStreams(runId) {
   const out = [];
+  const problems = [];
   const drivesDir = path.join(evidenceDir(runId), "drives");
-  if (!fs.existsSync(drivesDir)) return out;
+  if (!fs.existsSync(drivesDir)) {
+    problems.push({ drive: "(none)", why: "evidence has no drives/ directory at all" });
+    return { out, problems };
+  }
   for (const name of fs.readdirSync(drivesDir)) {
     const p = path.join(drivesDir, name, "retained-streams.json");
-    if (!fs.existsSync(p)) continue;
-    try {
-      for (const r of JSON.parse(fs.readFileSync(p, "utf8")).streams ?? []) {
-        out.push({ drive: name, file: r.file, bytes: r.bytes, sha256: r.sha256, generator: r.generator });
+    if (!fs.existsSync(p)) {
+      // A drive that wrote an ownership plan naming retained streams, but no
+      // retained-streams.json, has LOST its record. Skipping it silently would
+      // make a deleted plan seal as a pass, which is the failure 041 named: the
+      // expectation is known independently, from the plan written before effects.
+      const planPath = path.join(drivesDir, name, "ownership-plan.json");
+      if (fs.existsSync(planPath)) {
+        try {
+          const plan = JSON.parse(fs.readFileSync(planPath, "utf8"));
+          const declared = plan?.retainedStreams ?? plan?.streamsConsumed ?? null;
+          if (Array.isArray(declared) && declared.length > 0) {
+            problems.push({
+              drive: name,
+              why: `ownership-plan.json declares ${declared.length} retained stream(s) but retained-streams.json is missing`,
+            });
+          }
+        } catch (err) {
+          problems.push({ drive: name, why: `ownership-plan.json is unreadable: ${err.message}` });
+        }
       }
-    } catch { /* a drive that never wrote it contributes nothing planned */ }
+      continue; // a drive that never planned streams
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+    } catch (err) {
+      problems.push({ drive: name, why: `retained-streams.json is unreadable: ${err.message}` });
+      continue;
+    }
+    if (!Array.isArray(parsed.streams) || parsed.streams.length === 0) {
+      problems.push({ drive: name, why: "retained-streams.json lists no streams" });
+      continue;
+    }
+    for (const r of parsed.streams) {
+      // Only the expectation. The file also stores what the drive observed at the
+      // time; spreading those in would let a stale verdict stand in for a check.
+      if (!r || typeof r.file !== "string" || !Number.isInteger(r.bytes) || !/^[0-9a-f]{64}$/.test(String(r.sha256))) {
+        problems.push({ drive: name, why: `stream entry missing file/bytes/sha256: ${JSON.stringify(r)}` });
+        continue;
+      }
+      out.push({ drive: name, file: r.file, bytes: r.bytes, sha256: r.sha256, generator: r.generator ?? null });
+    }
   }
-  return out;
+  return { out, problems };
 }
 
 /* ------------------------- fault script syntax gate --------------------- */
@@ -6596,12 +6645,14 @@ async function evidence() {
   // S1: every stream this run PLANNED to retain must still be the captured bytes
   // BEFORE an intact seal is written. A seal that hashes a missing or corrupted
   // retained file is a green hiding missing evidence.
-  const plannedStreams = plannedRetainedStreams(runId);
+  const { out: plannedStreams, problems: planProblems } = plannedRetainedStreams(runId);
   const retainedCheck = verifyRetainedStreams(plannedStreams, (r) =>
     fs.readFileSync(path.join(dir, "drives", r.drive, r.file)),
   );
   const retainedBad = retainedCheck.filter((r) => !r.matches);
-  const retainedOk = plannedStreams.length === 0 || retainedBad.length === 0;
+  // A missing or malformed plan is a BROKEN seal, not an empty one: every
+  // stream-ownership drive writes a plan, so "nothing planned" must not be a pass.
+  const retainedOk = planProblems.length === 0 && retainedBad.length === 0;
 
   if (fs.existsSync(manifestPathOut) && !flags.regenerate) {
     fail(
@@ -6788,6 +6839,7 @@ async function evidence() {
     retainedStreams: {
       planned: plannedStreams.length,
       ok: retainedOk,
+      planProblems,
       streams: retainedCheck.map((r) => ({
         drive: r.drive,
         file: r.file,
@@ -6857,9 +6909,14 @@ async function evidence() {
   if (!retainedOk) {
     fail(
       `sealed ${runId} with FAILED retained-stream integrity: ` +
-        retainedBad
-          .map((r) => `${r.drive}/${r.file} expected ${r.bytes}B ${String(r.sha256).slice(0, 12)}, got ${r.actualBytes ?? "nothing"}B ${String(r.actualSha256 ?? "-").slice(0, 12)} (${r.why})`)
-          .join("; "),
+        [
+          ...planProblems.map((x) => `${x.drive}: ${x.why}`),
+          ...retainedBad.map(
+            (r) =>
+              `${r.drive}/${r.file} expected ${r.bytes}B ${String(r.sha256).slice(0, 12)}, ` +
+              `got ${r.actualBytes ?? "nothing"}B ${String(r.actualSha256 ?? "-").slice(0, 12)} (${r.why})`,
+          ),
+        ].join("; "),
     );
   }
 }
