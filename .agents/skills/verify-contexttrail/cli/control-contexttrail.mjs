@@ -2934,6 +2934,9 @@ async function drive(opts = {}) {
     mode: flags.mode ?? null,
     view: flags.view ?? null,
     fault,
+    // Whether the injected fault actually sabotaged anything, as the page itself
+    // reported it. `null` on a run with no fault.
+    faultFired,
     live,
     tier,
     fixture: fixtureUsed,
@@ -4546,6 +4549,7 @@ async function evidence() {
         input: d.input ?? null,
         liveManifestSha256: d.liveManifestSha256 ?? null,
         fault: d.fault,
+        faultFired: d.faultFired ?? null,
         live: d.live,
         outcome: d.outcome,
         complete: d.complete === true,
