@@ -49,7 +49,7 @@ export function connectorInfo(occurrence: JsonRecord): ConnectorInfo {
     return {
       kind: "same",
       dashed: false,
-      label: "Same context · compared",
+      label: "Same context as previous · compared",
       tone: "ok",
       fromId,
     };
@@ -58,7 +58,7 @@ export function connectorInfo(occurrence: JsonRecord): ConnectorInfo {
     return {
       kind: "different",
       dashed: false,
-      label: "Different context · compared",
+      label: "Different context from previous · compared",
       tone: "conflict",
       fromId,
     };
@@ -67,7 +67,7 @@ export function connectorInfo(occurrence: JsonRecord): ConnectorInfo {
     return {
       kind: "uncertain",
       dashed: true,
-      label: "Context uncertain — not directly compared",
+      label: "Comparison inconclusive — performed but not established",
       tone: "neutral",
       fromId,
     };
@@ -116,6 +116,34 @@ export function divergenceEndpoints(result: JsonRecord | null): DivergenceEndpoi
   };
 }
 
+export interface ViewerEntry {
+  note: string | null;
+  pairId: string | null;
+}
+
+/**
+ * Derive the viewer's pair state from the CURRENT occurrence ID (U3): the
+ * note and paired endpoint follow every navigation and clear outside the
+ * divergence endpoints, so ordinary Previous/Next never shows stale pair
+ * attribution.
+ */
+export function viewerEntryFor(id: string, endpoints: DivergenceEndpoints | null): ViewerEntry {
+  if (!endpoints) return { note: null, pairId: null };
+  if (id === endpoints.toId) {
+    return {
+      note: "Observed divergence pair — later occurrence (first observed divergence).",
+      pairId: endpoints.fromId,
+    };
+  }
+  if (id === endpoints.fromId) {
+    return {
+      note: "Observed divergence pair — earlier occurrence.",
+      pairId: endpoints.toId,
+    };
+  }
+  return { note: null, pairId: null };
+}
+
 export function comparisonCoverageText(result: JsonRecord | null): string | null {
   if (!result) return null;
   const coverage = rec(result, "comparisonCoverage");
@@ -127,10 +155,17 @@ export function comparisonCoverageText(result: JsonRecord | null): string | null
   if (eligible === 0 && selected === 0 && (compared === 0 || compared === null)) {
     return "No occurrences were selected for context comparison";
   }
-  const parts: string[] = [];
+  // Occurrence counts are not pair counts: "3 pairs compared across 4
+  // selected of 5 eligible occurrences", never "3 of 4 pairs".
   if (compared !== null && selected !== null) {
-    parts.push(`${compared} of ${selected} selected pairs compared`);
-  } else if (compared !== null) {
+    const pairs = `${compared} ${compared === 1 ? "pair" : "pairs"} compared`;
+    if (eligible !== null) {
+      return `${pairs} across ${selected} selected of ${eligible} eligible occurrences`;
+    }
+    return `${pairs} across ${selected} selected occurrences`;
+  }
+  const parts: string[] = [];
+  if (compared !== null) {
     parts.push(`${compared} ${compared === 1 ? "pair" : "pairs"} compared`);
   } else if (selected !== null) {
     parts.push(`${selected} selected for comparison`);
@@ -162,7 +197,37 @@ export function identityBasis(occurrence: JsonRecord): IdentityBasis | null {
   return null;
 }
 
-/** Core occurrences, visual leads and contextual results stay visibly apart. */
+/** Search/news engines never carry visual identity; null identity there is contextual. */
+export function isSearchEngine(engine: string | null): boolean {
+  if (!engine) return false;
+  const name = engine.toLowerCase();
+  return name.includes("search") || name.includes("news") || name === "expansion";
+}
+
+/**
+ * Arriving-evidence label for the investigation progress view (U6): null
+ * identity on a search/news engine is a contextual result, never a visual
+ * lead. Lens candidates without identity yet stay conservative leads.
+ */
+export function progressRelationshipNote(evidence: JsonRecord): {
+  label: string;
+  tone: "info" | "neutral";
+} {
+  const rel = (str(evidence, "mediaRelationship") ?? str(evidence, "relationship") ?? "").toUpperCase();
+  if (rel.includes("EXACT")) return { label: "Exact match · reported by Google Lens", tone: "info" };
+  if (rel.includes("NEAR")) return { label: "Near match · locally verified", tone: "info" };
+  if (!rel && isSearchEngine(str(evidence, "engine"))) {
+    return { label: "Contextual result · not same-media evidence", tone: "neutral" };
+  }
+  return { label: "Visual lead · not verified", tone: "neutral" };
+}
+
+/**
+ * Core occurrences, visual leads and contextual results stay visibly apart,
+ * independent of chronological grouping: the backend's explicit group wins,
+ * otherwise a null identity on a search/news engine is contextual, and any
+ * other unverified candidate stays a visual lead.
+ */
 export function occurrenceRole(
   occurrence: JsonRecord,
   group: "dated" | "supporting" | "contextual" | "unknown" | null = null,
@@ -171,10 +236,10 @@ export function occurrenceRole(
   if (rel.includes("EXACT") || rel.includes("NEAR")) return "Core occurrence";
   if (rel.includes("VISUAL_LEAD") || rel.includes("LEAD")) return "Visual lead";
   if (rel !== "") return "Contextual result";
-  // The contract leaves mediaRelationship null for contextual web/news
-  // evidence; only that group may claim the contextual label.
-  if (group === "contextual") return "Contextual result";
-  return null;
+  if (group === "contextual" || isSearchEngine(str(occurrence, "engine"))) {
+    return "Contextual result";
+  }
+  return "Visual lead";
 }
 
 export function reportingOriginLabel(occurrence: JsonRecord): string {
@@ -256,7 +321,13 @@ export function splitCompositeExcerpt(raw: string | null): CompositeExcerpt {
     }
   }
   const body = rest.trim() || null;
-  if (title === null && snippet === null) return { title: null, snippet: null, body: raw };
+  if (title === null && snippet === null) {
+    // A bare "Title:" line with nothing extracted behind it is not an
+    // excerpt — the title already heads the card.
+    const bareTitle = raw.match(/^Title:([^\n]*)$/);
+    if (bareTitle) return { title: bareTitle[1].trim() || null, snippet: null, body: null };
+    return { title: null, snippet: null, body: raw };
+  }
   return { title, snippet, body };
 }
 

@@ -40,6 +40,7 @@ import {
   occurrenceRole,
   reportingCounts,
   reportingOriginLabel,
+  viewerEntryFor,
 } from "./evidence-display";
 import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge } from "@/components/ui";
@@ -141,13 +142,6 @@ export default function ResultView({
     };
   }, [endpoints, idToTitle]);
 
-  const pairFor = (id: string): string | null => {
-    if (!endpoints) return null;
-    if (id === endpoints.fromId) return endpoints.toId;
-    if (id === endpoints.toId) return endpoints.fromId;
-    return null;
-  };
-
   /** Viewer position → evidence group (matches viewerItems order). */
   const groupOfIndex = (i: number): "dated" | "supporting" | "contextual" | "unknown" => {
     if (i < groups.dated.length) return "dated";
@@ -158,22 +152,17 @@ export default function ResultView({
     return "unknown";
   };
 
-  const openEvidenceById = (id: string, entry?: { kind: "takeaway"; index: number } | { kind: "divergence" }) => {
+  const openEvidenceById = (id: string, entry?: { kind: "takeaway"; index: number }) => {
     triggerRef.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // Pair state always derives from the opened ID (U3); a takeaway entry
+    // only overrides the explanatory note.
+    const derived = viewerEntryFor(id, endpoints);
+    setViewerNote(
+      entry?.kind === "takeaway" ? `Opened from key takeaway ${entry.index + 1}.` : derived.note,
+    );
+    setViewerPairId(derived.pairId);
     const idx = viewerIdList.indexOf(id);
-    if (entry?.kind === "takeaway") {
-      setViewerNote(`Opened from key takeaway ${entry.index + 1}.`);
-    } else if (entry?.kind === "divergence") {
-      setViewerNote(
-        id === endpoints?.toId
-          ? "Observed divergence pair — later occurrence (first observed divergence)."
-          : "Observed divergence pair — earlier occurrence.",
-      );
-    } else {
-      setViewerNote(null);
-    }
-    setViewerPairId(pairFor(id));
     if (idx >= 0) {
       setViewerIndex(idx);
     } else {
@@ -182,16 +171,19 @@ export default function ResultView({
     }
   };
 
+  /** Ordinary viewer navigation re-derives pair state every time (U3). */
+  const navigateViewer = (idx: number) => {
+    if (idx < 0 || idx >= viewerIdList.length) return;
+    const derived = viewerEntryFor(viewerIdList[idx], endpoints);
+    setViewerNote(derived.note);
+    setViewerPairId(derived.pairId);
+    setViewerIndex(idx);
+  };
+
   const jumpToPair = (id: string) => {
     const idx = viewerIdList.indexOf(id);
     if (idx < 0) return;
-    setViewerNote(
-      id === endpoints?.toId
-        ? "Observed divergence pair — later occurrence (first observed divergence)."
-        : "Observed divergence pair — earlier occurrence.",
-    );
-    setViewerPairId(pairFor(id));
-    setViewerIndex(idx);
+    navigateViewer(idx);
   };
 
   const closeViewer = () => setViewerIndex(null);
@@ -223,9 +215,9 @@ export default function ResultView({
 
   const panelTone =
     status === "CONTEXT_CONFLICT"
-      ? "bg-coral/10 ring-coral/30 text-coral"
+      ? "bg-coral/10 ring-coral/30 text-coral-ink"
       : status === "NO_CONFLICT_FOUND"
-        ? "bg-evidence/10 ring-evidence/30 text-evidence"
+        ? "bg-evidence/10 ring-evidence/30 text-evidence-ink"
         : "bg-white/70 ring-ink/10 text-ink";
 
   return (
@@ -263,7 +255,7 @@ export default function ResultView({
                 "min-h-[44px] border-b-2 px-4 text-sm font-medium transition",
                 tab === t.id
                   ? "border-ink text-ink"
-                  : "border-transparent text-ink/55 hover:text-ink",
+                  : "border-transparent text-ink-soft hover:text-ink",
               )}
             >
               {t.label}
@@ -313,16 +305,16 @@ export default function ResultView({
               {/* Metrics: at most three, unknowns explicit. */}
               <dl className="mt-6 grid gap-4 sm:grid-cols-3">
                 <div className="rounded-xl bg-white/70 p-5 ring-1 ring-ink/10">
-                  <dt className="text-sm text-ink/60">Source domains</dt>
+                  <dt className="text-sm text-ink-soft">Source domains</dt>
                   <dd className="mt-1 font-serif text-4xl">
                     {metrics.sourceDomains ?? "—"}
                   </dd>
                   {metrics.sourceDomains === null ? (
-                    <dd className="text-xs text-ink/55">Not reported</dd>
+                    <dd className="text-xs text-ink-soft">Not reported</dd>
                   ) : null}
                 </div>
                 <div className="rounded-xl bg-white/70 p-5 ring-1 ring-ink/10">
-                  <dt className="text-sm text-ink/60">Observed contexts</dt>
+                  <dt className="text-sm text-ink-soft">Observed contexts</dt>
                   <dd className="mt-1 font-serif text-4xl">
                     {metrics.observedContexts === "unresolved" || metrics.observedContexts === null
                       ? "Unresolved"
@@ -330,21 +322,21 @@ export default function ResultView({
                   </dd>
                 </div>
                 <div className="rounded-xl bg-white/70 p-5 ring-1 ring-ink/10">
-                  <dt className="text-sm text-ink/60">Earliest observed</dt>
+                  <dt className="text-sm text-ink-soft">Earliest observed</dt>
                   <dd className="mt-1 font-serif text-4xl">
                     {metrics.earliest
                       ? (occurrenceDate(metrics.earliest) ?? "Date unknown")
                       : "Date unknown"}
                   </dd>
                   {metrics.earliest && occurrenceDatePrecision(metrics.earliest) ? (
-                    <dd className="text-xs text-ink/55">{occurrenceDatePrecision(metrics.earliest)}</dd>
+                    <dd className="text-xs text-ink-soft">{occurrenceDatePrecision(metrics.earliest)}</dd>
                   ) : null}
                 </div>
               </dl>
 
               {takeaways.length > 0 ? (
                 <section aria-label="Key takeaways" className="mt-8">
-                  <h2 className="text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                  <h2 className="text-sm font-semibold tracking-wide text-ink-soft uppercase">
                     Key takeaways
                   </h2>
                   <ol className="mt-3 space-y-3">
@@ -358,7 +350,7 @@ export default function ResultView({
                             {t.text}
                           </p>
                           {t.evidenceIds.length === 0 ? (
-                            <p className="mt-1 pl-7 text-xs text-ink/55">
+                            <p className="mt-1 pl-7 text-xs text-ink-soft">
                               No supporting evidence was linked to this takeaway in the result.
                             </p>
                           ) : null}
@@ -367,7 +359,7 @@ export default function ResultView({
                           <button
                             type="button"
                             onClick={() => openEvidenceById(t.evidenceIds[0], { kind: "takeaway", index: i })}
-                            className="min-h-[36px] shrink-0 text-sm font-medium text-signal-ink underline underline-offset-2"
+                            className="min-h-[44px] shrink-0 text-sm font-medium text-signal-ink underline underline-offset-2"
                           >
                             View evidence →
                           </button>
@@ -406,7 +398,7 @@ export default function ResultView({
                   className="w-full rounded-xl object-cover ring-1 ring-ink/10"
                 />
               ) : restoredNotice ? (
-                <p className="rounded-xl bg-ink/5 p-6 text-sm leading-relaxed text-ink/60 ring-1 ring-ink/10">
+                <p className="rounded-xl bg-ink/5 p-6 text-sm leading-relaxed text-ink-soft ring-1 ring-ink/10">
                   Submitted image unavailable after refresh — uploaded images are never stored.
                 </p>
               ) : null}
@@ -416,7 +408,7 @@ export default function ResultView({
                   “{claim}”
                 </p>
               ) : (
-                <p className="mt-2 text-sm text-ink/55">No claim submitted — trace mode.</p>
+                <p className="mt-2 text-sm text-ink-soft">No claim submitted — trace mode.</p>
               )}
             </aside>
           </div>
@@ -429,7 +421,8 @@ export default function ResultView({
               coverageText={coverageText}
               divergence={divergence}
               highlightId={highlightId}
-              onInspect={(id) => openEvidenceById(id, divergence && (id === divergence.endpoints.fromId || id === divergence.endpoints.toId) ? { kind: "divergence" } : undefined)}
+              claimMode={mode === "claim-check"}
+              onInspect={(id) => openEvidenceById(id)}
             />
           </div>
         )}
@@ -445,7 +438,7 @@ export default function ResultView({
                 not independent verification.
               </p>
               {viewerItems.length === 0 ? (
-                <p className="mt-6 rounded-xl bg-white/70 p-8 text-center text-sm text-ink/60 ring-1 ring-ink/10">
+                <p className="mt-6 rounded-xl bg-white/70 p-8 text-center text-sm text-ink-soft ring-1 ring-ink/10">
                   No sources were retrieved.
                 </p>
               ) : (
@@ -468,7 +461,7 @@ export default function ResultView({
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium" title={title}>{title}</p>
-                            <p className="text-sm text-ink/60">
+                            <p className="text-sm text-ink-soft">
                               {domain ?? "Unknown domain"}
                               {occurrenceDate(o) ? ` · ${occurrenceDate(o)}` : " · date unknown"}
                               {dateSrc ? ` · ${dateSrc}` : ""}
@@ -481,7 +474,7 @@ export default function ResultView({
                                 </Badge>
                               ) : null}
                             </div>
-                            <p className="mt-2 text-xs text-ink/55">
+                            <p className="mt-2 text-xs text-ink-soft">
                               {identity ? `Match basis: ${identity.basis}. ` : "Match basis not reported. "}
                               {reportingOriginLabel(o)}
                             </p>
@@ -492,7 +485,7 @@ export default function ResultView({
                                 href={url}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex min-h-[36px] items-center text-sm font-medium text-signal-ink underline underline-offset-2"
+                                className="inline-flex min-h-[44px] items-center text-sm font-medium text-signal-ink underline underline-offset-2"
                               >
                                 Open source ↗
                               </a>
@@ -500,7 +493,7 @@ export default function ResultView({
                             <button
                               type="button"
                               onClick={() => openEvidenceById(id)}
-                              className="inline-flex min-h-[36px] items-center text-sm font-medium text-ink underline underline-offset-2"
+                              className="inline-flex min-h-[44px] items-center text-sm font-medium text-ink underline underline-offset-2"
                             >
                               Inspect →
                             </button>
@@ -525,11 +518,11 @@ export default function ResultView({
                 result. No accuracy percentages or credibility scores exist in v1.
               </p>
 
-              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                 Retrieval via SerpApi
               </h3>
               {searchCounts.length === 0 ? (
-                <p className="mt-2 text-sm text-ink/60">
+                <p className="mt-2 text-sm text-ink-soft">
                   No retrieval counts were preserved with this result.
                 </p>
               ) : (
@@ -542,14 +535,14 @@ export default function ResultView({
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-2 text-xs text-ink/55">
+                  <p className="mt-2 text-xs text-ink-soft">
                     Counts are retrieved results from this investigation. Per-request attempts and
                     search budgets are not part of the result payload.
                   </p>
                 </>
               )}
 
-              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                 Comparison coverage
               </h3>
               <p className="mt-2 text-[15px] text-ink/75">
@@ -558,11 +551,11 @@ export default function ResultView({
                   : "Comparison coverage was not reported for this investigation."}
               </p>
 
-              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                 Reporting origins
               </h3>
               {origins.groups === null && origins.unresolved === null ? (
-                <p className="mt-2 text-sm text-ink/60">
+                <p className="mt-2 text-sm text-ink-soft">
                   Reporting-origin detail was not included in this result.
                 </p>
               ) : (
@@ -574,11 +567,11 @@ export default function ResultView({
                 </p>
               )}
 
-              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                 Pipeline stages
               </h3>
               {stages.length === 0 ? (
-                <p className="mt-2 text-sm text-ink/60">
+                <p className="mt-2 text-sm text-ink-soft">
                   No stage telemetry was preserved with this result.
                 </p>
               ) : (
@@ -587,7 +580,7 @@ export default function ResultView({
                     <li key={s.name} className="text-ink/75">
                       {s.status === "completed" ? "✓" : s.status === "running" ? "●" : "○"}{" "}
                       {s.label}
-                      {s.detail ? <span className="text-ink/55"> — {s.detail}</span> : null}
+                      {s.detail ? <span className="text-ink-soft"> — {s.detail}</span> : null}
                     </li>
                   ))}
                 </ul>
@@ -595,7 +588,7 @@ export default function ResultView({
 
               {limitations.length > 0 ? (
                 <>
-                  <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                  <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink-soft uppercase">
                     Evidence limits
                   </h3>
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] text-ink/75">
@@ -611,7 +604,7 @@ export default function ResultView({
       </main>
 
       <footer className="border-t border-ink/10">
-        <p className="mx-auto max-w-[1280px] px-5 py-6 text-xs text-ink/50 sm:px-8">
+        <p className="mx-auto max-w-[1280px] px-5 py-6 text-xs text-ink-soft sm:px-8">
           Investigation results reflect retrieved web evidence only.{" "}
           <Link href="/" className="underline underline-offset-2">Back to home</Link>
         </p>
@@ -628,7 +621,7 @@ export default function ResultView({
         pairId={viewerPairId}
         onJumpToId={jumpToPair}
         onClose={closeViewer}
-        onNavigate={setViewerIndex}
+        onNavigate={navigateViewer}
       />
     </div>
   );

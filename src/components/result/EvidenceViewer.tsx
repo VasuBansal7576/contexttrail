@@ -65,13 +65,13 @@ function TechDetails({ occurrence }: { occurrence: JsonRecord }) {
   if (visible.length === 0) return null;
   return (
     <details className="mt-4 rounded-lg bg-white/5 px-4 py-3 ring-1 ring-white/10">
-      <summary className="min-h-[32px] cursor-pointer text-sm font-medium text-white/80">
+      <summary className="min-h-[44px] cursor-pointer text-sm font-medium text-white/80">
         Technical details
       </summary>
       <dl className="mt-2 space-y-1 text-xs text-white/60">
         {visible.map(([label, value]) => (
           <div key={label} className="flex gap-2">
-            <dt className="shrink-0 font-medium text-white/45">{label}:</dt>
+            <dt className="shrink-0 font-medium text-white/60">{label}:</dt>
             <dd className="break-all">{value}</dd>
           </div>
         ))}
@@ -271,7 +271,7 @@ export default function EvidenceViewer({
                     <button
                       type="button"
                       onClick={() => onJumpToId(pairId)}
-                      className="mt-2 inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-white underline underline-offset-2"
+                      className="mt-2 inline-flex min-h-[44px] items-center gap-1 text-sm font-medium text-white underline underline-offset-2"
                     >
                       View paired divergence occurrence <span aria-hidden="true">→</span>
                     </button>
@@ -287,7 +287,7 @@ export default function EvidenceViewer({
                       </blockquote>
                       {showFullText ? (
                         <details className="mt-2 pl-3">
-                          <summary className="min-h-[32px] cursor-pointer text-sm text-white/70 underline underline-offset-2">
+                          <summary className="min-h-[44px] cursor-pointer text-sm text-white/70 underline underline-offset-2">
                             Full retrieved text
                           </summary>
                           <p className="mt-1 text-sm leading-relaxed break-words text-white/70">
@@ -324,7 +324,7 @@ export default function EvidenceViewer({
                   )}
 
                   <TechDetails occurrence={occurrence} />
-                  <p className="mt-3 text-xs text-white/40">Evidence ID: {occurrenceId(occurrence, `#${index}`)}</p>
+                  <p className="mt-3 text-xs text-white/60">Evidence ID: {occurrenceId(occurrence, `#${index}`)}</p>
                 </div>
               </div>
             ) : (

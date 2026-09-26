@@ -10,6 +10,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Badge, SectionHeading } from "@/components/ui";
 
@@ -25,15 +26,23 @@ const CARDS = [
 
 function HeroCards() {
   const reduce = useReducedMotion();
+  // Mounted flag (U2): SSR and reduced-motion render the visible final
+  // state; the entrance animation applies only after mount with motion
+  // allowed, so reduced-motion users always reach opacity 1.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const animate = mounted && !reduce;
   return (
     <figure aria-labelledby="hero-illustration-caption" className="relative">
       <div className="grid gap-4 sm:grid-cols-3 sm:gap-0">
         {CARDS.map((card, i) => (
           <motion.div
             key={card.label}
-            initial={reduce ? false : { opacity: 0, y: 24, rotate: 0 }}
-            animate={reduce ? {} : { opacity: 1, y: 0, rotate: i === 1 ? 1.5 : i === 2 ? -1.5 : 0 }}
-            transition={{ delay: 0.15 * i, duration: 0.5 }}
+            initial={animate ? { opacity: 0, y: 24, rotate: 0 } : false}
+            animate={{ opacity: 1, y: 0, rotate: i === 1 ? 1.5 : i === 2 ? -1.5 : 0 }}
+            transition={{ delay: animate ? 0.15 * i : 0, duration: animate ? 0.5 : 0 }}
             className={
               "rounded-xl bg-paper p-4 text-ink shadow-2xl ring-1 ring-black/10 " +
               (i > 0 ? "sm:-ml-6 sm:mt-8 " : "")
@@ -48,9 +57,9 @@ function HeroCards() {
             />
             <figcaption className="mt-3">
               <p className="text-sm font-semibold">
-                {card.label} <span className="font-normal text-ink/55">· {card.year}</span>
+                {card.label} <span className="font-normal text-ink-soft">· {card.year}</span>
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-ink/60">{card.note}</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-soft">{card.note}</p>
             </figcaption>
           </motion.div>
         ))}
@@ -60,7 +69,7 @@ function HeroCards() {
           Illustrative example — not retrieved evidence
         </Badge>
       </p>
-      <p className="mt-2 text-right text-xs text-white/45">
+      <p className="mt-2 text-right text-xs text-white/60">
         Photo: Earthrise, Apollo 8, 24 Dec 1968 — NASA (public domain).
       </p>
     </figure>

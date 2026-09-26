@@ -69,7 +69,7 @@ export default function UploadForm({
           <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-ink" />
           ContextTrail
         </p>
-        <Link href="/" className="text-sm text-ink/60 hover:text-ink">
+        <Link href="/" className="text-sm text-ink-soft hover:text-ink">
           ← Back
         </Link>
       </header>
@@ -134,7 +134,7 @@ export default function UploadForm({
                   e.target.value = "";
                 }}
               />
-              <p id="ct-formats" className="mt-2 text-sm text-ink/55">
+              <p id="ct-formats" className="mt-2 text-sm text-ink-soft">
                 JPG, PNG or WebP
               </p>
             </div>
@@ -150,19 +150,19 @@ export default function UploadForm({
                 <p className="truncate text-sm font-medium" title={selection.file.name}>
                   {selection.file.name}
                 </p>
-                <p className="text-xs text-ink/55">{Math.max(1, Math.round(selection.file.size / 1024))} KB · will be compressed before upload</p>
+                <p className="text-xs text-ink-soft">{Math.max(1, Math.round(selection.file.size / 1024))} KB · will be compressed before upload</p>
                 <div className="mt-2 flex gap-3 text-sm">
                   <button
                     type="button"
                     onClick={() => inputRef.current?.click()}
-                    className="min-h-[32px] font-medium text-signal-ink underline underline-offset-2"
+                    className="min-h-[44px] font-medium text-signal-ink underline underline-offset-2"
                   >
                     Replace
                   </button>
                   <button
                     type="button"
                     onClick={onRemove}
-                    className="min-h-[32px] font-medium text-ink/60 underline underline-offset-2 hover:text-ink"
+                    className="min-h-[44px] font-medium text-ink-soft underline underline-offset-2 hover:text-ink"
                   >
                     Remove
                   </button>
@@ -205,7 +205,7 @@ export default function UploadForm({
               aria-describedby="ct-claim-help"
               className="mt-2 w-full resize-y rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15 placeholder:text-ink/40"
             />
-            <div className="mt-1 flex items-center justify-between text-xs text-ink/55">
+            <div className="mt-1 flex items-center justify-between text-xs text-ink-soft">
               <p id="ct-claim-help">Leave blank to trace the image&apos;s history.</p>
               <p aria-label={`${CLAIM_MAX - claim.length} characters remaining`}>
                 {claim.length}/{CLAIM_MAX}
@@ -232,12 +232,12 @@ export default function UploadForm({
             )}
           </button>
           {!selection && !preparing ? (
-            <p id="ct-submit-hint" className="mt-2 text-center text-xs text-ink/55">
+            <p id="ct-submit-hint" className="mt-2 text-center text-xs text-ink-soft">
               Select an image to begin.
             </p>
           ) : null}
 
-          <p className="mt-4 flex items-start justify-center gap-2 text-center text-xs leading-relaxed text-ink/60">
+          <p className="mt-4 flex items-start justify-center gap-2 text-center text-xs leading-relaxed text-ink-soft">
             <span aria-hidden="true">🔒</span>
             <span>
               Your image is sent to SerpApi / Google Lens for visual search. ContextTrail does not
