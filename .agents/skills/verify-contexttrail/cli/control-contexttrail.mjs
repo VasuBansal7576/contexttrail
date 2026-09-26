@@ -1582,6 +1582,9 @@ const FAULTS = {
   "pair-endpoint-wrong": "render a wrong evidence id in the open viewer while a paired-divergence note is shown",
   "pair-note-wrong": "rewrite the paired-divergence note into a same-context claim",
   "focus-return-broken": "drop focus to <body> as soon as the viewer dialog closes",
+  "focus-ring-hidden": "remove every focus indicator, so real keyboard focus paints nothing",
+  "contrast-lowered": "lower the body text colour until the composited ratio falls under its floor",
+  "tab-map-broken": "make ArrowRight/Home move focus without selecting the matching tab or panel",
 };
 
 const FAULT_SCRIPT = `window.__ctFault = (mode) => {
@@ -1625,6 +1628,58 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         const m = /^Reporting group of (\\d+) occurrence/.exec(t);
         if (m) { p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length); hit(); }
       });
+    } else if (mode === "focus-ring-hidden" || mode === "contrast-lowered" || mode === "tab-map-broken") {
+      // Applied once the target surface exists, then left in place: these faults
+      // must survive re-renders or the assertion would be measuring nothing.
+      if (mode === "focus-ring-hidden") {
+        if (!window.__ctRingFault) {
+          window.__ctRingFault = true;
+          const st = document.createElement("style");
+          st.textContent = "*{outline:none !important;box-shadow:none !important;}";
+          document.head.appendChild(st);
+          hit();
+        }
+      } else if (mode === "contrast-lowered") {
+        if (!window.__ctContrastFault) {
+          window.__ctContrastFault = true;
+          const st = document.createElement("style");
+          st.textContent = "body,body *{color:rgba(120,120,120,0.55) !important;}";
+          document.head.appendChild(st);
+          hit();
+        }
+      } else {
+        if (!window.__ctTabFault) {
+          window.__ctTabFault = true;
+          // Broken keyboard mapping: on a tab-list key press the reported
+          // selection is moved to the PREVIOUS tab, so focus, aria-selected and
+          // the panel no longer agree. Applied from a capture listener on the
+          // document, because the tabs themselves are re-created by the view.
+          document.addEventListener(
+            "keydown",
+            (ev) => {
+              if (!/^(ArrowLeft|ArrowRight|Home|End)$/.test(ev.key)) return;
+              const selected = [...document.querySelectorAll('[role="tab"]')].find(
+                (t) => t.getAttribute("aria-selected") === "true",
+              );
+              if (!selected) return;
+              const tabs = [...document.querySelectorAll('[role="tab"]')];
+              const i = tabs.indexOf(selected);
+              const other = tabs[i - 1] ?? tabs[tabs.length - 1];
+              if (!other) return;
+              setTimeout(() => {
+                const nowSelected = [...document.querySelectorAll('[role="tab"]')].find(
+                  (t) => t.getAttribute("aria-selected") === "true",
+                );
+                if (!nowSelected || nowSelected === other) return;
+                nowSelected.setAttribute("aria-selected", "false");
+                other.setAttribute("aria-selected", "true");
+                hit();
+              }, 0);
+            },
+            true,
+          );
+        }
+      }
     } else if (mode === "pair-endpoint-wrong" || mode === "pair-note-wrong") {
       // Both faults only apply while a paired-divergence note is on screen, so
       // they are a no-op on an ordinary occurrence and cannot silently corrupt
@@ -1746,6 +1801,9 @@ const FEATURE_LIST = Object.keys(FEATURE_SPECS);
 const FAULT_SCOPE = {
   "a11y-false-green": { features: ["accessibility"] },
   "focus-removed": { features: ["accessibility"] },
+  "focus-ring-hidden": { features: ["accessibility"] },
+  "contrast-lowered": { features: ["accessibility", "result"] },
+  "tab-map-broken": { features: ["result"] },
   "anchor-broken": { features: ["landing"] },
   "bad-selection": { features: ["result"] },
   "drop-timeline-item": { features: ["result"], views: ["timeline"] },
@@ -2063,6 +2121,139 @@ function classifyConsoleSet(entries, streamOrigin) {
     controlled: out.filter((e) => e.classification !== "unexpected").length,
     entries: out,
   };
+}
+
+/* --------------------------- measured a11y helpers ----------------------- */
+
+/**
+ * Actual composited contrast for every visible text node on the current screen.
+ *
+ * Nothing here is a hardcoded colour: the effective background is found by
+ * climbing ancestors until a non-transparent one is reached, alpha is composited
+ * over it, and the WCAG ratio is computed from the rendered values. Large text
+ * (>=24px, or >=18.66px bold) is held to 3:1 and everything else to 4.5:1, so a
+ * CSS regression that lowers a foreground turns the assertion red instead of
+ * being masked by a recorded constant.
+ */
+async function compositedContrast(page, { limit = 400 } = {}) {
+  return page.evaluate((max) => {
+    const parse = (c) => {
+      const m = /rgba?\(([^)]+)\)/.exec(c || "");
+      if (!m) return null;
+      const parts = m[1].split(",").map((x) => parseFloat(x));
+      return { r: parts[0] ?? 0, g: parts[1] ?? 0, b: parts[2] ?? 0, a: parts.length > 3 ? parts[3] : 1 };
+    };
+    const over = (fg, bg) => ({
+      r: fg.r * fg.a + bg.r * (1 - fg.a),
+      g: fg.g * fg.a + bg.g * (1 - fg.a),
+      b: fg.b * fg.a + bg.b * (1 - fg.a),
+      a: 1,
+    });
+    const lum = (c) => {
+      const f = (v) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+    };
+    const ratio = (a, b) => {
+      const la = lum(a);
+      const lb = lum(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    };
+    const effectiveBg = (el) => {
+      const stack = [];
+      let node = el;
+      while (node && node.nodeType === 1) {
+        const bg = parse(getComputedStyle(node).backgroundColor);
+        if (bg && bg.a > 0) {
+          stack.push(bg);
+          if (bg.a >= 0.999) break;
+        }
+        node = node.parentElement;
+      }
+      let base = { r: 255, g: 255, b: 255, a: 1 };
+      for (let i = stack.length - 1; i >= 0; i--) base = over(stack[i], base);
+      return base;
+    };
+    const out = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node && out.length < max) {
+      const text = (node.textContent || "").trim();
+      const parent = node.parentElement;
+      if (text.length > 0 && parent) {
+        const st = getComputedStyle(parent);
+        const rect = parent.getBoundingClientRect();
+        const visible =
+          st.visibility !== "hidden" &&
+          st.display !== "none" &&
+          Number(st.opacity) > 0.1 &&
+          rect.width > 1 &&
+          rect.height > 1 &&
+          rect.bottom > 0 &&
+          rect.top < (window.innerHeight || 0) * 4;
+        if (visible) {
+          const fg = parse(st.color);
+          if (fg) {
+            const bg = effectiveBg(parent);
+            const composited = over(fg, bg);
+            const size = parseFloat(st.fontSize) || 0;
+            const weight = Number(st.fontWeight) || 400;
+            const large = size >= 24 || (size >= 18.66 && weight >= 700);
+            out.push({
+              text: text.slice(0, 60),
+              ratio: Number(ratio(composited, bg).toFixed(2)),
+              fontSize: size,
+              large,
+              floor: large ? 3 : 4.5,
+            });
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+    return out;
+  }, limit);
+}
+
+/** Whether the currently focused element paints a visible focus indicator.
+ *  Compared against the same element with focus removed, so a plain border
+ *  that is always present is not mistaken for a focus ring. */
+async function focusIndicator(page) {
+  return page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return { focused: false };
+    const st = getComputedStyle(el);
+    const signature = () =>
+      [
+        st.outlineStyle,
+        st.outlineWidth,
+        st.outlineColor,
+        st.outlineOffset,
+        st.boxShadow,
+        st.borderColor,
+        st.borderWidth,
+      ].join("|");
+    const focused = signature();
+    const prev = el.style.outline;
+    const prevShadow = el.style.boxShadow;
+    el.style.outline = "none";
+    el.style.boxShadow = "none";
+    const unfocused = signature();
+    el.style.outline = prev;
+    el.style.boxShadow = prevShadow;
+    const outline = st.outlineStyle !== "none" && parseFloat(st.outlineWidth) > 0;
+    const shadow = st.boxShadow && st.boxShadow !== "none";
+    return {
+      focused: true,
+      tag: el.tagName,
+      label: (el.getAttribute("aria-label") || el.textContent || "").trim().slice(0, 40),
+      outline,
+      shadow,
+      changes: focused !== unfocused,
+    };
+  });
 }
 
 /* ------------------------------- upload io ------------------------------ */
@@ -3460,6 +3651,50 @@ const DRIVE_CASES = {
 
     for (const name of RESULT_TABS) await selectTab(page, rec, name);
 
+    // Keyboard operation of the tablist, with real key presses: focus, the
+    // selected tab, the roving tabindex and the matching panel must all move
+    // together. A broken mapping has to turn a specific assertion red.
+    await page.getByRole("tab", { name: /^Overview$/ }).first().focus();
+    const tabKeys = ["ArrowRight", "ArrowRight", "Home", "End", "ArrowLeft"];
+    for (const key of tabKeys) {
+      await page.keyboard.press(key);
+      await delay(180);
+      const state = await page.evaluate(() => {
+        const active = document.activeElement;
+        const selected = [...document.querySelectorAll('[role="tab"]')].find(
+          (t) => t.getAttribute("aria-selected") === "true",
+        );
+        const panelId = selected?.getAttribute("aria-controls") ?? null;
+        const panel = panelId ? document.getElementById(panelId) : null;
+        return {
+          key: null,
+          focusName: (active?.getAttribute("aria-label") || active?.textContent || "").trim(),
+          focusRole: active?.getAttribute("role") ?? null,
+          focusTabIndex: active?.getAttribute("tabindex") ?? null,
+          selectedName: (selected?.textContent || "").trim(),
+          selectedIndex: [...document.querySelectorAll('[role="tab"]')].indexOf(selected),
+          panelId,
+          panelPresent: !!panel,
+          panelVisible: !!panel && panel.getBoundingClientRect().height > 1,
+        };
+      });
+      state.key = key;
+      rec.check(
+        `result.tablist-keyboard-${key.toLowerCase()}-consistent`,
+        state.focusRole === "tab" &&
+          state.focusName === state.selectedName &&
+          state.panelPresent &&
+          state.panelVisible,
+        `focus="${state.focusName}" selected="${state.selectedName}" panel=${state.panelId} visible=${state.panelVisible}`,
+      );
+      rec.check(
+        `result.tablist-keyboard-${key.toLowerCase()}-roving-tabindex`,
+        state.focusTabIndex === "0",
+        `focused tab tabindex=${state.focusTabIndex} (a roving tabindex keeps the single stop on the selected tab)`,
+      );
+      rec.note(`result.tablist-keyboard-${key.toLowerCase()}-state`, JSON.stringify(state));
+    }
+
     // Metrics live on the Overview panel — read them while it is the
     // selected tab, then finish on the requested --view.
     await selectTab(page, rec, "Overview");
@@ -4607,6 +4842,94 @@ const DRIVE_CASES = {
 
     rec.check("a11y.claim-reachable-by-tab", focusSeq.some((s) => s && s.id === "ct-claim"), "ct-claim in tab order");
     rec.check("a11y.link-reachable-by-tab", focusSeq.some((s) => s && s.tag === "A"), "link in tab order");
+
+    // Real keyboard focus must PAINT an indicator, measured on the element that
+    // actually holds focus and compared against the same element unfocused. The
+    // walk above ends on <body>, so Tab forward until a real control holds
+    // focus — the measurement must never be taken with no focused element.
+    for (let i = 0; i < 8; i++) {
+      const here = await page.evaluate(() => document.activeElement?.tagName ?? "BODY");
+      if (here && here !== "BODY") break;
+      await page.keyboard.press("Tab");
+      await delay(60);
+    }
+    const indicator = await focusIndicator(page);
+    rec.note("a11y.focus-indicator-observed", JSON.stringify(indicator));
+    if (indicator.focused) {
+      rec.check(
+        "a11y.focus-indicator-visible",
+        indicator.outline || indicator.shadow || indicator.changes,
+        `${indicator.tag} "${indicator.label}" outline=${indicator.outline} shadow=${indicator.shadow} changesWhenUnfocused=${indicator.changes}`,
+      );
+    } else {
+      rec.note(
+        "a11y.focus-indicator-not-measured",
+        "focus was on <body> when the indicator was read; see focus-sequence.json for the walked order",
+      );
+    }
+
+    // Composited contrast on this screen's own surface. No stored constant: the
+    // ratio is computed from the rendered colours, so a lowered foreground is
+    // caught here rather than excused by a previous measurement.
+    const contrastRows = await compositedContrast(page);
+    writeJson(path.join(driveDir, "contrast-composited.json"), { viewport, rows: contrastRows });
+    const belowFloor = contrastRows.filter((r) => r.ratio < r.floor);
+    rec.check(
+      "a11y.contrast-meets-floor",
+      contrastRows.length > 0 && belowFloor.length === 0,
+      belowFloor.length === 0
+        ? `${contrastRows.length} visible text node(s), lowest ${Math.min(...contrastRows.map((r) => r.ratio)).toFixed(2)}:1`
+        : `${belowFloor.length}/${contrastRows.length} below floor: ${JSON.stringify(belowFloor.slice(0, 3))}`,
+    );
+
+    // Reduced motion is a rendered outcome, not a preference read: emulate it,
+    // then require the screen to be settled and its primary control usable.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#ct-claim", { timeout: 15_000 });
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector("#ct-claim");
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 1 && r.height > 1;
+      },
+      { timeout: 15_000 },
+    ).catch(() => {});
+    const reduced = await page.evaluate(() => {
+      const claim = document.querySelector("#ct-claim");
+      const submit = [...document.querySelectorAll("button")].find((b) =>
+        /start investigation/i.test(b.textContent || ""),
+      );
+      const vis = (el) => {
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return r.width > 1 && r.height > 1 && getComputedStyle(el).visibility !== "hidden";
+      };
+      return {
+        matches: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        claimVisible: vis(claim),
+        submitVisible: vis(submit),
+        submitHeight: submit ? Math.round(submit.getBoundingClientRect().height) : 0,
+      };
+    });
+    rec.check(
+      "a11y.reduced-motion-emulated",
+      reduced.matches === true,
+      `prefers-reduced-motion: ${reduced.matches}`,
+    );
+    rec.check(
+      "a11y.reduced-motion-content-settled",
+      reduced.claimVisible === true && reduced.submitVisible === true,
+      `claim=${reduced.claimVisible} submit=${reduced.submitVisible} after the reduced-motion reload`,
+    );
+    rec.check(
+      "a11y.reduced-motion-primary-target-44px",
+      reduced.submitHeight >= 44,
+      `primary control ${reduced.submitHeight}px tall under reduced motion`,
+    );
+    await shot(page, driveDir, "02-accessibility-reduced-motion");
+    await page.emulateMedia({ reducedMotion: null });
     rec.check(
       "a11y.no-negative-tabindex-focus",
       focusSeq.every((s) => !s || s.tabIndex >= 0),
