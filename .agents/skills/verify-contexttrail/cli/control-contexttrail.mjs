@@ -2020,18 +2020,41 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
  * script is a hard failure with the real syntax error, not a quiet green.
  */
 function assertFaultScriptParses() {
-  const start = FAULT_SCRIPT.indexOf("`") + 1;
-  const end = FAULT_SCRIPT.lastIndexOf("`;");
-  const body = FAULT_SCRIPT.slice(start, end);
-  try {
-    // eslint-disable-next-line no-new-func
-    new Function(body);
-  } catch (err) {
-    fail(
-      `the injected fault script does not parse: ${err.message}. It is a template literal, so this ` +
-        `module still parses and every fault would silently become a no-op — fix the fault script ` +
-        `before running any drive with --fault.`,
-    );
+  // FAULT_SCRIPT is the ALREADY EVALUATED string, not the source literal. Slicing
+  // between backticks on that value yields 0/-1 and drops the final character, so
+  // a gate built that way accepted a script with an extra closing brace. Compile
+  // the value itself.
+  const compile = (src) => {
+    try {
+      // eslint-disable-next-line no-new-func
+      new Function(src);
+      return null;
+    } catch (err) {
+      return err.message;
+    }
+  };
+  const actual = compile(FAULT_SCRIPT);
+  if (actual) {
+    fail(`the injected fault script does not parse: ${actual}. It is injected as a string, so this ` +
+      `module still parses and every fault would silently become a no-op.`);
+  }
+  // Offline canaries, no browser: the gate must REJECT a script with a missing and
+  // with an extra closing brace, or it is not actually discriminating and a green
+  // here would mean nothing.
+  const lastBrace = FAULT_SCRIPT.lastIndexOf("}");
+  if (lastBrace < 0) fail("fault script gate: cannot locate a closing brace to build canaries");
+  const withExtra = FAULT_SCRIPT.slice(0, lastBrace + 1) + "}";
+  const withMissing = FAULT_SCRIPT.slice(0, lastBrace) + FAULT_SCRIPT.slice(lastBrace + 1);
+  for (const [label, mutated] of [
+    ["extra closing brace", withExtra],
+    ["missing closing brace", withMissing],
+  ]) {
+    if (compile(mutated) === null) {
+      fail(
+        `fault script gate is not discriminating: a script with a ${label} still compiles, so a green from ` +
+          `this gate would not prove the real script is valid.`,
+      );
+    }
   }
 }
 
@@ -5671,6 +5694,18 @@ const DRIVE_CASES = {
     await page.getByRole("button", { name: /start investigation/i }).first().click();
     const aReached = await stream.reachedFor(0, 0);
     rec.check("ownership.a-delivered-early-evidence", aReached, `request 0 (${A}) reached its first held segment`);
+    // Wait for the surface this assertion measures. Sampling once raced the
+    // render: the cards arrive a frame or two after the held segment is written, so
+    // a single read could see an empty live section and report a product failure.
+    await page
+      .waitForFunction(
+        () => {
+          const live = document.querySelector('[aria-label="Evidence arriving live"]');
+          return !!live && live.querySelectorAll("li").length > 0;
+        },
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
     const seenA = await observe();
     rec.note("ownership.a-observed", JSON.stringify(seenA));
     const aTitles = seenA.evidenceTitles;
