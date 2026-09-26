@@ -1782,7 +1782,8 @@ const FAULTS = {
   "contrast-lowered": "lower the body text colour until the composited ratio falls under its floor",
   "tab-map-broken": "make ArrowRight/Home move focus without selecting the matching tab or panel",
   "long-value-truncated": "clip long values to one line with overflow:hidden, so they are cut instead of wrapped",
-  "reading-order-reversed": "reverse the visual order of the result rows while leaving DOM order untouched",
+  "reading-order-reversed": "reverse the visual order of the Sources list with column-reverse, DOM order untouched",
+  "reading-order-restored": "apply that reversal, then remove it, so the same assertion can be seen recovering",
   "stale-a-inserted": "append a plainly visible old-A-only title to B's completed result",
 };
 
@@ -1845,41 +1846,58 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         const m = /^Reporting group of (\\d+) occurrence/.exec(t);
         if (m) { p.textContent = "Shared group of " + m[1] + " occurrence" + (m[1] === "1" ? "" : "s") + t.slice(m[0].length); hit(); }
       });
-    } else if (mode === "long-value-truncated" || mode === "reading-order-reversed") {
-      if (!window.__ctLayoutFault) {
-        window.__ctLayoutFault = true;
-        const st = document.createElement("style");
-        if (mode === "long-value-truncated") {
-          // The real defect: a long value clipped to a single line. Layout-only,
-          // so the text is still in the DOM and still "present" to a text scan.
-          st.textContent =
-            "li,dd,p,span,a,td{max-height:1.4em;overflow:hidden;white-space:nowrap !important;text-overflow:clip !important;}";
-        } else {
-          // Reverse the visual order of the panel that is ACTUALLY selected, with
-          // no markup change. A guessed container would leave the measured panel
-          // untouched, which is how an earlier version of this fault passed.
-          const selected = [...document.querySelectorAll('[role="tab"]')].find(
-            (t) => t.getAttribute("aria-selected") === "true",
-          );
-          const id = selected?.getAttribute("aria-controls");
-          const panel = id ? document.getElementById(id) : null;
-          if (panel) {
-            st.id = "ct-reading-order-fault";
-            st.textContent =
-              "#" + id + "{display:flex !important;flex-direction:column-reverse !important;}";
-            document.head.appendChild(st);
-            // the fault targets the selected panel, so the row order is reversed
-            // without re-rendering: the previous sibling order becomes the
-            // visual order and the markup is untouched.
-            window.__ctReadingOrderTarget = id;
-            hit();
-            return;
-          }
-        }
-        document.head.appendChild(st);
-        hit();
+    } else if (mode === "long-value-truncated") {
+      // The real defect: a long value clipped to a single line. Layout-only, so the
+      // text is still in the DOM and still "present" to a text scan.
+      const st = document.createElement("style");
+      st.id = "ct-long-value-truncated";
+      st.textContent =
+        "li,dd,p,span,a,td{max-height:1.4em;overflow:hidden;white-space:nowrap !important;text-overflow:clip !important;}";
+      if (document.head) { document.head.appendChild(st); hit(); }
+    } else if (mode === "reading-order-reversed" || mode === "reading-order-restored") {
+      // The EXPLICIT target: the selected tab's own aria-controls panel, its
+      // Sources section, its list, and the DIRECT visible li children. Guessing an
+      // ancestor is what made earlier attempts change nothing — the rows are
+      // nested below the panel.
+      if (window.__ctLayoutFault) return;
+      const tab = [...document.querySelectorAll('[role="tab"]')].find(
+        (t) => t.getAttribute("aria-selected") === "true",
+      );
+      const panelId = tab?.getAttribute("aria-controls");
+      const panel = panelId ? document.getElementById(panelId) : null;
+      const list = panel ? panel.querySelector('section[aria-label="Sources"] > ul') : null;
+      if (!panel || !list) return; // the surface is not ready; the poll retries
+      const rows = [...list.children].filter(
+        (el) => el.tagName === "LI" && el.getBoundingClientRect().height > 1,
+      );
+      if (rows.length < 2) return;
+      // CSS only: the DOM order is never touched, so any inversion the assertion
+      // sees is purely visual and the markup stays exactly as shipped.
+      const st = document.createElement("style");
+      st.id = "ct-reading-order";
+      st.textContent =
+        "#" + panelId + ' section[aria-label="Sources"] > ul{display:flex !important;flex-direction:column-reverse !important;}';
+      if (!document.head) return;
+      document.head.appendChild(st);
+      // Latched only now, after the mutation is actually in the document.
+      window.__ctLayoutFault = true;
+      hit();
+      window.__ctReadingOrderTarget = {
+        panelId: panelId,
+        tab: (tab?.textContent || "").trim(),
+        selector: "#" + panelId + ' section[aria-label="Sources"] > ul',
+        directRows: rows.length,
+        applied: true,
+      };
+      if (mode === "reading-order-restored") {
+        // Remove the mutation again so the SAME assertion can be seen returning to
+        // green: a control that only ever goes red proves nothing about recovery.
+        setTimeout(() => {
+          st.remove();
+          window.__ctReadingOrderTarget.restored = true;
+        }, 1500);
       }
-    } else if (mode === "focus-ring-hidden" || mode === "contrast-lowered" || mode === "tab-map-broken") {
+        } else if (mode === "focus-ring-hidden" || mode === "contrast-lowered" || mode === "tab-map-broken") {
       // Applied once the target surface exists, then left in place: these faults
       // must survive re-renders or the assertion would be measuring nothing.
       if (mode === "focus-ring-hidden") {
@@ -1982,6 +2000,21 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         /* the result surface is not ready; retry */
       }
     }, 150);
+    setTimeout(() => clearInterval(timer), 40000);
+  }
+
+  // The reading-order target only exists once the requested panel is rendered,
+  // which is after the observer has settled, so it polls until then.
+  if (mode === "reading-order-reversed" || mode === "reading-order-restored") {
+    const timer = setInterval(() => {
+      if (window.__ctLayoutFault) return clearInterval(timer);
+      if (!document.head) return;
+      try {
+        alter();
+      } catch {
+        /* the result surface is not ready; retry */
+      }
+    }, 120);
     setTimeout(() => clearInterval(timer), 40000);
   }
 
@@ -2125,6 +2158,7 @@ const FAULT_SCOPE = {
   "tab-map-broken": { features: ["result"] },
   "long-value-truncated": { features: ["result"] },
   "reading-order-reversed": { features: ["result"] },
+  "reading-order-restored": { features: ["result"] },
   "stale-a-inserted": { features: ["stream-ownership"] },
   "anchor-broken": { features: ["landing"] },
   "bad-selection": { features: ["result"] },
@@ -4395,11 +4429,14 @@ const DRIVE_CASES = {
     const faultTarget = await page.evaluate(() => window.__ctReadingOrderTarget ?? null);
     rec.note("result.reading-order-mutation-target", JSON.stringify(faultTarget));
     rec.check(
-      "result.reading-order-mutation-is-inside-the-measured-panel",
-      faultTarget === null || (faultTarget.panel === panelInfo.panelId && faultTarget.measured > 1),
+      "result.reading-order-mutation-target-is-the-requested-list",
+      faultTarget === null
+        ? panelInfo.observedTab !== "Sources"
+        : faultTarget.panelId === panelInfo.panelId && faultTarget.directRows >= 2 && faultTarget.applied === true,
       faultTarget === null
         ? "no reading-order mutation applied (baseline)"
-        : `reversed ${faultTarget.container} inside panel ${faultTarget.panel} holding ${faultTarget.measured} measured element(s)`,
+        : `reversed ${faultTarget.selector} (tab "${faultTarget.tab}", ${faultTarget.directRows} direct visible ` +
+          `li, applied=${faultTarget.applied}${faultTarget.restored ? ", then removed" : ""})`,
     );
     const layout = await longValueLayout(page, { panelId: panelInfo.panelId });
     writeJson(path.join(driveDir, "long-value-layout.json"), {
