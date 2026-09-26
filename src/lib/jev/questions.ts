@@ -487,6 +487,53 @@ const SPAN_STOP = new Set([
   "should", "may", "might", "must", "do", "does", "did", "made", "makes",
 ]);
 
+/**
+ * Tokens that open a new phrase rather than continuing the current noun
+ * phrase. A token after a place name that is *not* one of these is modifying
+ * it ("London politics", "Jordan smiling"), which makes the name a topic
+ * rather than a stated location.
+ */
+const PHRASE_BREAK = new Set([
+  ...LOCATIVE_PREPOSITIONS,
+  ...TOPIC_PREPOSITIONS,
+  ...DETERMINERS,
+  ...SPAN_STOP,
+  "and", "or", "but", "also", "plus", "while", "whereas", "though", "although",
+]);
+
+/** Conjunctions and clause boundaries that separate one clause from the next. */
+const CLAUSE_BREAK = new Set([
+  "and", "but", "or", "also", "plus", "while", "whereas", "though", "although",
+  "however", "meanwhile", "then", "yet", "so",
+]);
+
+/**
+ * Head nouns that name a container of someone else's material. A possessive
+ * landing on one of these is a source or account reference ("Jordan's
+ * Instagram account", "from Jordan Smith's collection"), never a place.
+ */
+const OWNERSHIP_HEADS = new Set([
+  "collection", "collections", "account", "accounts", "profile", "profiles",
+  "channel", "channels", "feed", "inbox", "handle", "username", "portfolio",
+  "album", "archive", "dataset", "gallery", "library", "page", "pages",
+  "website", "site", "post", "posts", "thread", "article", "report",
+  "newsletter", "drive", "folder", "book", "books", "publication", "press",
+]);
+
+/**
+ * Rejections that positively establish the object is *not* a place. Anything
+ * else — notably an unrecognised name — is reported as `unknown`, because the
+ * gate does not know, rather than asserting that no location is stated.
+ */
+const DEMONSTRATED_NON_PLACE = new Set<LocationRejection>([
+  "person_reference",
+  "temporal_reference",
+  "non_place_reference",
+  "topic_or_source_reference",
+  "no_locative_construction",
+]);
+
+
 /** Words that end a sentence, so a span never crosses one. */
 const SENTENCE_END = new Set([".", "!", "?", ":", ";", "—", "–"]);
 
@@ -513,7 +560,7 @@ export type LocationRejection =
   | "person_reference"
   | "temporal_reference"
   | "non_place_reference"
-  | "topic_reference"
+  | "topic_or_source_reference"
   | "unrecognised_name";
 
 /** Positive evidence that a span names a place. */
@@ -556,6 +603,8 @@ interface Token {
 function fold(w: string): string {
   return (
     w
+      // Unicode-aware: an ASCII \\w would delete "é" from "São Tomé" and the
+      // whole of "東京", corrupting the evidence this module reports.
       .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -569,22 +618,35 @@ function isNumeric(w: string): boolean {
   return /^[\d.,/'’-]+$/.test(w);
 }
 
+/**
+ * A street-address house number, including the alphanumeric UK form ("221B",
+ * "12A"). It must begin with a digit, so an ordinary word is never read as a
+ * number.
+ */
+function isHouseNumber(w: string): boolean {
+  return /^\d+[A-Za-z]?(?:[-/][\dA-Za-z]+)*$/.test(w);
+}
+
 function tokenize(claim: string): Token[] {
   return claim
     .split(/\s+/)
     .filter((t) => t.length > 0)
     .map((raw) => {
-      const bare = raw.replace(/^[^\w]+|[^\w]+$/g, "");
+      const bare = raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
       const terminal = /[.!?;:,—–)\]]$/.test(raw) || SENTENCE_END.has(bare);
       return { raw, lower: fold(raw), terminal };
     });
 }
 
-/** The verbatim span `tokens[from..to]`, rejoined with single spaces. */
+/**
+ * The verbatim span `tokens[from..to]`, rejoined with single spaces. Trimming is
+ * Unicode-aware so a name is reported as it was written: "São Tomé", not
+ * "São Tom", and "東京" rather than an empty string.
+ */
 function spanText(tokens: Token[], from: number, to: number): string {
   return tokens
     .slice(from, to + 1)
-    .map((t) => t.raw.replace(/^[^\w]+|[^\w]+$/g, ""))
+    .map((t) => t.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
     .filter((s) => s.length > 0)
     .join(" ");
 }
@@ -626,7 +688,7 @@ function matchPlaceNoun(tokens: Token[], i: number): number {
 /** Street-address match: a number followed by a name ending in a street type. */
 function matchAddress(tokens: Token[], i: number): number {
   const num = tokens[i];
-  if (num === undefined || !isNumeric(num.raw)) return 0;
+  if (num === undefined || !isHouseNumber(num.raw)) return 0;
   let j = i + 1;
   const words: string[] = [];
   while (j < tokens.length && !isStop(tokens[j]) && !isNumeric(tokens[j].raw)) {
@@ -736,7 +798,7 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       }
       continue;
     }
-    if (isNumeric(obj.raw)) {
+    if (isNumeric(obj.raw) || isHouseNumber(obj.raw)) {
       // a street address begins with the house number
       const addr = matchAddress(tokens, j);
       if (addr > 0) {
@@ -776,42 +838,109 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       // following participle/possessive marks an object-of-attention, and a
       // claim with no capture verb is describing a topic rather than a capture
       // site. "on the Thames" keeps its place reading.
-      candidates.push({ from, to, evidence: signal, topic: isTopicFrame(tokens, i, to) });
+      // Source ownership and topic frames are rejected *before* a gazetteer
+      // name is allowed to stand as place evidence, because a proper name can
+      // belong to a person, an account or a subject as easily as to a place.
+      // An address is exempt: it is positive address evidence on its own.
+      const topic =
+        signal === "street_address" ? false : isTopicFrame(tokens, i, to);
+      const owned = signal === "street_address" ? false : isSourceOwnershipFrame(tokens, from, to);
+      candidates.push({ from, to, evidence: signal, topic: topic || owned });
     } else {
       // Unresolvable object inside a locative frame: recorded, never guessed.
+      // Extend over the rest of the noun phrase. A sentence-ending mark stops
+      // the extension only after the token carrying it has been taken in, so
+      // "Juniper Chen." is recorded whole.
       let to = j;
-      while (to + 1 < tokens.length && !isStop(tokens[to + 1]) && !tokens[to + 1].terminal) {
+      while (to + 1 < tokens.length && !isStop(tokens[to + 1])) {
         to += 1;
+        if (tokens[to].terminal) break;
       }
-      candidates.push({ from: j, to, evidence: null, topic: isTopicFrame(tokens, i, j) });
+      candidates.push({
+        from: j,
+        to,
+        evidence: null,
+        topic: isTopicFrame(tokens, i, j) || isSourceOwnershipFrame(tokens, j, j),
+      });
     }
   }
   return { tokens, candidates };
 }
 
-/**
- * True when the span is the object of a topic frame rather than a place:
- * a topical preposition, no capture verb anywhere in the claim, and a
- * participle or possessive immediately after the span ("on Jordan smiling",
- * "on Alice's case"). All three conditions are needed, so "on the Thames" and
- * "taken in Jordan" keep their place reading.
- */
-function isTopicFrame(tokens: Token[], prepositionIndex: number, spanTo: number): boolean {
-  if (!TOPIC_PREPOSITIONS.has(tokens[prepositionIndex].lower)) return false;
-  for (const t of tokens) {
-    if (CAPTURE_VERBS.has(t.lower)) return false;
+/** True when the token carries a possessive marker. */
+function isPossessive(t: Token): boolean {
+  return t.raw.includes("\u2019") || /['\u2019]s$/i.test(t.raw);
+}
+
+/** Index of the first token of the clause containing `index`. */
+function clauseStart(tokens: Token[], index: number): number {
+  for (let i = index; i > 0; i--) {
+    if (tokens[i].terminal || CLAUSE_BREAK.has(tokens[i - 1].lower)) return i;
   }
-  const next = tokens[spanTo + 1];
-  if (next === undefined) return false;
-  const w = next.lower;
-  if (w.length === 0) return false;
-  if (w.endsWith("ing") && w.length > 4) return true;
-  if (next.raw.includes("'") || next.raw.includes("\u2019")) return true;
+  return 0;
+}
+
+/** True when a capture verb occurs in the clause containing `index`. */
+function clauseHasCaptureVerb(tokens: Token[], index: number): boolean {
+  const from = clauseStart(tokens, index);
+  for (let i = from; i < tokens.length; i++) {
+    if (i > index && (tokens[i].terminal || CLAUSE_BREAK.has(tokens[i].lower))) break;
+    if (CAPTURE_VERBS.has(tokens[i].lower)) return true;
+  }
   return false;
 }
 
+/**
+ * True when the token after the span continues the noun phrase as a bare
+ * modifier. A preposition, determiner or clause break after the span means a
+ * new phrase began instead, which leaves the place reading intact.
+ */
+function nextIsBareModifier(tokens: Token[], spanTo: number): boolean {
+  const next = tokens[spanTo + 1];
+  if (next === undefined || isStop(next)) return false;
+  // A trailing period is punctuation, not a phrase boundary: in "a speech on
+  // London politics." the name still modifies the word before the sentence ends.
+  if (PHRASE_BREAK.has(next.lower)) return false;
+  if (TEMPORAL.has(next.lower)) return false;
+  if (PLACE_NOUNS.has(next.lower) || PLACE_NAMES.has(next.lower)) return false;
+  const bare = next.raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  return bare.length > 0;
+}
+
+/**
+ * True when the span is the object of a topic frame rather than a place.
+ *
+ * The test is bound to the span's own clause: a capture verb in a *different*
+ * clause says nothing about this one, which is what let "The photo was taken
+ * yesterday and focuses on Jordan smiling" through.
+ */
+function isTopicFrame(tokens: Token[], prepositionIndex: number, spanTo: number): boolean {
+  if (!TOPIC_PREPOSITIONS.has(tokens[prepositionIndex].lower)) return false;
+  if (clauseHasCaptureVerb(tokens, prepositionIndex)) return false;
+  const next = tokens[spanTo + 1];
+  if (next !== undefined) {
+    if (isPossessive(next)) return true;
+    if (next.lower.length > 4 && next.lower.endsWith("ing")) return true;
+  }
+  return nextIsBareModifier(tokens, spanTo);
+}
+
+/**
+ * True when a possessive near the span lands on a container of someone else's
+ * material, which makes the name a source or account rather than a place.
+ */
+function isSourceOwnershipFrame(tokens: Token[], from: number, to: number): boolean {
+  const window = [tokens[from], tokens[to], tokens[to + 1], tokens[to + 2]].filter(
+    (t): t is Token => t !== undefined,
+  );
+  if (!window.some(isPossessive)) return false;
+  return [tokens[to + 1], tokens[to + 2], tokens[to + 3]].some(
+    (t) => t !== undefined && OWNERSHIP_HEADS.has(t.lower),
+  );
+}
+
 function classifyUnresolved(tokens: Token[], c: Candidate): LocationRejection {
-  if (c.topic) return "topic_reference";
+  if (c.topic) return "topic_or_source_reference";
   for (let i = c.from; i <= c.to; i++) {
     const w = tokens[i]?.lower ?? "";
     if (TEMPORAL.has(w)) return "temporal_reference";
@@ -880,9 +1009,16 @@ export function claimLocationEligibility(claim: string): LocationEligibility {
       unresolved,
     };
   }
+  // Mixed-candidate precedence: a positive place signal anywhere in the claim
+  // wins outright. Otherwise a *demonstrated* non-place context yields
+  // not_eligible, and an object this gate simply does not recognise yields
+  // unknown - which declines the question just the same but claims nothing
+  // about the name.
+  const demonstrated =
+    firstRejection !== null && DEMONSTRATED_NON_PLACE.has(firstRejection);
   return {
     claim,
-    outcome: firstRejection === null ? "unknown" : "not_eligible",
+    outcome: demonstrated ? "not_eligible" : "unknown",
     eligible: false,
     reasons: [],
     evidence: [],

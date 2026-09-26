@@ -15,6 +15,7 @@ import {
 } from "./client";
 import {
   claimLocationEligibility,
+  type LocationRejection,
   claimMayStateLocation,
   evidenceQuestions,
   evidenceQuestionsWithProvenance,
@@ -165,8 +166,8 @@ describe("claimLocationEligibility — positive place evidence only", () => {
     ["This image was posted by Alice.", "no_locative_construction"],
     ["This image was taken by photographer John Smith.", "no_locative_construction"],
     ["We are looking at Alice.", "unrecognised_name"],
-    ['A photo focusing "on Jordan smiling".', "topic_reference"],
-    ["A photo focusing on Sarah laughing.", "topic_reference"],
+    ['A photo focusing "on Jordan smiling".', "topic_or_source_reference"],
+    ["A photo focusing on Sarah laughing.", "topic_or_source_reference"],
     ["An image from Bob Dylan.", "unrecognised_name"],
     ["A portrait of Marie Curie.", "no_locative_construction"],
     ["This image shows a man in a suit.", "unrecognised_name"],
@@ -225,7 +226,9 @@ describe("claimLocationEligibility — positive place evidence only", () => {
     expect(r.eligible).toBe(false);
     // unknown, not a claim that the object is not a place
     expect(r.outcome).toBe("unknown");
-    expect(r.rejectedBy).toBeNull();
+    expect(r.rejectedBy).toBe("unrecognised_name");
+    // and the name is still reported, rather than erased by the renderer
+    expect(r.unresolved).toEqual(["東京"]);
   });
 
   it("keeps complete claim-bound spans instead of truncating at the first token", () => {
@@ -290,6 +293,148 @@ describe("claimLocationEligibility — positive place evidence only", () => {
     ];
     for (const claim of corpus) {
       expect(claimMayStateLocation(claim)).toBe(claimLocationEligibility(claim).eligible);
+    }
+  });
+});
+
+describe("claimLocationEligibility — authorship and topic binding", () => {
+  /**
+   * A proper name can belong to a person, an account or a subject as easily as
+   * to a place. These claims state where the picture *came from* or what it is
+   * *about*, so the location question must not be authorised even though the
+   * name is in the gazetteer.
+   */
+  it.each([
+    ["The photograph is from Jordan Smith\u2019s collection.", "Jordan"],
+    ["This photograph was taken from Jordan\u2019s Instagram account.", "Jordan\u2019s"],
+    ["The photo was taken yesterday and focuses on Jordan smiling.", "Jordan"],
+    ["This image is about a speech on London politics.", "London"],
+  ])("declines %s", (claim, span) => {
+    const r = claimLocationEligibility(claim);
+    expect(r.eligible, claim).toBe(false);
+    expect(r.rejectedBy, claim).toBe("topic_or_source_reference");
+    // the name it refused is still reported, verbatim
+    expect(r.unresolved).toContain(span);
+  });
+
+  it("does not let a capture verb in another clause cancel the check", () => {
+    // "taken" is in the first clause; the span sits in the second
+    const split = claimLocationEligibility(
+      "The photo was taken yesterday and focuses on Jordan smiling.",
+    );
+    expect(split.eligible).toBe(false);
+    // with no capture verb anywhere, the same frame is a topic
+    const single = claimLocationEligibility("A photo focusing on Jordan smiling.");
+    expect(single.eligible).toBe(false);
+  });
+
+  it("keeps genuine place readings of the same names", () => {
+    const kept: Array<[string, boolean]> = [
+      ["This image was taken in Jordan.", true],
+      ["This image was taken at 10 Downing Street.", true],
+      ["A protest in Amman.", true],
+      ["This image was taken in Jerusalem.", true],
+      ["This image is about the economy in London.", true],
+      ["Damage at the airport.", true],
+      ["Fire at the hospital this morning.", true],
+      ["This image was taken in Bogota last night.", true],
+      ["This image was taken in São Tomé yesterday.", true],
+      ["This photograph is from Alice's collection.", false],
+    ];
+    for (const [claim, expected] of kept) {
+      expect(claimMayStateLocation(claim), claim).toBe(expected);
+    }
+  });
+
+  it("exempts address evidence from the topic and ownership guards", () => {
+    // an address is positive evidence in its own right and is not a name that
+    // can be read as a person
+    expect(claimLocationEligibility("This image was taken at 10 Downing Street.").eligible).toBe(true);
+    expect(claimLocationEligibility("Report filed at 221B Baker Street.").eligible).toBe(true);
+  });
+});
+
+describe("claimLocationEligibility — honest unknown state", () => {
+  it("reports an unrecognised name as unknown, not as definitely not a place", () => {
+    for (const claim of [
+      "This image was taken in Brindlewick.",
+      "this image was taken in brindlewick.",
+    ]) {
+      const r = claimLocationEligibility(claim);
+      expect(r.eligible, claim).toBe(false);
+      expect(r.outcome, claim).toBe("unknown");
+      expect(r.rejectedBy, claim).toBe("unrecognised_name");
+      expect(r.unresolved.length, claim).toBe(1);
+    }
+  });
+
+  it("keeps not_eligible for a demonstrated non-place context", () => {
+    const demonstrated: Array<[string, LocationRejection]> = [
+      ["This happened on Tuesday.", "temporal_reference"],
+      ["This image was shared on Twitter.", "non_place_reference"],
+      ["This quote is from the minister.", "person_reference"],
+      ["This image shows Alice smiling.", "no_locative_construction"],
+    ];
+    for (const [claim, rejection] of demonstrated) {
+      const r = claimLocationEligibility(claim);
+      expect(r.eligible, claim).toBe(false);
+      expect(r.outcome, claim).toBe("not_eligible");
+      expect(r.rejectedBy, claim).toBe(rejection);
+    }
+  });
+
+  it("gives a positive place signal precedence over unresolved candidates", () => {
+    const r = claimLocationEligibility("This image was taken in London and focuses on Jordan smiling.");
+    expect(r.eligible).toBe(true);
+    expect(r.spans).toEqual(["London"]);
+    // the refused candidate is still reported alongside the accepted one
+    expect(r.unresolved).toEqual(["Jordan"]);
+  });
+
+  it("only eligible ever authorises the question", () => {
+    for (const claim of [
+      "This image was taken in Brindlewick.",
+      "This happened on Tuesday.",
+      "This image shows Alice smiling.",
+      "This image was taken in 東京.",
+    ]) {
+      const r = claimLocationEligibility(claim);
+      expect(r.eligible, claim).toBe(r.outcome === "eligible");
+    }
+  });
+});
+
+describe("claimLocationEligibility — verbatim span fidelity", () => {
+  it("reports an accented name exactly as written", () => {
+    const r = claimLocationEligibility("This image was taken in São Tomé.");
+    expect(r.eligible).toBe(true);
+    expect(r.spans).toEqual(["São Tomé"]);
+  });
+
+  it("reports a non-Latin name rather than erasing it", () => {
+    const r = claimLocationEligibility("This image was taken in 東京.");
+    expect(r.eligible).toBe(false);
+    expect(r.outcome).toBe("unknown");
+    expect(r.unresolved).toEqual(["東京"]);
+  });
+
+  it("includes a sentence-final token instead of dropping it", () => {
+    for (const claim of [
+      "A photo focusing on Juniper Chen.",
+      "This image was taken near Juniper Chen.",
+    ]) {
+      expect(claimLocationEligibility(claim).unresolved, claim).toEqual(["Juniper Chen"]);
+    }
+  });
+
+  it("keeps accented and cased gazetteer names matched", () => {
+    for (const claim of [
+      "This image was taken in são paulo.",
+      "This image was taken in SAO PAULO.",
+      "This image was taken in Bogotá.",
+      "This image was taken in são tomé.",
+    ]) {
+      expect(claimMayStateLocation(claim), claim).toBe(true);
     }
   });
 });
