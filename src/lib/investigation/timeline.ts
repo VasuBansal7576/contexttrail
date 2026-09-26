@@ -9,7 +9,18 @@
 
 import type { EvidenceCandidate } from "./contracts/evidence";
 import type { TimelineItem } from "./contracts/investigation";
+import { STRONG_RELATION_THRESHOLD } from "./contracts/judgment";
 import type { SegmentResult } from "./divergence";
+
+/** Strong context-relationship label from a Jev judgment, else null. */
+function contextLabelOf(c: EvidenceCandidate): TimelineItem["contextLabel"] {
+  const rel = c.judgment?.contextRelation;
+  if (!rel) return null;
+  if (rel.differentContext >= STRONG_RELATION_THRESHOLD) return "DIFFERENT_CONTEXT";
+  if (rel.sameContext >= STRONG_RELATION_THRESHOLD) return "SAME_CONTEXT";
+  if (rel.historicalReference >= STRONG_RELATION_THRESHOLD) return "HISTORICAL_REFERENCE";
+  return null;
+}
 
 function toTimelineItem(
   c: EvidenceCandidate,
@@ -18,8 +29,10 @@ function toTimelineItem(
     segmentIndex: number | null;
     connector: TimelineItem["incomingConnector"];
     isDivergencePoint: boolean;
+    excerpt: string | null;
   },
 ): TimelineItem {
+  const firstRetrieval = c.retrievals[0] ?? null;
   return {
     occurrenceId: c.id,
     evidenceId: c.id,
@@ -35,6 +48,17 @@ function toTimelineItem(
     contextSegmentIndex: opts.segmentIndex,
     incomingConnector: opts.connector,
     isFirstObservedDivergencePoint: opts.isDivergencePoint,
+    imageUrl: c.resultImageUrl ?? c.thumbnailUrl,
+    excerpt: opts.excerpt ?? c.snippet,
+    excerptSource: c.excerptSource,
+    publishedAtSource: c.publishedAtSource,
+    reportingOriginStatus: c.reportingOrigin.status,
+    contextLabel: contextLabelOf(c),
+    serpPosition: c.serpPosition,
+    retrievedAt: firstRetrieval?.retrievedAt ?? null,
+    engine: firstRetrieval?.kind ?? null,
+    resultType: firstRetrieval?.resultType ?? null,
+    jevModel: c.judgment?.model ?? null,
   };
 }
 
@@ -54,6 +78,7 @@ export interface BuiltTimeline {
 export function buildTimeline(
   candidates: readonly EvidenceCandidate[],
   segments: SegmentResult | null,
+  excerpts?: ReadonlyMap<string, string>,
 ): BuiltTimeline {
   const dated: EvidenceCandidate[] = [];
   const undated: EvidenceCandidate[] = [];
@@ -100,6 +125,7 @@ export function buildTimeline(
       segmentIndex: segmentIndex === undefined ? null : segmentIndex,
       connector,
       isDivergencePoint: c.id === divergenceId,
+      excerpt: excerpts?.get(c.id) ?? null,
     });
   });
 
@@ -111,6 +137,7 @@ export function buildTimeline(
         segmentIndex: null,
         connector: null,
         isDivergencePoint: false,
+        excerpt: excerpts?.get(c.id) ?? null,
       }),
     ),
   };
