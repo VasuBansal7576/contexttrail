@@ -12,9 +12,15 @@ import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   attributableSpan,
+  comparisonSelected,
+  dateProvenanceOf,
   dateSourceLabel,
+  displayAttributionOf,
   fullExcerptText,
   identityBasis,
+  identityBasisDetailOf,
+  originStatusLabel,
+  originSupportOf,
   reportingOriginLabel,
   type AttributableSpan,
 } from "./evidence-display";
@@ -120,11 +126,21 @@ export default function EvidenceViewer({
       str(occurrence, "publishedAtSource"))
     : null;
   const dateSource = dateSourceLabel(dateKey);
+  // Typed additive provenance (R4) with flat-field fallbacks so older
+  // payloads keep their accepted rendering.
+  const dateProv = occurrence ? dateProvenanceOf(occurrence) : null;
+  const originSup = occurrence ? originSupportOf(occurrence) : null;
+  const identityDetail = occurrence ? identityBasisDetailOf(occurrence) : null;
+  const compared = occurrence ? comparisonSelected(occurrence) : null;
+  const shownDate = dateProv?.value ?? date;
+  const shownPrecision = dateProv?.precision ?? precision;
+  const shownDateSource = dateProv?.sourceLabel ?? dateSource;
+  const origin = occurrence ? reportingOriginLabel(occurrence) : null;
+  const shownOrigin = originSup ? originStatusLabel(originSup.status) : origin;
   const span: AttributableSpan | null = occurrence ? attributableSpan(occurrence, 600) : null;
   const fullText = occurrence ? fullExcerptText(occurrence) : null;
   const showFullText =
     fullText !== null && span !== null && fullText.length > span.text.length + 1;
-  const origin = occurrence ? reportingOriginLabel(occurrence) : null;
 
   const position = items.length > 0 ? `${Math.min(index + 1, items.length)} of ${items.length}` : "0 of 0";
 
@@ -246,10 +262,28 @@ export default function EvidenceViewer({
                   <Dialog.Title className="font-serif text-3xl leading-tight">{title}</Dialog.Title>
                   {domain ? <p className="mt-1 text-sm text-white/60">{domain}</p> : null}
                   <p className="mt-2 text-sm text-white/60">
-                    {date ? `Published ${date}` : "Date unknown"}
-                    {precision && date ? ` · ${precision} precision` : ""}
-                    {date ? (dateSource ? ` · ${dateSource}` : " · date source unknown") : ""}
+                    {shownDate
+                      ? `Published ${shownDate}${shownPrecision ? ` · ${shownPrecision} precision` : ""} · ${shownDateSource ?? "date source unknown"}`
+                      : "Date unknown"}
                   </p>
+                  {dateProv?.entityBinding ? (
+                    <p className="mt-1 text-xs text-white/55">Date binding: {dateProv.entityBinding}.</p>
+                  ) : null}
+                  {dateProv && dateProv.rejected.length > 0 ? (
+                    <details className="mt-1">
+                      <summary className="min-h-[44px] cursor-pointer text-xs text-white/60 underline underline-offset-2">
+                        {dateProv.rejected.length} other date{" "}
+                        {dateProv.rejected.length === 1 ? "candidate was" : "candidates were"} rejected
+                      </summary>
+                      <ul className="mt-1 space-y-1 text-xs text-white/55">
+                        {dateProv.rejected.map((r, i) => (
+                          <li key={i}>
+                            {r.value} — {r.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {mediaLabel ? (
                       <Badge tone={mediaLabel.badge === "Visual lead" ? "neutral" : "info"} className="bg-white/10 text-white ring-white/20">
@@ -278,7 +312,7 @@ export default function EvidenceViewer({
                   ) : null}
 
                   <h3 className="mt-5 text-sm font-semibold tracking-wide text-white/50 uppercase">
-                    {span ? span.attribution : "Source excerpt"}
+                    {span ? (occurrence ? (displayAttributionOf(occurrence) ?? span.attribution) : span.attribution) : "Source excerpt"}
                   </h3>
                   {span ? (
                     <figure className="mt-2">
@@ -300,8 +334,40 @@ export default function EvidenceViewer({
                     <p className="mt-2 text-sm text-white/60">No excerpt available</p>
                   )}
 
+                  {identityDetail ? (
+                    <p className="mt-3 text-sm text-white/65">
+                      Match basis: {identityDetail.methodLabel ?? "not reported"}
+                      {identityDetail.supportId ? ` · reference ${identityDetail.supportId}` : ""}.
+                    </p>
+                  ) : null}
+
                   {origin ? (
-                    <p className="mt-3 text-sm text-white/65">{origin}</p>
+                    <div className="mt-3">
+                      <p className="text-sm text-white/65">{shownOrigin}</p>
+                      {originSup && originSup.spans.length > 0 ? (
+                        <ul className="mt-2 space-y-2">
+                          {originSup.spans.map((s, i) => (
+                            <li key={i} className="border-l-2 border-white/20 pl-3">
+                              <p className="text-sm leading-relaxed text-white/80">“{s.text}”</p>
+                              <p className="mt-1 text-xs text-white/50">{s.relation}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      {originSup && originSup.reasons.length > 0 ? (
+                        <p className="mt-1 text-xs text-white/55">
+                          Grouping basis: {originSup.reasons.join("; ")}.
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {compared !== null ? (
+                    <p className="mt-2 text-xs text-white/55">
+                      {compared
+                        ? "Selected for the compared run."
+                        : "Not selected for the compared run."}
+                    </p>
                   ) : null}
 
                   {claim ? (

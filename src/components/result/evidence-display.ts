@@ -15,7 +15,7 @@
  */
 "use client";
 
-import { num, rec, str, type JsonRecord } from "@/lib/stream/result-view";
+import { arr, asRecord, num, rec, str, type JsonRecord } from "@/lib/stream/result-view";
 
 /* ---------------- connectors (F04) ---------------- */
 
@@ -282,10 +282,16 @@ export function reportingOriginLabel(occurrence: JsonRecord): string {
     str(occurrence, "reportingOrigin") ??
     ""
   ).toLowerCase();
-  if (status.includes("separate") && status.includes("evidenced")) {
+  return originStatusLabel(status);
+}
+
+/** Readable origin status from a raw status value (flat or additive). */
+export function originStatusLabel(status: string | null): string {
+  const s = (status ?? "").toLowerCase();
+  if (s.includes("separate") && s.includes("evidenced")) {
     return "Separately evidenced reporting origin.";
   }
-  if (status.includes("shared")) {
+  if (s.includes("shared")) {
     return "Shared reporting origin.";
   }
   return "Reporting origin unresolved.";
@@ -437,4 +443,207 @@ export function reportingCounts(result: JsonRecord | null): {
     groups: num(result, "reportingGroupCount"),
     unresolved: num(result, "unresolvedOriginCount"),
   };
+}
+
+/* ---------------- typed inspection contract (R4) ----------------
+ *
+ * Reads the additive backend payload (requestLog, policyReasons,
+ * identity/date/origin provenance, display attribution, comparison
+ * selection) with honest absence: a missing block yields null and the
+ * views render their existing fallbacks, never guesses.
+ */
+
+/** Deterministic codes shown transparently, never as wire tokens. */
+export function humanizeCode(code: string): string {
+  const words = code.replace(/[_-]+/g, " ").trim();
+  return words.length > 0 ? words.charAt(0).toUpperCase() + words.slice(1) : code;
+}
+
+export interface RequestLogEntry {
+  engine: string;
+  attempted: number | null;
+  returned: number | null;
+  retained: number | null;
+}
+
+export function getRequestLog(result: JsonRecord | null): RequestLogEntry[] | null {
+  if (!result) return null;
+  const raw = arr(result, "requestLog");
+  if (!raw) return null;
+  return raw.flatMap((item) => {
+    const r = asRecord(item);
+    if (!r) return [];
+    const engine = str(r, "engine");
+    if (!engine) return [];
+    return [{ engine, attempted: num(r, "attempted"), returned: num(r, "returned"), retained: num(r, "retained") }];
+  });
+}
+
+export interface PolicyReasonView {
+  gate: string;
+  gateLabel: string;
+  passed: boolean;
+  detail: string | null;
+  supportIds: string[];
+}
+
+export function getPolicyReasons(result: JsonRecord | null): PolicyReasonView[] {
+  if (!result) return [];
+  const raw = arr(result, "policyReasons") ?? [];
+  return raw.flatMap((item) => {
+    const r = asRecord(item);
+    if (!r) return [];
+    const gate = str(r, "gate");
+    if (!gate) return [];
+    const ids = arr(r, "supportIds") ?? [];
+    return [
+      {
+        gate,
+        gateLabel: humanizeCode(gate),
+        passed: r["passed"] === true,
+        detail: str(r, "detail"),
+        supportIds: ids.filter((id): id is string => typeof id === "string"),
+      },
+    ];
+  });
+}
+
+export function getStatusBasis(result: JsonRecord | null): string[] {
+  if (!result) return [];
+  const raw = arr(result, "statusBasis") ?? [];
+  return raw.filter((b): b is string => typeof b === "string" && b.length > 0).map(humanizeCode);
+}
+
+export interface ReportingGroupView {
+  groupId: string;
+  memberCount: number;
+  memberIds: string[];
+  reasons: string[];
+}
+
+export function getReportingGroups(result: JsonRecord | null): ReportingGroupView[] {
+  if (!result) return [];
+  const raw = arr(result, "reportingGroups") ?? [];
+  return raw.flatMap((item) => {
+    const r = asRecord(item);
+    if (!r) return [];
+    const groupId = str(r, "groupId");
+    if (!groupId) return [];
+    const memberIds = (arr(r, "memberIds") ?? []).filter(
+      (id): id is string => typeof id === "string",
+    );
+    const reasons = (arr(r, "reason") ?? [])
+      .filter((x): x is string => typeof x === "string")
+      .map(humanizeCode);
+    return [{ groupId, memberCount: memberIds.length, memberIds, reasons }];
+  });
+}
+
+export function getUnresolvedCandidateIds(result: JsonRecord | null): string[] {
+  if (!result) return [];
+  const raw = arr(result, "unresolvedCandidateIds") ?? [];
+  return raw.filter((id): id is string => typeof id === "string");
+}
+
+const IDENTITY_METHOD_COPY: Record<string, string> = {
+  lens_exact_collection: "Reported by Google Lens",
+  local_spatial_verification: "Locally verified",
+  unverified: "Not confirmed",
+  contextual: "Contextual evidence",
+};
+
+export function identityMethodLabel(method: string | null): string | null {
+  if (!method) return null;
+  return IDENTITY_METHOD_COPY[method] ?? humanizeCode(method);
+}
+
+export interface IdentityDetail {
+  methodLabel: string | null;
+  supportId: string | null;
+}
+
+export function identityBasisDetailOf(occurrence: JsonRecord): IdentityDetail | null {
+  const detail = rec(occurrence, "identityBasisDetail");
+  if (!detail) return null;
+  const method = str(detail, "method") ?? identityBasisOf(occurrence);
+  if (method === null && str(detail, "supportId") === null) return null;
+  return { methodLabel: identityMethodLabel(method), supportId: str(detail, "supportId") };
+}
+
+const ENTITY_BINDING_COPY: Record<string, string> = {
+  main_entity: "Bound to the page's main article",
+  page_url: "Bound to the fetched page URL",
+  root_entity: "Bound to the page root entity",
+};
+
+export interface DateProvenance {
+  value: string | null;
+  precision: string | null;
+  sourceLabel: string | null;
+  entityBinding: string | null;
+  rejected: Array<{ value: string; reason: string }>;
+}
+
+export function dateProvenanceOf(occurrence: JsonRecord): DateProvenance | null {
+  const d = rec(occurrence, "dateProvenance");
+  if (!d) return null;
+  const rejected =
+    arr(d, "rejectedCandidates")
+      ?.flatMap((item) => {
+        const r = asRecord(item);
+        if (!r) return [];
+        const value = str(r, "value");
+        if (!value) return [];
+        return [{ value, reason: str(r, "reason") ?? "no reason reported" }];
+      }) ?? [];
+  const binding = str(d, "entityBinding");
+  return {
+    value: str(d, "value"),
+    precision: str(d, "precision"),
+    sourceLabel: dateSourceLabel(str(d, "source")),
+    entityBinding: binding ? (ENTITY_BINDING_COPY[binding] ?? humanizeCode(binding)) : null,
+    rejected,
+  };
+}
+
+export interface OriginSupport {
+  status: string | null;
+  groupId: string | null;
+  spans: Array<{ text: string; relation: string }>;
+  reasons: string[];
+}
+
+export function originSupportOf(occurrence: JsonRecord): OriginSupport | null {
+  const o = rec(occurrence, "originSupport");
+  if (!o) return null;
+  const spans =
+    arr(o, "attributionSpans")
+      ?.flatMap((item) => {
+        const r = asRecord(item);
+        if (!r) return [];
+        const text = str(r, "text");
+        if (!text) return [];
+        return [{ text, relation: str(r, "relation") ?? "supporting" }];
+      }) ?? [];
+  const reasons = (arr(o, "groupingReason") ?? [])
+    .filter((x): x is string => typeof x === "string")
+    .map(humanizeCode);
+  const status = str(o, "status");
+  if (status === null && spans.length === 0 && reasons.length === 0 && str(o, "groupId") === null) {
+    return null;
+  }
+  return { status, groupId: str(o, "groupId"), spans, reasons };
+}
+
+/** Backend-supplied readable excerpt attribution; null falls back to mapping. */
+export function displayAttributionOf(occurrence: JsonRecord): string | null {
+  return str(occurrence, "displayAttribution");
+}
+
+/** Whether the item entered the compared run; null when unreported. */
+export function comparisonSelected(occurrence: JsonRecord): boolean | null {
+  const c = rec(occurrence, "comparisonSelection");
+  if (!c) return null;
+  if (typeof c["selected"] !== "boolean") return null;
+  return c["selected"];
 }
