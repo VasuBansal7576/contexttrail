@@ -1,33 +1,89 @@
 # Image selection and optional claim
 
-Each distinct entry path reaches the same valid selection; errors preserve claim and permit replacement; noisy oversized input fails before a request; successful preprocessing stays under limits.
+An image can be chosen the way a user actually chooses one, a rejected input
+never reaches the API, and the optional claim is capped and announced.
 
 ## Sub-features
 
-- input-browse: real file chooser via label
-- input-drop: actual DataTransfer drop
-- input-keyboard: visible focus and Enter chooser
-- input-paste: pasted image convenience
-- input-replace-remove: retained claim, correct preview
-- input-validation: empty, unsupported, decode failure and >450KB compression rejection
-- input-claim: blank/whitespace trace, supplied claim mode, 500-character limit
-- input-preparing: bounded image processing and duplicate-submit prevention
+- input-entry: browse (file chooser), keyboard, drop and paste all deliver the file
+- input-validation: unsupported / undecodable / oversized inputs are refused with a message
+- input-replace-remove: the selection can be swapped or cleared, and submit state follows
+- input-claim: 500-character cap with a live "characters remaining" announcement
 
-## How to get to it (user POV)
+## Drive command
 
-Open /investigate from landing, directly, or Return to upload; select by browse/drop/keyboard/paste.
+```
+bin/control-contexttrail drive upload --run-id <id> \
+  [--entry browse|keyboard|drop|paste|setinputfiles] \
+  [--case valid|unsupported|empty|decode|oversize|replace|remove|claim-limit]
+```
 
-## Driving it with control-contexttrail
+Defaults: `--entry browse`, `--case valid`. Both `--entry` and `--case` are
+closed vocabularies — any other value exits 2 naming the supported set.
 
-Preconditions: doctor passed for the pinned instance. Normal cases are controlled; live cases require the explicit live gate.
+## Assertions (executable contract)
 
-control-contexttrail drive upload --entry browse|keyboard|drop|paste|setinputfiles --case valid|unsupported|empty|decode|oversize|replace|remove|claim-limit --run-id <id>. All entries and cases are implemented: browse/keyboard assert a real filechooser event; drop uses a real DataTransfer; paste uses a real ClipboardEvent; setinputfiles is direct input injection (no chooser proof). Generated scratch files cover valid/unsupported/empty/decode/oversize inputs. Observe preview, inline error, preserved claim, 500-character cap and disabled submission — missing states fail the drive.
+Common to every case:
 
-Observable proof: Each distinct entry path reaches the same valid selection; errors preserve claim and permit replacement; noisy oversized input fails before a request; successful preprocessing stays under limits.
+| ID | What it proves |
+| --- | --- |
+| `upload.entry-method` (INFO) | how the file was delivered (`chooserSeen`, `dataTransferUsed`, `clipboardEventUsed`, `setInputFilesOnly`) |
+| `upload.preview-visible` | `img[alt^="Selected image preview"]` is rendered |
+| `upload.preview-matches-file` | the preview alt text names the file actually delivered |
+| `boundary.zero-provider-attempts` / `boundary.provider-blocked` / `boundary.mode-controlled` | selecting an input never contacts a provider |
+| `console.no-unexpected-errors` | no unexpected console error |
+
+Per case:
+
+| Case | Assertions |
+| --- | --- |
+| `valid` | `upload.submit-enabled-after-valid` |
+| `unsupported` | `upload.unsupported-rejected` (error text), `upload.submit-disabled-after-unsupported` |
+| `empty` | `upload.decode-rejected`, `upload.claim-survives-failure` |
+| `decode` | `upload.decode-rejected`, `upload.claim-survives-failure` |
+| `oversize` | `upload.oversize-rejected` |
+| `replace` | preview alt changes to the second file |
+| `remove` | `upload.submit-disabled-after-remove`, `upload.claim-survives-remove`, `upload.input-restored-after-remove` |
+| `claim-limit` | `upload.claim-cap-500` (typed 600 chars → value length 500), `upload.claim-counter-announced` (`0 characters remaining`) |
+
+Entry points: `browse` (label click → `filechooser`), `keyboard`
+(focus `#ct-image-input` → Enter → `filechooser`), `drop` (synthesised
+`DragEvent` carrying a `DataTransfer`), `paste` (synthesised `paste` event with
+`clipboardData`), `setinputfiles` (`page.setInputFiles` directly).
+
+## Evidence
+
+`01-upload-<entry>-<case>.png`, `upload-<entry>-<case>.aria.txt`,
+`drive.json` (`tier: real-ui`, `entry`, `case`), `console.json`.
+
+## Negative controls
+
+| Command | Expected |
+| --- | --- |
+| `drive upload --run-id <id> --entry telepathy` | exit 2, lists `browse\|keyboard\|drop\|paste\|setinputfiles` |
+| `drive upload --run-id <id> --case does-not-exist` | exit 2, lists the eight cases |
+| `drive upload --run-id <id> --image <file>` | exit 2, `--image` is only valid with `--live` |
+| `drive upload --run-id <id> --claim-text hi` | exit 2, `--claim-text` is only valid with `--live` |
+| `drive upload --run-id <id> --live` | exit 2, `--live requires RUN_LIVE_TESTS=1 (provider credit gate)` — the gate is evaluated before any other live handling |
+| `RUN_LIVE_TESTS=1 drive upload --run-id <id> --live` | exit 2, `--live requires --image <path>` (upload accepts `--live`, but needs the submitted media) |
+
+Note the gate ordering: `landing` and `accessibility` carry no options at all,
+so for them `--live` is rejected as `--live is only valid for
+investigation|result|viewer drives`, and only when the credit gate is already
+open does that message surface. With the gate closed the credit-gate message
+wins on every drive.
 
 ## Gotchas
 
-Browse/drop/keyboard/replace/remove and validation were freshly driven; clipboard paste and every browser codec path remain NOT VERIFIED. Hidden file input focus is not visibly represented. No huge original-file size promise exists.
+- `drop` and `paste` dispatch synthesised events with a real `DataTransfer`
+  carrying the bytes. That exercises the app's drop/paste handlers but is not a
+  human drag-and-drop; `drive.json` records the entry so the distinction is
+  never lost.
+- The 500-character cap is enforced by the app, not by this harness — the
+  harness types 600 characters and asserts the value is 500.
+- Selection happens entirely client-side; no `/api/investigate` request is
+  made from this drive (asserted by the boundary checks).
 
-Keep screenshots, ARIA snapshots, action video, sanitized response/events and invariant results with the feature ID. Cleanup closes owned runtime state and preserves evidence. 
-
+Keep screenshots, ARIA snapshots, action video, sanitized response/events and
+invariant results with the feature ID. Cleanup closes owned runtime state and
+preserves evidence.
