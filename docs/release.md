@@ -51,7 +51,8 @@ Three different things get called "tests pass". Keep them apart:
 | --- | --- | --- | --- |
 | **Baseline checks** — the audited baseline this documentation was drafted against | `npm test`, `npm run typecheck`, `npm run build` | **143 tests / 20 files**, typecheck clean, build succeeds (independently re-run) | browser behavior, live providers, any release gate |
 | **Backend repair head** — reported by the backend lane and independently re-run here | the same three commands plus the Phase 0 regression gates | **161 passed + 2 skipped / 22 files (163 collected)**, typecheck clean, build succeeds | browser behavior, live providers; backend full-suite validation still in progress |
-| **Integrated browser + gated live acceptance** | the project harness driving a built app in a real browser, then gated live runs against real providers | **not run** | — |
+| **Current integration head** — this branch (`fm/ct-api-v1`) after Jev provenance wiring, the additive inspection contract and the UI cherry-picks | the same three commands plus all regression gates | **228 passed + 4 skipped / 23 files (232 collected)**, typecheck clean, build succeeds | live providers; full-suite live validation still pending |
+| **Integrated browser + gated live acceptance** | the project harness driving a built app in a real browser, then gated live runs against real providers | controlled-fixture browser pass run (`p4-002`, zero provider credit); **gated live runs not run** | live providers, strong milestone cases |
 
 Only the third tier could ever support a release claim, and it has not happened.
 
@@ -59,11 +60,11 @@ Only the third tier could ever support a release claim, and it has not happened.
 
 | Blocker | State |
 | --- | --- |
-| **Evidence-integrity repairs (P1)** | **Partly landed.** Backend repairs for F01–F03 and F05–F11 are in, and the Phase 0 regression gates — which were written to *reproduce* each defect and failed before the repair — now pass (161 passed, 2 skipped on the repair head). Remaining findings and UI-side work are not closed, so this is repair progress, not acceptance. |
-| **Integrated browser verification** | Not run against the repaired build. The audit's browser coverage predates the repair. |
+| **Evidence-integrity repairs (P1)** | **Landed pending live re-verification.** All backend findings F01–F03 and F05–F11 plus the F12/F13 contract additions are integrated; every regression gate reproduces the defect and now passes (228 passed, 4 skipped on this head). The inspectable-evidence UI (F04, F12–F17) is integrated from the UI lane's five source commits. Live-provider recheck and strong milestone cases remain open, so this is still not acceptance. |
+| **Integrated browser verification** | Controlled-fixture pass on the integration head (`p4-002`: landing, all 5 upload entries, 8 upload cases, investigation progressive, 4 result views, 9 viewer entry/case pairs, 5 session cases, accessibility — zero provider credit, 118 evidence artifacts preserved). The audit's original browser coverage still predates the repairs. |
 | **Strong live milestone cases** | Not run. PRD requires at minimum one strong Trace, one strong claim conflict, one limited/uncertain, and one failure/degradation case. |
-| **Verification harness** | Creation gate passed (one mapped landing feature, 26 evidence artifacts surviving cleanup); the doctor records an identity proof for the build it launched. **Four of nine drives exist** (`landing`, `upload`, `investigation`, `result`); the rest report `unknown drive feature` and are recorded as NOT VERIFIED, never silently passed. CLI expansion to all nine mapped features is **underway** — nine-map entry coverage stays marked **pending** until its expansion commit lands, and must not be described as complete. |
-| **Observability** | Structured success telemetry is absent; only sanitized failure warnings exist. |
+| **Verification harness** | All nine mapped features are executable (`landing`, `upload`, `investigation`, `result`, `viewer`, `session`, `accessibility` plus evidence/cleanup); unsupported entries/cases/views fail closed with exit 2 before browser launch. Latest controlled run: `p4-002`, 118 artifacts preserved. |
+| **Observability** | Structured sanitized success telemetry now lands per stage and at run end (`[investigate] telemetry` JSON records); failure warnings stay sanitized. |
 | **Browsers** | Chrome only. Edge, Safari, Firefox and real mobile engines are unverified. |
 | **Asset credits / licensing** | No `LICENSE` and no attribution document exist. `contexttrail-designs/screen-designs.png` is AI-generated and credited in the README; `contexttrail-designs/original-reference.png` has **no recorded provenance or license** and must not be redistributed until that is established. |
 | **Account / auth for deployment** | Vercel CLI is not installed, there is no stored Vercel login state, and this repository is not linked to a Vercel project. Deployment prerequisites are unmet — this says nothing about whether an account exists. No login is performed from this repository or this document. |
