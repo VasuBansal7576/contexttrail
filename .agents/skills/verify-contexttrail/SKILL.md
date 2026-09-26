@@ -172,7 +172,11 @@ Beyond scope, two more guards keep a fault from ever being green by accident:
   performed. The drive reads that count before the browser closes, records
   `fault.sabotage-reported`, and turns the run red if it is zero. The verdict is
   persisted as `faultFired` in `drive.json` and in the seal, so an inert fault is
-  distinguishable from a firing one in the evidence itself.
+  distinguishable from a firing one in the evidence itself. The recorder stays
+  open until this and every other post-case assertion have been pushed, then
+  flushes before the totals are read — `drive.json`'s assertion counts and the
+  durable `assertions.jsonl` can never diverge (a push after close throws), and
+  the seal fails non-zero if a drive's recorded totals disagree with its file.
 
 | fault | applies to |
 | --- | --- |

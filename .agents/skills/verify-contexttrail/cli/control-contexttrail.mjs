@@ -935,10 +935,17 @@ class Recorder {
   constructor(dir) {
     this.dir = dir;
     this.entries = [];
+    this.closed = false;
     fs.mkdirSync(dir, { recursive: true });
     this.stream = fs.createWriteStream(path.join(dir, "assertions.jsonl"), { flags: "w" });
   }
   push(id, status, detail) {
+    // A push after close would land in the in-memory count but never reach the
+    // durable file — the exact divergence that let a drive report more PASSes
+    // than assertions.jsonl holds. That must be loud, not silently dropped.
+    if (this.closed) {
+      throw new Error(`assertion pushed after the recorder closed: ${id}`);
+    }
     const entry = { at: new Date().toISOString(), id, status, detail: detail ?? null };
     this.entries.push(entry);
     this.stream.write(JSON.stringify(entry) + "\n");
@@ -958,8 +965,16 @@ class Recorder {
     const failCount = this.entries.filter((e) => e.status === "FAIL").length;
     return { pass, fail: failCount, info: this.entries.filter((e) => e.status === "INFO").length };
   }
-  close() {
-    this.stream.end();
+  async close() {
+    if (this.closed) return;
+    this.closed = true;
+    // Wait for the buffered bytes to be flushed: the drive totals are read and
+    // the record written right after this returns, so the durable file must
+    // already hold every pushed entry.
+    await new Promise((resolve, reject) => {
+      this.stream.once("error", reject);
+      this.stream.end(() => resolve());
+    });
   }
 }
 
@@ -1746,7 +1761,7 @@ async function liveReady() {
   const dir = path.join(base, `${String(seq).padStart(3, "0")}-live-ready`);
   const rec = new Recorder(dir);
   for (const c of checks) rec.push(c.id, c.status, c.detail);
-  rec.close();
+  await rec.close();
 
   const record = {
     control: "live-ready",
@@ -2202,6 +2217,75 @@ function readingOrderTargetOk(fault, faultTarget, panelId) {
  */
 function measurementSurfaceOk(requestedView, panelInfo) {
   return panelInfo.observedTab === requestedView && panelInfo.settled === true;
+}
+
+/**
+ * S2: whether a stream-plan entry's derived fields are exactly what the ONE
+ * retained buffer produces — never re-reading the fixture. Everything is
+ * re-derived from `st.buffer` itself and compared: the flattened segments must
+ * equal the buffer's normalized line sequence exactly (not merely in count —
+ * a same-count different-content stream must be red), the recorded sha256 must
+ * be the buffer's recomputed digest, the recorded investigation id must be the
+ * id parsed out of the buffer's own lines, the recorded byte count must be the
+ * buffer's length, and the fixture must have been read exactly once.
+ *
+ * Pure and exported: the drive calls it on the live state and the offline
+ * control exercises the identical predicate against real planSequence output,
+ * so neither can drift into a weaker check.
+ */
+function verifyStreamBufferProvenance(st, reads) {
+  if (!st || !Buffer.isBuffer(st.buffer)) {
+    return { ok: false, problems: ["stream plan has no retained buffer"], fixture: st?.fixture ?? null, reads: reads ?? null };
+  }
+  const problems = [];
+  const lines = st.buffer.toString("utf8").split("\n").filter((l) => l.trim());
+  const segmentLines = (st.segments ?? []).flat();
+  const recomputedSha256 = crypto.createHash("sha256").update(st.buffer).digest("hex");
+  let recomputedId = null;
+  for (const l of lines) {
+    try {
+      const ev = JSON.parse(l);
+      if (ev.investigationId) {
+        recomputedId = ev.investigationId;
+        break;
+      }
+    } catch {
+      /* keep looking */
+    }
+  }
+  const firstMismatch = segmentLines.findIndex((l, i) => l !== lines[i]);
+  if (segmentLines.length !== lines.length || firstMismatch !== -1) {
+    problems.push(
+      `segments are not the exact normalized line sequence of the retained buffer ` +
+        `(${segmentLines.length} segment line(s) vs ${lines.length} buffer line(s)` +
+        `${firstMismatch >= 0 ? `, first divergence at line ${firstMismatch}` : ""})`,
+    );
+  }
+  if (recomputedSha256 !== st.sha256) {
+    problems.push(
+      `recorded sha256 ${String(st.sha256).slice(0, 12)}… does not match the retained buffer (${recomputedSha256.slice(0, 12)}…)`,
+    );
+  }
+  if (recomputedId !== st.id) {
+    problems.push(`recorded investigation id ${st.id} is not the id parsed from the retained buffer (${recomputedId})`);
+  }
+  if (st.bytes !== st.buffer.length) {
+    problems.push(`recorded byte count ${st.bytes} does not match the retained buffer (${st.buffer.length}B)`);
+  }
+  if (reads !== 1) {
+    problems.push(`fixture ${st.fixture} was read ${reads ?? "an unrecorded number of"} time(s), expected exactly 1`);
+  }
+  return {
+    ok: problems.length === 0,
+    problems,
+    fixture: st.fixture ?? null,
+    reads: reads ?? null,
+    lines: lines.length,
+    segmentLines: segmentLines.length,
+    sha256: recomputedSha256,
+    id: recomputedId,
+    bytes: st.buffer.length,
+  };
 }
 
 /**
@@ -4078,7 +4162,7 @@ async function drive(opts = {}) {
         // S3: an interrupted stream-ownership drive keeps what it observed.
         persistStreamOwnership(driveDir, stream, `interrupted by ${signal}`);
         rec.push("drive.interrupted", "FAIL", `interrupted by ${signal}`);
-        rec.close();
+        await rec.close();
         writeJson(path.join(driveDir, "drive.json"), {
           ...initialRecord,
           outcome: "INCOMPLETE",
@@ -4216,7 +4300,9 @@ async function drive(opts = {}) {
       await session.context.close().catch(() => {});
       await session.browser.close().catch(() => {});
     }
-    rec.close();
+    // The recorder stays OPEN through the post-finally bookkeeping below —
+    // drive.videos-collected and fault.sabotage-reported are real assertions
+    // that must reach the durable file, not just the in-memory count.
   }
 
   // Collect the finished recordings into the drive's evidence directory, after
@@ -4250,6 +4336,11 @@ async function drive(opts = {}) {
     }
   }
 
+  // NOW the recorder closes — after the last possible push — and waits for the
+  // file to flush, so `counts()` and the durable assertions.jsonl can never
+  // diverge again. A drive's reported totals and the seal's totals come from
+  // the same persisted entries.
+  await rec.close();
   const counts = rec.counts();
   const driveRecord = {
     driveId: path.basename(driveDir),
@@ -6066,28 +6157,28 @@ const DRIVE_CASES = {
     stream.state.ownership = { plan, retained };
 
     // S2: exactly one read per fixture, and the segments, id, hash and retained
-    // bytes all come from that same buffer.
-    const readCounts = stream.state.fixtureReads ?? {};
-    const identity = [0, 1].map((i) => {
+    // bytes all come from that same buffer. The shared validator re-derives the
+    // normalized line sequence, the sha256, the investigation id and the byte
+    // count FROM the retained buffer itself and compares — a same-line-count
+    // content change, a wrong id or a wrong hash are red, not just a missing or
+    // differently-sized stream.
+    const provenance = [0, 1].map((i) => {
       const st = stream.state.sequence[i];
-      const segJoined = st.segments.flat().join("\n");
       return {
         request: i,
-        fixture: st.fixture,
-        reads: readCounts[st.fixture] ?? null,
-        segmentLines: st.segments.flat().length,
-        // The segments re-join to the same line count as the buffer that produced
-        // them: identity, not a re-read.
-        bufferLines: st.buffer.toString("utf8").split("\n").filter((l) => l.trim()).length,
-        segmentsMatchBuffer: segJoined.length > 0,
-        idFromBuffer: st.id,
+        ...verifyStreamBufferProvenance(st, stream.state.fixtureReads?.[st?.fixture] ?? null),
       };
     });
     rec.check(
       "ownership.each-fixture-read-exactly-once",
-      identity.every((x) => x.reads === 1 && x.segmentLines === x.bufferLines && x.segmentsMatchBuffer),
-      identity
-        .map((x) => `${x.fixture}: ${x.reads} read(s), ${x.segmentLines} segment line(s) from a ${x.bufferLines}-line buffer`)
+      provenance.every((v) => v.ok),
+      provenance
+        .map(
+          (v) =>
+            `${v.fixture}: ${v.reads} read(s), ${v.segmentLines} segment line(s) from a ${v.lines}-line buffer, ` +
+            `id ${v.id}, sha256 ${String(v.sha256).slice(0, 12)}…` +
+            (v.problems.length ? ` — RED: ${v.problems.join("; ")}` : ""),
+        )
         .join("; "),
     );
     rec.check(
@@ -6990,11 +7081,21 @@ async function evidence() {
         outcome: d.outcome,
         complete: d.complete === true,
         videos: d.videos ?? null,
+        // The seal counts the DURABLE assertions.jsonl. The drive's own record
+        // claims totals too; both must agree, or a late push was counted in
+        // memory but never reached disk (the recorder-closed-early defect).
         assertions: {
           pass: assertions.filter((a) => a.status === "PASS").length,
           fail: assertions.filter((a) => a.status === "FAIL").length,
           info: assertions.filter((a) => a.status === "INFO").length,
         },
+        recordedAssertions: d.complete === true ? (d.assertions ?? null) : null,
+        assertionsMatchRecord:
+          d.complete !== true || d.assertions == null
+            ? null
+            : d.assertions.pass === assertions.filter((a) => a.status === "PASS").length &&
+              d.assertions.fail === assertions.filter((a) => a.status === "FAIL").length &&
+              d.assertions.info === assertions.filter((a) => a.status === "INFO").length,
         assertionIds: assertions.filter((a) => a.status !== "INFO").map((a) => `${a.status}:${a.id}`),
         boundary: d.boundary,
         appRevision: d.appRevision,
@@ -7082,6 +7183,17 @@ async function evidence() {
     }
   }
 
+  // A drive whose recorded totals disagree with its durable assertions file
+  // counted an assertion that never reached disk. The seal names every such
+  // drive and fails, the same way it fails lost retained bytes.
+  const assertionDivergence = drives
+    .filter((d) => d.assertionsMatchRecord === false)
+    .map((d) => ({
+      driveId: d.driveId,
+      durable: d.assertions,
+      recorded: d.recordedAssertions,
+    }));
+
   const summary = {
     runId,
     generation: generation(runId),
@@ -7105,6 +7217,7 @@ async function evidence() {
       })),
     },
     retainedIntegrityOk: retainedOk,
+    assertionDivergence,
     appRevision: m.revision,
     buildId: m.buildId,
     live: m.live === true,
@@ -7155,13 +7268,17 @@ async function evidence() {
       manifest: manifestPathOut,
       retainedStreams: summary.retainedStreams,
       retainedIntegrityOk: summary.retainedIntegrityOk,
+      assertionDivergence: summary.assertionDivergence,
     }),
   );
   // The seal is written either way, so the failure is inspectable, but a run whose
-  // retained streams are missing or corrupted must NOT be reported as a pass.
+  // retained streams are missing or corrupted must NOT be reported as a pass —
+  // and a drive whose record claims totals the durable file does not hold must
+  // NOT silently keep the inflated count.
+  const failures = [];
   if (!retainedOk) {
-    fail(
-      `sealed ${runId} with FAILED retained-stream integrity: ` +
+    failures.push(
+      `FAILED retained-stream integrity: ` +
         [
           ...planProblems.map((x) => `${x.drive}: ${x.why}`),
           ...retainedBad.map(
@@ -7171,6 +7288,21 @@ async function evidence() {
           ),
         ].join("; "),
     );
+  }
+  if (assertionDivergence.length > 0) {
+    failures.push(
+      `FAILED assertion-record agreement: ` +
+        assertionDivergence
+          .map(
+            (x) =>
+              `${x.driveId} records ${x.recorded.pass}P/${x.recorded.fail}F/${x.recorded.info}I ` +
+              `but the durable file holds ${x.durable.pass}P/${x.durable.fail}F/${x.durable.info}I`,
+          )
+          .join("; "),
+    );
+  }
+  if (failures.length > 0) {
+    fail(`sealed ${runId} with ${failures.join(" — also — ")}`);
   }
 }
 
@@ -7274,7 +7406,15 @@ const handlers = {
 // predicates the drive and the seal use, not a copy that can drift. Dispatch
 // only happens when this file is the one node was started on.
 const IS_MAIN = process.argv[1] !== undefined && path.resolve(process.argv[1]) === CLI_PATH;
-export { verifyRetainedStreams, projectRequestObservations, readingOrderTargetOk, measurementSurfaceOk };
+export {
+  verifyRetainedStreams,
+  verifyStreamBufferProvenance,
+  projectRequestObservations,
+  readingOrderTargetOk,
+  measurementSurfaceOk,
+  startStreamServer,
+  Recorder,
+};
 if (IS_MAIN) {
   if (!command || !handlers[command]) {
     console.error(
