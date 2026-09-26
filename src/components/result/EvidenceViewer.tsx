@@ -11,12 +11,16 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  contextLabel,
-  mediaRelationshipLabel,
+  attributableSpan,
+  dateSourceLabel,
+  fullExcerptText,
+  identityBasis,
+  reportingOriginLabel,
+  type AttributableSpan,
+} from "./evidence-display";
+import {
   occurrenceDate,
   occurrenceDatePrecision,
-  occurrenceDateSource,
-  occurrenceExcerpt,
   occurrenceId,
   occurrenceImage,
   occurrencePosition,
@@ -32,17 +36,28 @@ interface EvidenceViewerProps {
   index: number;
   submittedImageUrl: string | null;
   claim: string | null;
+  /** Element that opened the viewer; focus returns here on close (F14). */
+  triggerRef: React.RefObject<HTMLElement | null>;
+  /** Why this occurrence was opened (takeaway / divergence entry). */
+  entryNote: string | null;
+  /** The paired divergence endpoint id, when the open item is half of a pair. */
+  pairId: string | null;
+  onJumpToId: (id: string) => void;
   onClose: () => void;
   onNavigate: (index: number) => void;
 }
 
 function TechDetails({ occurrence }: { occurrence: JsonRecord }) {
+  const dateKey =
+    str(occurrence, "dateSource") ??
+    str(occurrence, "publicationDateSource") ??
+    str(occurrence, "publishedAtSource");
   const rows: Array<[string, string | null]> = [
     ["Search engine", str(occurrence, "engine")],
     ["Result position", occurrencePosition(occurrence)],
     ["Lens result type", str(occurrence, "lensResultType") ?? str(occurrence, "resultType")],
     ["Canonical URL", str(occurrence, "canonicalUrl")],
-    ["Publication-date source", occurrenceDateSource(occurrence)],
+    ["Publication-date source", dateSourceLabel(dateKey)],
     ["Retrieval timestamp", str(occurrence, "retrievedAt") ?? str(occurrence, "retrievalTimestamp")],
     ["Model version", str(occurrence, "jevModel") ?? str(occurrence, "modelVersion")],
   ];
@@ -71,6 +86,10 @@ export default function EvidenceViewer({
   index,
   submittedImageUrl,
   claim,
+  triggerRef,
+  entryNote,
+  pairId,
+  onJumpToId,
   onClose,
   onNavigate,
 }: EvidenceViewerProps) {
@@ -92,15 +111,20 @@ export default function EvidenceViewer({
   useEffect(() => {
     setFailedImageUrl(null);
   }, [index, retrievedImage]);
-  const mediaLabel = occurrence ? mediaRelationshipLabel(occurrence) : null;
-  const ctxLabel = occurrence ? contextLabel(occurrence) : null;
+  const mediaLabel = occurrence ? identityBasis(occurrence) : null;
   const date = occurrence ? occurrenceDate(occurrence) : null;
   const precision = occurrence ? occurrenceDatePrecision(occurrence) : null;
-  const dateSource = occurrence ? occurrenceDateSource(occurrence) : null;
-  const excerpt = occurrence ? occurrenceExcerpt(occurrence) : { text: null, source: null };
-  const reportingOrigin = occurrence
-    ? (str(occurrence, "reportingOrigin") ?? str(occurrence, "reportingOriginStatus"))
+  const dateKey = occurrence
+    ? (str(occurrence, "dateSource") ??
+      str(occurrence, "publicationDateSource") ??
+      str(occurrence, "publishedAtSource"))
     : null;
+  const dateSource = dateSourceLabel(dateKey);
+  const span: AttributableSpan | null = occurrence ? attributableSpan(occurrence, 600) : null;
+  const fullText = occurrence ? fullExcerptText(occurrence) : null;
+  const showFullText =
+    fullText !== null && span !== null && fullText.length > span.text.length + 1;
+  const origin = occurrence ? reportingOriginLabel(occurrence) : null;
 
   const position = items.length > 0 ? `${Math.min(index + 1, items.length)} of ${items.length}` : "0 of 0";
 
@@ -110,6 +134,14 @@ export default function EvidenceViewer({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
         <Dialog.Content
           aria-describedby={undefined}
+          onCloseAutoFocus={(e) => {
+            // F14: return focus to the control that opened the viewer.
+            const trigger = triggerRef.current;
+            if (trigger && document.contains(trigger)) {
+              e.preventDefault();
+              trigger.focus();
+            }
+          }}
           className="fixed inset-0 z-50 overflow-y-auto bg-deep text-white"
         >
           <div className="mx-auto max-w-[1280px] px-5 py-5 sm:px-8">
@@ -214,45 +246,63 @@ export default function EvidenceViewer({
                   <Dialog.Title className="font-serif text-3xl leading-tight">{title}</Dialog.Title>
                   {domain ? <p className="mt-1 text-sm text-white/60">{domain}</p> : null}
                   <p className="mt-2 text-sm text-white/60">
-                    {date ?? "Date unknown"}
-                    {precision && date ? ` · ${precision}` : ""}
-                    {dateSource ? ` · ${dateSource}` : date ? " · date source unknown" : ""}
+                    {date ? `Published ${date}` : "Date unknown"}
+                    {precision && date ? ` · ${precision} precision` : ""}
+                    {date ? (dateSource ? ` · ${dateSource}` : " · date source unknown") : ""}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {mediaLabel ? (
-                      <Badge tone={mediaLabel === "Visual lead" ? "neutral" : "info"} className="bg-white/10 text-white ring-white/20">
-                        {mediaLabel}
-                        {mediaLabel === "Exact match" ? " · reported by Google Lens" : ""}
-                      </Badge>
-                    ) : null}
-                    {ctxLabel ? (
-                      <Badge tone="neutral" className="bg-white/10 text-white ring-white/20">
-                        {ctxLabel}
+                      <Badge tone={mediaLabel.badge === "Visual lead" ? "neutral" : "info"} className="bg-white/10 text-white ring-white/20">
+                        {mediaLabel.badge === "Exact match"
+                          ? "Exact match · reported by Google Lens"
+                          : mediaLabel.badge === "Near match"
+                            ? "Near match · locally verified"
+                            : "Visual lead · not confirmed"}
                       </Badge>
                     ) : null}
                   </div>
 
+                  {entryNote ? (
+                    <p className="mt-3 rounded-lg bg-white/5 px-3 py-2 text-xs leading-relaxed text-white/65 ring-1 ring-white/10">
+                      {entryNote}
+                    </p>
+                  ) : null}
+                  {pairId ? (
+                    <button
+                      type="button"
+                      onClick={() => onJumpToId(pairId)}
+                      className="mt-2 inline-flex min-h-[36px] items-center gap-1 text-sm font-medium text-white underline underline-offset-2"
+                    >
+                      View paired divergence occurrence <span aria-hidden="true">→</span>
+                    </button>
+                  ) : null}
+
                   <h3 className="mt-5 text-sm font-semibold tracking-wide text-white/50 uppercase">
-                    Source excerpt
+                    {span ? span.attribution : "Source excerpt"}
                   </h3>
-                  {excerpt.text ? (
+                  {span ? (
                     <figure className="mt-2">
                       <blockquote className="border-l-2 border-white/20 pl-3 text-[15px] leading-relaxed text-white/85">
-                        “{excerpt.text}”
+                        “{span.text}”
                       </blockquote>
-                      <figcaption className="mt-1 pl-3 text-xs text-white/50">
-                        {excerpt.source ?? "Search snippet"}
-                      </figcaption>
+                      {showFullText ? (
+                        <details className="mt-2 pl-3">
+                          <summary className="min-h-[32px] cursor-pointer text-sm text-white/70 underline underline-offset-2">
+                            Full retrieved text
+                          </summary>
+                          <p className="mt-1 text-sm leading-relaxed break-words text-white/70">
+                            {fullText}
+                          </p>
+                        </details>
+                      ) : null}
                     </figure>
                   ) : (
                     <p className="mt-2 text-sm text-white/60">No excerpt available</p>
                   )}
 
-                  {reportingOrigin ? (
-                    <p className="mt-3 text-sm text-white/65">Reporting origin: {reportingOrigin}</p>
-                  ) : (
-                    <p className="mt-3 text-sm text-white/65">Reporting origin unresolved.</p>
-                  )}
+                  {origin ? (
+                    <p className="mt-3 text-sm text-white/65">{origin}</p>
+                  ) : null}
 
                   {claim ? (
                     <p className="mt-3 text-sm text-white/60">

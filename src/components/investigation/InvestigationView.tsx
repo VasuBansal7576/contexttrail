@@ -71,6 +71,14 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
 
   const domains = new Set(evidence.map((e) => str(e, "domain")).filter((d): d is string => d !== null));
 
+  // Compact current-work summary for narrow screens: the running stage, else
+  // the most recently completed one, else the next waiting stage.
+  const currentStage =
+    fullStages.find((s) => s.status === "running") ??
+    [...fullStages].reverse().find((s) => s.status === "completed") ??
+    fullStages.find((s) => s.status === "waiting") ??
+    null;
+
   return (
     <div className="min-h-screen bg-deep text-white">
       <header className="mx-auto flex max-w-[1280px] items-center justify-between px-5 py-5 sm:px-8">
@@ -106,8 +114,20 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
         ) : null}
 
         <div className="mt-10 grid gap-10 lg:grid-cols-[40%_60%]">
-          {/* Stage list */}
-          <section aria-label="Investigation stages">
+          {/* Compact current-stage summary first on mobile; full list below evidence. */}
+          {currentStage ? (
+            <p aria-live="polite" className="rounded-xl bg-white/5 px-4 py-3 text-sm text-white/80 ring-1 ring-white/10 lg:hidden">
+              <StatusDot kind={stageTone(currentStage.status)} label={`${currentStage.label}: ${stageStateLabel(currentStage.status)}`} />
+              {currentStage.detail ? (
+                <span className="mt-1 block truncate text-white/55" title={currentStage.detail}>
+                  {currentStage.detail}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+
+          {/* Stage list — left column on desktop, below evidence on mobile. */}
+          <section aria-label="Investigation stages" className="order-2 lg:order-1">
             <ol className="space-y-1">
               {fullStages.map((stage) => (
                 <li
@@ -146,8 +166,8 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
             </p>
           </section>
 
-          {/* Progressive evidence */}
-          <section aria-label="Evidence arriving live" aria-live="polite">
+          {/* Progressive evidence — first on mobile, right column on desktop. */}
+          <section aria-label="Evidence arriving live" aria-live="polite" className="order-1 lg:order-2">
             {evidence.length === 0 ? (
               <p className="rounded-xl bg-white/5 p-8 text-center text-sm text-white/55 ring-1 ring-white/10">
                 Waiting for the first evidence from this investigation…

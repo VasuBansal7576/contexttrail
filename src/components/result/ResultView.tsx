@@ -4,11 +4,15 @@
  *
  * One tabbed view over a single in-memory investigation. Every number, date,
  * and excerpt comes from the completed result payload; absent values render
- * as explicit unknowns, never zeros or guesses.
+ * as explicit unknowns, never zeros or guesses. Tabs follow the ARIA tab
+ * keyboard pattern; on mobile the result headline precedes the submitted
+ * material. Sources distinguishes core occurrences, visual leads and
+ * contextual results; Analysis shows real coverage, origin checks and the
+ * deterministic reasons behind the result.
  */
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   STATUS_COPY,
@@ -28,10 +32,19 @@ import {
   str,
   type JsonRecord,
 } from "@/lib/stream/result-view";
+import {
+  comparisonCoverageText,
+  dateSourceLabel,
+  divergenceEndpoints,
+  identityBasis,
+  occurrenceRole,
+  reportingCounts,
+  reportingOriginLabel,
+} from "./evidence-display";
 import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge } from "@/components/ui";
 import { cn } from "@/components/cn";
-import TimelineView, { type TimelineGroups } from "./TimelineView";
+import TimelineView, { type DivergenceLink, type TimelineGroups } from "./TimelineView";
 import EvidenceViewer from "./EvidenceViewer";
 
 type Tab = "overview" | "timeline" | "sources" | "analysis";
@@ -50,6 +63,8 @@ interface ResultViewProps {
   searchCounts: SearchCount[];
   stages: StageState[];
   onNewInvestigation: () => void;
+  /** Shown when this result was restored after a refresh (F17). */
+  restoredNotice?: string | null;
 }
 
 export default function ResultView({
@@ -59,10 +74,16 @@ export default function ResultView({
   searchCounts,
   stages,
   onNewInvestigation,
+  restoredNotice = null,
 }: ResultViewProps) {
   const [tab, setTab] = useState<Tab>("overview");
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [viewerNote, setViewerNote] = useState<string | null>(null);
+  const [viewerPairId, setViewerPairId] = useState<string | null>(null);
+  /** Control that opened the viewer; focus returns here on close. */
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const mode = getMode(result);
   const status = getStatus(result);
@@ -71,6 +92,9 @@ export default function ResultView({
   const takeaways = getTakeaways(result);
   const limitations = getLimitations(result);
   const timeline = getTimeline(result);
+  const coverageText = comparisonCoverageText(result);
+  const endpoints = divergenceEndpoints(result);
+  const origins = reportingCounts(result);
 
   const groups: TimelineGroups = useMemo(() => {
     const supportingRaw =
@@ -95,28 +119,80 @@ export default function ResultView({
     [viewerItems],
   );
 
-  const divergence = rec(result, "divergence") ?? rec(result, "firstObservedContextDivergence");
-  const divergenceNote = divergence
-    ? (str(divergence, "note") ??
-      str(divergence, "summary") ??
-      (str(divergence, "observedAt")
-        ? `The occurrence observed ${str(divergence, "observedAt")} presents the media in a different context than the preceding one.${
-            divergence["earlierTransitionsUnresolved"] === true
-              ? " Earlier transitions are unresolved."
-              : ""
-          }`
-        : null) ??
-      "A later occurrence differs in context from an earlier one.")
-    : null;
+  const idToTitle = useMemo(() => {
+    const map = new Map<string, string>();
+    viewerItems.forEach((o, i) => {
+      const title = str(o, "title");
+      if (title) map.set(viewerIdList[i], title);
+    });
+    return map;
+  }, [viewerItems, viewerIdList]);
 
-  const openEvidenceById = (id: string) => {
+  const divergence: DivergenceLink | null = useMemo(() => {
+    if (!endpoints) return null;
+    return {
+      endpoints,
+      fromTitle: idToTitle.get(endpoints.fromId) ?? null,
+      toTitle: idToTitle.get(endpoints.toId) ?? null,
+    };
+  }, [endpoints, idToTitle]);
+
+  const pairFor = (id: string): string | null => {
+    if (!endpoints) return null;
+    if (id === endpoints.fromId) return endpoints.toId;
+    if (id === endpoints.toId) return endpoints.fromId;
+    return null;
+  };
+
+  const openEvidenceById = (id: string, entry?: { kind: "takeaway"; index: number } | { kind: "divergence" }) => {
+    triggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const idx = viewerIdList.indexOf(id);
+    if (entry?.kind === "takeaway") {
+      setViewerNote(`Opened from key takeaway ${entry.index + 1}.`);
+    } else if (entry?.kind === "divergence") {
+      setViewerNote(
+        id === endpoints?.toId
+          ? "Observed divergence pair — later occurrence (first observed divergence)."
+          : "Observed divergence pair — earlier occurrence.",
+      );
+    } else {
+      setViewerNote(null);
+    }
+    setViewerPairId(pairFor(id));
     if (idx >= 0) {
       setViewerIndex(idx);
     } else {
       setHighlightId(id);
       setTab("timeline");
     }
+  };
+
+  const jumpToPair = (id: string) => {
+    const idx = viewerIdList.indexOf(id);
+    if (idx < 0) return;
+    setViewerNote(
+      id === endpoints?.toId
+        ? "Observed divergence pair — later occurrence (first observed divergence)."
+        : "Observed divergence pair — earlier occurrence.",
+    );
+    setViewerPairId(pairFor(id));
+    setViewerIndex(idx);
+  };
+
+  const closeViewer = () => setViewerIndex(null);
+
+  /** ARIA tab keyboard pattern: arrows move focus and selection. */
+  const onTabKeyDown = (e: React.KeyboardEvent, current: number) => {
+    let next: number | null = null;
+    if (e.key === "ArrowRight") next = (current + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") next = (current - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    setTab(TABS[next].id);
+    tabRefs.current[next]?.focus();
   };
 
   const backendHeadline = str(result, "headline");
@@ -155,13 +231,20 @@ export default function ResultView({
       </header>
 
       <nav aria-label="Result views" className="border-b border-ink/10">
-        <div className="mx-auto flex max-w-[1280px] gap-1 px-5 sm:px-8" role="tablist">
-          {TABS.map((t) => (
+        <div className="mx-auto flex max-w-[1280px] gap-1 px-5 sm:px-8" role="tablist" aria-label="Result views">
+          {TABS.map((t, i) => (
             <button
               key={t.id}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              id={`ct-tab-${t.id}`}
               role="tab"
               aria-selected={tab === t.id}
+              aria-controls={`ct-panel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
               onClick={() => setTab(t.id)}
+              onKeyDown={(e) => onTabKeyDown(e, i)}
               className={cn(
                 "min-h-[44px] border-b-2 px-4 text-sm font-medium transition",
                 tab === t.id
@@ -176,10 +259,21 @@ export default function ResultView({
       </nav>
 
       <main className="mx-auto max-w-[1280px] px-5 py-10 sm:px-8">
+        {restoredNotice ? (
+          <p role="note" className="mb-6 rounded-xl bg-ink/5 px-4 py-3 text-sm leading-relaxed text-ink/75 ring-1 ring-ink/10">
+            {restoredNotice}
+          </p>
+        ) : null}
+
         {tab === "overview" && (
-          <div className="grid gap-10 lg:grid-cols-[1fr_2fr]">
-            {/* Submitted material */}
-            <aside aria-label="Submitted material">
+          <div
+            role="tabpanel"
+            id="ct-panel-overview"
+            aria-labelledby="ct-tab-overview"
+            className="grid gap-10 lg:grid-cols-[1fr_2fr]"
+          >
+            {/* Submitted material — after the result on mobile, beside it on desktop. */}
+            <aside aria-label="Submitted material" className="order-2 lg:order-1">
               {submittedImageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -187,6 +281,10 @@ export default function ResultView({
                   alt="The image submitted for this investigation"
                   className="w-full rounded-xl object-cover ring-1 ring-ink/10"
                 />
+              ) : restoredNotice ? (
+                <p className="rounded-xl bg-ink/5 p-6 text-sm leading-relaxed text-ink/60 ring-1 ring-ink/10">
+                  Submitted image unavailable after refresh — uploaded images are never stored.
+                </p>
               ) : null}
               <p className="mt-3 text-sm font-medium">Submitted image</p>
               {claim ? (
@@ -199,7 +297,7 @@ export default function ResultView({
             </aside>
 
             {/* Result */}
-            <section aria-label="Investigation result">
+            <section aria-label="Investigation result" className="order-1 lg:order-2">
               <div className={cn("rounded-2xl p-6 ring-1 sm:p-8", panelTone)}>
                 <h1 className="font-serif text-4xl text-balance sm:text-5xl">{headline}</h1>
                 {mode === "claim-check" && copy ? (
@@ -262,17 +360,24 @@ export default function ResultView({
                   <ol className="mt-3 space-y-3">
                     {takeaways.map((t, i) => (
                       <li key={i} className="flex items-start justify-between gap-4 rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
-                        <p className="text-[15px] leading-relaxed">
-                          <span aria-hidden="true" className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-signal text-xs font-bold text-white">
-                            {i + 1}
-                          </span>
-                          {t.text}
-                        </p>
+                        <div>
+                          <p className="text-[15px] leading-relaxed">
+                            <span aria-hidden="true" className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-signal-ink text-xs font-bold text-white">
+                              {i + 1}
+                            </span>
+                            {t.text}
+                          </p>
+                          {t.evidenceIds.length === 0 ? (
+                            <p className="mt-1 pl-7 text-xs text-ink/55">
+                              No supporting evidence was linked to this takeaway in the result.
+                            </p>
+                          ) : null}
+                        </div>
                         {t.evidenceIds.length > 0 ? (
                           <button
                             type="button"
-                            onClick={() => openEvidenceById(t.evidenceIds[0])}
-                            className="min-h-[36px] shrink-0 text-sm font-medium text-signal underline underline-offset-2"
+                            onClick={() => openEvidenceById(t.evidenceIds[0], { kind: "takeaway", index: i })}
+                            className="min-h-[36px] shrink-0 text-sm font-medium text-signal-ink underline underline-offset-2"
                           >
                             View evidence →
                           </button>
@@ -304,124 +409,188 @@ export default function ResultView({
         )}
 
         {tab === "timeline" && (
-          <TimelineView
-            groups={groups}
-            divergenceNote={divergenceNote}
-            highlightId={highlightId}
-            onInspect={openEvidenceById}
-          />
+          <div role="tabpanel" id="ct-panel-timeline" aria-labelledby="ct-tab-timeline">
+            <TimelineView
+              groups={groups}
+              coverageText={coverageText}
+              divergence={divergence}
+              highlightId={highlightId}
+              onInspect={(id) => openEvidenceById(id, divergence && (id === divergence.endpoints.fromId || id === divergence.endpoints.toId) ? { kind: "divergence" } : undefined)}
+            />
+          </div>
         )}
 
         {tab === "sources" && (
-          <section aria-label="Sources">
-            <h2 className="font-serif text-4xl">Sources</h2>
-            <p className="mt-2 max-w-3xl text-sm text-ink/65">
-              Every retrieved occurrence in this investigation. Core occurrences, visual leads, and
-              contextual results are labeled as retrieved — labels reflect what the evidence
-              supports, not independent verification.
-            </p>
-            {viewerItems.length === 0 ? (
-              <p className="mt-6 rounded-xl bg-white/70 p-8 text-center text-sm text-ink/60 ring-1 ring-ink/10">
-                No sources were retrieved.
+          <div role="tabpanel" id="ct-panel-sources" aria-labelledby="ct-tab-sources">
+            <section aria-label="Sources">
+              <h2 className="font-serif text-4xl">Sources</h2>
+              <p className="mt-2 max-w-3xl text-sm text-ink/65">
+                Every retrieved occurrence in this investigation. Core occurrences are confirmed
+                against the submitted image; visual leads are not. Labels reflect what the
+                evidence supports, not independent verification.
               </p>
-            ) : (
-              <ul className="mt-6 space-y-3">
-                {viewerItems.map((o, i) => {
-                  const id = viewerIdList[i];
-                  const title = str(o, "title") ?? "Untitled result";
-                  const domain = str(o, "domain");
-                  const url = str(o, "url") ?? str(o, "sourceUrl");
-                  return (
-                    <li key={id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium" title={title}>{title}</p>
-                        <p className="text-sm text-ink/60">
-                          {domain ?? "Unknown domain"}
-                          {occurrenceDate(o) ? ` · ${occurrenceDate(o)}` : " · date unknown"}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        {url ? (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex min-h-[36px] items-center text-sm font-medium text-signal underline underline-offset-2"
-                          >
-                            Open source ↗
-                          </a>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => setViewerIndex(i)}
-                          className="inline-flex min-h-[36px] items-center text-sm font-medium text-ink underline underline-offset-2"
-                        >
-                          Inspect →
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+              {viewerItems.length === 0 ? (
+                <p className="mt-6 rounded-xl bg-white/70 p-8 text-center text-sm text-ink/60 ring-1 ring-ink/10">
+                  No sources were retrieved.
+                </p>
+              ) : (
+                <ul className="mt-6 space-y-3">
+                  {viewerItems.map((o, i) => {
+                    const id = viewerIdList[i];
+                    const title = str(o, "title") ?? "Untitled result";
+                    const domain = str(o, "domain");
+                    const url = str(o, "url") ?? str(o, "sourceUrl");
+                    const role = occurrenceRole(o);
+                    const identity = identityBasis(o);
+                    const dateKey =
+                      str(o, "dateSource") ??
+                      str(o, "publicationDateSource") ??
+                      str(o, "publishedAtSource");
+                    const dateSrc = dateSourceLabel(dateKey);
+                    return (
+                      <li key={id} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium" title={title}>{title}</p>
+                            <p className="text-sm text-ink/60">
+                              {domain ?? "Unknown domain"}
+                              {occurrenceDate(o) ? ` · ${occurrenceDate(o)}` : " · date unknown"}
+                              {dateSrc ? ` · ${dateSrc}` : ""}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {role ? <Badge tone="neutral">{role}</Badge> : null}
+                              {identity ? (
+                                <Badge tone={identity.badge === "Visual lead" ? "neutral" : "link"}>
+                                  {identity.badge}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-xs text-ink/55">
+                              {identity ? `Match basis: ${identity.basis}. ` : "Match basis not reported. "}
+                              {reportingOriginLabel(o)}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3">
+                            {url ? (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex min-h-[36px] items-center text-sm font-medium text-signal-ink underline underline-offset-2"
+                              >
+                                Open source ↗
+                              </a>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => openEvidenceById(id)}
+                              className="inline-flex min-h-[36px] items-center text-sm font-medium text-ink underline underline-offset-2"
+                            >
+                              Inspect →
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          </div>
         )}
 
         {tab === "analysis" && (
-          <section aria-label="Analysis">
-            <h2 className="font-serif text-4xl">Analysis</h2>
-            <p className="mt-2 max-w-3xl text-sm text-ink/65">
-              How this investigation ran — real retrieval stages, real request counts, and the
-              deterministic reasons behind the result. No accuracy percentages or credibility
-              scores exist in v1.
-            </p>
+          <div role="tabpanel" id="ct-panel-analysis" aria-labelledby="ct-tab-analysis">
+            <section aria-label="Analysis">
+              <h2 className="font-serif text-4xl">Analysis</h2>
+              <p className="mt-2 max-w-3xl text-sm text-ink/65">
+                How this investigation ran — real retrieval stages, retrieved counts, comparison
+                coverage, reporting-origin checks, and the deterministic reasons behind the
+                result. No accuracy percentages or credibility scores exist in v1.
+              </p>
 
-            <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
-              Retrieval via SerpApi
-            </h3>
-            {searchCounts.length === 0 ? (
-              <p className="mt-2 text-sm text-ink/60">No retrieval counts were reported.</p>
-            ) : (
-              <ul className="mt-2 space-y-1 text-[15px]">
-                {searchCounts.map((c) => (
-                  <li key={c.engine}>
-                    <Badge tone="info">{c.engine}</Badge>{" "}
-                    <span className="text-ink/75">{c.count} {c.count === 1 ? "result" : "results"}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                Retrieval via SerpApi
+              </h3>
+              {searchCounts.length === 0 ? (
+                <p className="mt-2 text-sm text-ink/60">
+                  No retrieval counts were preserved with this result.
+                </p>
+              ) : (
+                <>
+                  <ul className="mt-2 space-y-1 text-[15px]">
+                    {searchCounts.map((c) => (
+                      <li key={c.engine}>
+                        <Badge tone="link">{c.engine}</Badge>{" "}
+                        <span className="text-ink/75">{c.count} {c.count === 1 ? "result" : "results"} retrieved</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-ink/55">
+                    Counts are retrieved results from this investigation. Per-request attempts and
+                    search budgets are not part of the result payload.
+                  </p>
+                </>
+              )}
 
-            <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
-              Pipeline stages
-            </h3>
-            {stages.length === 0 ? (
-              <p className="mt-2 text-sm text-ink/60">No stage telemetry was reported.</p>
-            ) : (
-              <ul className="mt-2 space-y-1 text-[15px]">
-                {stages.map((s) => (
-                  <li key={s.name} className="text-ink/75">
-                    {s.status === "completed" ? "✓" : s.status === "running" ? "●" : "○"}{" "}
-                    {s.label}
-                    {s.detail ? <span className="text-ink/55"> — {s.detail}</span> : null}
-                  </li>
-                ))}
-              </ul>
-            )}
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                Comparison coverage
+              </h3>
+              <p className="mt-2 text-[15px] text-ink/75">
+                {coverageText
+                  ? `Context comparisons: ${coverageText}.`
+                  : "Comparison coverage was not reported for this investigation."}
+              </p>
 
-            {limitations.length > 0 ? (
-              <>
-                <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
-                  Evidence limits
-                </h3>
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] text-ink/75">
-                  {limitations.map((l, i) => (
-                    <li key={i}>{l}</li>
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                Reporting origins
+              </h3>
+              {origins.groups === null && origins.unresolved === null ? (
+                <p className="mt-2 text-sm text-ink/60">
+                  Reporting-origin detail was not included in this result.
+                </p>
+              ) : (
+                <p className="mt-2 text-[15px] text-ink/75">
+                  {origins.groups !== null ? `${origins.groups} resolved reporting ${origins.groups === 1 ? "group" : "groups"}` : "Resolved reporting groups not reported"}
+                  {origins.unresolved !== null ? ` · ${origins.unresolved} unresolved ${origins.unresolved === 1 ? "candidate" : "candidates"}` : ""}.
+                  Shared-origin copies count as one group; unresolved origins cannot support a
+                  stronger corroboration finding.
+                </p>
+              )}
+
+              <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                Pipeline stages
+              </h3>
+              {stages.length === 0 ? (
+                <p className="mt-2 text-sm text-ink/60">
+                  No stage telemetry was preserved with this result.
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-[15px]">
+                  {stages.map((s) => (
+                    <li key={s.name} className="text-ink/75">
+                      {s.status === "completed" ? "✓" : s.status === "running" ? "●" : "○"}{" "}
+                      {s.label}
+                      {s.detail ? <span className="text-ink/55"> — {s.detail}</span> : null}
+                    </li>
                   ))}
                 </ul>
-              </>
-            ) : null}
-          </section>
+              )}
+
+              {limitations.length > 0 ? (
+                <>
+                  <h3 className="mt-8 text-sm font-semibold tracking-wide text-ink/60 uppercase">
+                    Evidence limits
+                  </h3>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] text-ink/75">
+                    {limitations.map((l, i) => (
+                      <li key={i}>{l}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </section>
+          </div>
         )}
       </main>
 
@@ -438,7 +607,11 @@ export default function ResultView({
         index={viewerIndex ?? 0}
         submittedImageUrl={submittedImageUrl}
         claim={claim}
-        onClose={() => setViewerIndex(null)}
+        triggerRef={triggerRef}
+        entryNote={viewerNote}
+        pairId={viewerPairId}
+        onJumpToId={jumpToPair}
+        onClose={closeViewer}
         onNavigate={setViewerIndex}
       />
     </div>

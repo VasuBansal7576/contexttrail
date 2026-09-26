@@ -1,9 +1,11 @@
 /**
  * Screen 1 — Landing (spec sections 3.2, 4.5, 4.8).
  *
- * Dark editorial canvas. The hero visual is an abstract, clearly labeled
- * illustrative composition — it must never look like retrieved evidence, so
- * it uses no photographs, no publishers, no dates presented as findings.
+ * Dark editorial canvas. The hero shows the same public-domain photograph
+ * (NASA Earthrise, Apollo 8, 1968) repeated across three staggered context
+ * cards so image reuse reads at a glance. The whole composition is labeled
+ * illustrative — it is never retrieved evidence, uses no publishers, and
+ * asserts no original upload.
  */
 "use client";
 
@@ -11,33 +13,15 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { Badge, SectionHeading } from "@/components/ui";
 
-const CARDS = [
-  { label: "Earlier report", note: "One image, first seen in an earlier context." },
-  { label: "Later reuse", note: "The same image, reused with a new context." },
-  { label: "Submitted claim", note: "What someone says it shows today." },
-];
+const EARTHRISE_SRC = "/illustrative-earthrise.jpg";
+const EARTHRISE_ALT =
+  "Illustration: the Earthrise photograph (Apollo 8, NASA, public domain), repeated to show one image in three contexts";
 
-/** Abstract placeholder motif: layered frames, not a photograph. */
-function IllustrativeMotif({ index }: { index: number }) {
-  return (
-    <svg
-      viewBox="0 0 200 120"
-      role="img"
-      aria-label={`Abstract illustration placeholder ${index + 1} of 3`}
-      className="h-24 w-full rounded-md bg-ink/5"
-    >
-      <rect x="12" y="12" width="176" height="96" rx="6" fill="none" stroke="currentColor" strokeOpacity="0.25" />
-      <circle cx="60" cy="52" r="14" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="2" />
-      <path
-        d="M20 100 L80 60 L120 88 L145 70 L188 100 Z"
-        fill="currentColor"
-        fillOpacity="0.12"
-        stroke="currentColor"
-        strokeOpacity="0.3"
-      />
-    </svg>
-  );
-}
+const CARDS = [
+  { label: "Earlier report", note: "One image, first seen in an earlier context.", year: "1968" },
+  { label: "Later reuse", note: "The same image, reused with a new context.", year: "Later" },
+  { label: "Submitted claim", note: "What someone says it shows today.", year: "Today" },
+];
 
 function HeroCards() {
   const reduce = useReducedMotion();
@@ -55,9 +39,17 @@ function HeroCards() {
               (i > 0 ? "sm:-ml-6 sm:mt-8 " : "")
             }
           >
-            <IllustrativeMotif index={i} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={EARTHRISE_SRC}
+              alt={i === 0 ? EARTHRISE_ALT : ""}
+              loading={i === 0 ? "eager" : "lazy"}
+              className="aspect-square w-full rounded-md object-cover ring-1 ring-black/10"
+            />
             <figcaption className="mt-3">
-              <p className="text-sm font-semibold">{card.label}</p>
+              <p className="text-sm font-semibold">
+                {card.label} <span className="font-normal text-ink/55">· {card.year}</span>
+              </p>
               <p className="mt-1 text-xs leading-relaxed text-ink/60">{card.note}</p>
             </figcaption>
           </motion.div>
@@ -67,6 +59,9 @@ function HeroCards() {
         <Badge tone="neutral" className="bg-white/10 text-white/80 ring-white/20">
           Illustrative example — not retrieved evidence
         </Badge>
+      </p>
+      <p className="mt-2 text-right text-xs text-white/45">
+        Photo: Earthrise, Apollo 8, 24 Dec 1968 — NASA (public domain).
       </p>
     </figure>
   );
