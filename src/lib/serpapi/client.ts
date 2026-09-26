@@ -105,16 +105,28 @@ export class SerpapiClient {
   }
 }
 
-/** True when the parsed response reports a SerpApi-side failure. */
+/**
+ * True when the parsed response reports a SerpApi-side failure.
+ *
+ * `search_metadata.status` is authoritative: "Error" means the search
+ * failed; "Success" means it completed. SerpApi also emits a top-level
+ * `error` string on completed searches when the requested surface has no
+ * results (e.g. Lens with no exact-matches tab) — that is a provider-
+ * reported *empty collection*, not a request failure, and must not consume
+ * a failed ticket (§29 keeps empty/unavailable distinct).
+ */
 export function serpapiResponseFailed(json: unknown): boolean {
   if (typeof json !== "object" || json === null) return true;
   const o = json as Record<string, unknown>;
-  if (typeof o.error === "string" && o.error.length > 0) return true;
   const meta = o.search_metadata;
-  if (typeof meta === "object" && meta !== null) {
-    const status = (meta as Record<string, unknown>).status;
-    if (status === "Error") return true;
-  }
+  const status =
+    typeof meta === "object" && meta !== null
+      ? (meta as Record<string, unknown>).status
+      : null;
+  if (status === "Error") return true;
+  if (status === "Success") return false;
+  // No decisive status: a top-level error is a real failure.
+  if (typeof o.error === "string" && o.error.length > 0) return true;
   return false;
 }
 

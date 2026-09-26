@@ -146,9 +146,28 @@ function exactCandidate(
 }
 
 /**
+ * SerpApi's documented no-results convention
+ * (https://serpapi.com/api-status-and-error-codes): a completed search
+ * whose engine returned no results keeps `search_metadata.status` =
+ * "Success" and describes the empty state in the top-level `error`
+ * string, e.g. "Google Lens hasn't returned any results for this
+ * query." Only that documented shape may be read as provider-reported
+ * empty — an arbitrary Success+error stays "unavailable" and an
+ * unexplained absent collection stays "malformed" (§29).
+ */
+const SERPAPI_NO_RESULTS_ERROR =
+  /hasn'?t returned|has not returned|didn'?t return|did not return|no results/i;
+
+function searchMetadataStatus(o: Record<string, unknown> | null): string | null {
+  return strField(asObj(o?.search_metadata), "status");
+}
+
+/**
  * Normalize a dedicated Lens `type=exact_matches` response (§6.3).
  * `requestFailed` marks transport/provider failure — kept distinct from a
- * missing, malformed, or empty collection per §29.
+ * missing, malformed, or empty collection per §29. The boundary also
+ * re-checks `search_metadata.status` itself rather than relying on the
+ * caller's failure flag alone.
  */
 export function normalizeExactMatchesResponse(
   json: unknown,
@@ -158,10 +177,23 @@ export function normalizeExactMatchesResponse(
 } {
   const o = asObj(json);
   const searchId = serpapiSearchId(json);
+  const metaStatus = searchMetadataStatus(o);
+  const providerError = strField(o, "error");
+  const requestFailed = opts.requestFailed || metaStatus === "Error";
   const collection = classifyExactMatchCollection({
-    requestFailed: opts.requestFailed,
+    requestFailed,
     collection: o?.exact_matches,
   });
+  let exactState = collection.state;
+  if (exactState === "malformed" && o !== null && !("exact_matches" in o)) {
+    if (providerError !== null) {
+      exactState =
+        metaStatus === "Success" && SERPAPI_NO_RESULTS_ERROR.test(providerError)
+          ? "empty"
+          : "unavailable";
+    }
+    // No provider error and no collection: unexplained shape — malformed.
+  }
   const candidates = collection.entries
     .map((e) => exactCandidate(e.raw, e.link, { searchId, retrievedAt: opts.retrievedAt }))
     .filter((c): c is EvidenceCandidate => c !== null);
@@ -169,8 +201,8 @@ export function normalizeExactMatchesResponse(
     candidates,
     reportedCount: Array.isArray(o?.exact_matches) ? (o.exact_matches as unknown[]).length : 0,
     relatedQueries: [],
-    surfacePresent: collection.state !== "malformed",
-    exactState: collection.state,
+    surfacePresent: exactState !== "malformed",
+    exactState,
     dateTexts: new Map(),
   };
 }

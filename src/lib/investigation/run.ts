@@ -64,7 +64,7 @@ import {
   evidenceQuestions,
   pairwiseState,
 } from "../jev/questions";
-import { createLimiter } from "../providers/http";
+import { createLimiter, ProviderError } from "../providers/http";
 import type { FetchedPage } from "../pages/fetch";
 import { buildExcerpt, extractPage } from "../pages/extract";
 import {
@@ -109,6 +109,26 @@ const EMPTY_COVERAGE: ComparisonCoverage = {
   selected: 0,
   comparedPairs: 0,
 };
+
+/**
+ * Sanitized server-side diagnostic for provider failures: error category
+ * and HTTP status only — never URLs (they may carry credentials), never
+ * response bodies, never request parameters (§5.5, §29).
+ */
+function providerFailureCategory(err: unknown): string {
+  if (err instanceof ProviderError) {
+    return err.status !== null ? `${err.kind} http=${err.status}` : err.kind;
+  }
+  return "error";
+}
+
+function logProviderFailure(surface: string, err: unknown): void {
+  try {
+    console.warn(`[investigate] ${surface} failed: ${providerFailureCategory(err)}`);
+  } catch {
+    // diagnostics must never break the pipeline
+  }
+}
 
 /**
  * §18 — choose up to 5 pages for deep reading in the frozen order:
@@ -249,6 +269,9 @@ export async function runInvestigation(
     try {
       const json = await serpLimiter(() => deps.serpapi!.search(params, shared.signal));
       if (serpapiResponseFailed(json)) {
+        try {
+          console.warn(`[investigate] serpapi ${slot} reported provider error`);
+        } catch { /* diagnostics never break the pipeline */ }
         ticket.fail();
         return { slot, engineLabel, batch: null, failed: true };
       }
@@ -256,7 +279,8 @@ export async function runInvestigation(
       const batch = normalize(json);
       emit({ type: "search.batch", engine: engineLabel, count: batch.reportedCount });
       return { slot, engineLabel, batch, failed: false };
-    } catch {
+    } catch (err) {
+      logProviderFailure(`serpapi ${slot}`, err);
       ticket.fail();
       return { slot, engineLabel, batch: null, failed: true };
     }
@@ -274,6 +298,9 @@ export async function runInvestigation(
     try {
       const json = await serpLimiter(() => deps.serpapi!.search(params, shared.signal));
       if (serpapiResponseFailed(json)) {
+        try {
+          console.warn(`[investigate] serpapi ${choice.slot} reported provider error`);
+        } catch { /* diagnostics never break the pipeline */ }
         ticket.fail();
         return { slot: "adaptive", engineLabel: "expansion", batch: null, failed: true };
       }
@@ -284,7 +311,8 @@ export async function runInvestigation(
           : normalizeSearchResponse(json, "google_search", { retrievedAt: new Date().toISOString() });
       emit({ type: "search.batch", engine: "expansion", count: batch.reportedCount });
       return { slot: "adaptive", engineLabel: "expansion", batch, failed: false };
-    } catch {
+    } catch (err) {
+      logProviderFailure(`serpapi ${choice.slot}`, err);
       ticket.fail();
       return { slot: "adaptive", engineLabel: "expansion", batch: null, failed: true };
     }
@@ -306,11 +334,15 @@ export async function runInvestigation(
         ),
       );
       const judgment = judgmentFromAnswers(answers, { claimMode: mode === "claim_check" });
-      if (judgment === null) return false;
+      if (judgment === null) {
+        logProviderFailure(`jev answers malformed for ${c.id}`, new ProviderError("malformed", "jev answers failed validation"));
+        return false;
+      }
       c.judgment = judgment;
       emit({ type: "evidence.classified", id: c.id, publicJudgment: judgment });
       return true;
-    } catch {
+    } catch (err) {
+      logProviderFailure(`jev classify for ${c.id}`, err);
       return false;
     }
   };
@@ -374,7 +406,8 @@ export async function runInvestigation(
       }
       try {
         imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
-      } catch {
+      } catch (err) {
+        logProviderFailure("serpapi image upload", err);
         uploadFailed = true;
         return failedLensJobs();
       }
@@ -415,7 +448,19 @@ export async function runInvestigation(
         if (res.slot === "lens_exact_matches" && res.batch !== null) {
           const exactState = (res.batch as { exactState?: string }).exactState;
           if (exactState === "empty") limitations.add("no_exact_occurrences_returned");
-          if (exactState === "malformed") limitations.add("exact_match_retrieval_unavailable");
+          if (exactState === "malformed" || exactState === "unavailable") {
+            limitations.add("exact_match_retrieval_unavailable");
+          }
+        }
+        if (
+          res.slot === "lens_about_this_image" &&
+          res.batch !== null &&
+          res.batch.surfacePresent === false
+        ) {
+          limitations.add("about_this_image_unavailable");
+        }
+        if (res.slot === "google_news_claim" && res.failed) {
+          limitations.add("news_unavailable");
         }
       }
     }
@@ -661,7 +706,8 @@ export async function runInvestigation(
               ),
             );
             judgments.set(pairKey(prev.id, cur.id), pairwiseFromAnswers(answers));
-          } catch {
+          } catch (err) {
+            logProviderFailure(`jev pairwise ${prev.id}~${cur.id}`, err);
             judgments.set(pairKey(prev.id, cur.id), null);
           }
         }),
