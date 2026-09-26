@@ -463,8 +463,13 @@ const DETERMINERS = new Set([
  * Washington Post". A verb list is therefore **not** by itself evidence of
  * geography, and an earlier comment here claimed otherwise. The complement is
  * disambiguated by {@link complementDisambiguation} before any place signal is
- * accepted, and anything still ambiguous is reported as unknown rather than
- * resolved in favour of geography.
+ * accepted, and an object the gate does not recognise is reported as unknown.
+ *
+ * That is not a general "ambiguity resolves conservatively" rule. A *bare*
+ * recognised place name is still admitted, so "A man approached Jordan." stays
+ * eligible: separating the country from a person would need exactly the name
+ * resources this module does not carry, and the residual false-positive direction
+ * is disclosed and pinned by a test rather than claimed as handled.
  *
  * Capture verbs ("photographed", "filmed", "captured") are **excluded on
  * purpose** - their place object is already reachable through "in"/"at"/"on", so
@@ -893,13 +898,23 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
           mTo += 1;
         }
       } else {
-        // Take the rest of the noun phrase, stopping at a sentence boundary so
-        // a span never absorbs the following sentence.
-        while (mTo + 1 < tokens.length && !isStop(tokens[mTo]) && !tokens[mTo].terminal) {
+        // Take the rest of the noun phrase, stopping *before* the next stop
+        // token or preposition and at a sentence boundary, so a span never
+        // swallows the clause that follows it.
+        while (
+          mTo + 1 < tokens.length &&
+          !tokens[mTo].terminal &&
+          !isStop(tokens[mTo + 1]) &&
+          !PHRASE_BREAK.has(tokens[mTo + 1].lower)
+        ) {
           mTo += 1;
         }
       }
-      const ambiguous = complementDisambiguation(tokens, mTo);
+      // The prefix test only applies to a complement that was *recognised* as a
+      // place. Applied to an unresolved phrase it would read the next clause's
+      // capitalised word as a surname - "Tomorrowland in August 2005" would be
+      // refused as a person rather than left unevaluated.
+      const ambiguous = complement === null ? null : complementDisambiguation(tokens, mTo);
       // The span starts at the determiner-skipping position `k`, so a modifier
       // that had to be stepped over stays inside the recorded span.
       candidates.push({
@@ -1015,11 +1030,16 @@ function collectCandidates(claim: string): { tokens: Token[]; candidates: Candid
       candidates.push({ from, to, evidence: signal, topic: topic || owned, via: "preposition" });
     } else {
       // Unresolvable object inside a locative frame: recorded, never guessed.
-      // Extend over the rest of the noun phrase. A token carrying a
-      // sentence-ending mark is taken in and the scan then stops, so
-      // "Juniper Chen." is recorded whole without absorbing a next sentence.
+      // Extend over the rest of the noun phrase, stopping *before* the next
+      // stop token or preposition and at a sentence boundary, so a span never
+      // swallows the clause that follows it.
       let to = j;
-      while (to + 1 < tokens.length && !isStop(tokens[to]) && !tokens[to].terminal) {
+      while (
+        to + 1 < tokens.length &&
+        !tokens[to].terminal &&
+        !isStop(tokens[to + 1]) &&
+        !PHRASE_BREAK.has(tokens[to + 1].lower)
+      ) {
         to += 1;
       }
       candidates.push({
