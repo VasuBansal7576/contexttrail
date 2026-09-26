@@ -397,6 +397,15 @@ const PNG_1PX = Buffer.from(
   "base64",
 );
 
+function retainedControlNames() {
+  const dir = path.join(FIXTURES_DIR, "controls", "retained");
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".ndjson"))
+    .map((f) => f.replace(/\.ndjson$/, ""));
+}
+
 function fixtureNames() {
   if (!fs.existsSync(FIXTURES_DIR)) return [];
   return fs
@@ -450,10 +459,15 @@ function retainedControlDigest(name) {
 }
 
 function fixturePath(name) {
+  // A maintained fixture always wins, so a private stream can never shadow one
+  // of ours by name; a retained control is found beside the manifest that pins
+  // its digest. Keeping the bytes out of fixtures/ root also keeps the fixture
+  // contract suite from treating someone else's control as a maintained case.
   const p = path.join(FIXTURES_DIR, `${name}.ndjson`);
-  if (!fs.existsSync(p)) {
-    fail(`unknown fixture case ${name} (available: ${fixtureNames().join(", ") || "none"})`);
-  }
+  if (fs.existsSync(p)) return p;
+  const retained = path.join(FIXTURES_DIR, "controls", "retained", `${name}.ndjson`);
+  if (fs.existsSync(retained)) return retained;
+  fail(`unknown fixture case ${name} (available: ${fixtureNames().join(", ") || "none"})`);
   return p;
 }
 
