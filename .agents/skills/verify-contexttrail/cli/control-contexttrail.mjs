@@ -1252,6 +1252,12 @@ function parseMultipart(buf, contentType) {
 async function startStreamServer() {
   const state = {
     segments: null,
+    /** Per-request plans for a two-stream run: [{fixture, holds}]. */
+    sequence: null,
+    /** One row per served request; the honest record of what was and was not
+     *  deliverable, so an undelivered late packet is never implied to have been
+     *  processed by the client. */
+    ledger: [],
     planName: null,
     holds: [],
     received: 0,
@@ -1297,12 +1303,32 @@ async function startStreamServer() {
         await delay(state.paceMs);
       }
 
-      const segs = state.segments ?? [];
+      // A two-stream run needs the SECOND request to get a DIFFERENT fixture, so
+      // the plan is per request rather than one shared plan. Everything about a
+      // request is recorded in a ledger, including a late write the client could
+      // not possibly receive.
+      const reqIndex = state.received;
+      const entry = {
+        index: reqIndex,
+        fixture: state.sequence?.[reqIndex]?.fixture ?? state.planName ?? null,
+        eventsWritten: 0,
+        firstBytesAt: Date.now(),
+        clientClosed: false,
+        clientClosedAt: null,
+        endedByServer: false,
+        lateAttempts: [],
+      };
+      state.ledger.push(entry);
+      const active = state.sequence?.[reqIndex];
+      const segs = active ? state.segmentsFor(active) : (state.segments ?? []);
+      const holds = active ? state.holdsFor(active) : state.holds;
       let closed = false;
       res.on("close", () => {
         closed = true;
         state.disconnected = true;
-        for (const h of state.holds) h?.resolveReached?.();
+        entry.clientClosed = true;
+        entry.clientClosedAt = Date.now();
+        for (const h of holds) h?.resolveReached?.();
       });
 
       try {
@@ -1312,14 +1338,18 @@ async function startStreamServer() {
             if (closed || res.writableEnded) return;
             res.write(line + "\n");
             state.eventsWritten++;
+            entry.eventsWritten++;
           }
-          const hold = state.holds[i];
+          const hold = holds[i];
           if (hold) {
             hold.resolveReached();
             await hold.releasePromise;
           }
         }
-        if (!closed && !res.writableEnded) res.end();
+        if (!closed && !res.writableEnded) {
+          res.end();
+          entry.endedByServer = true;
+        }
         state.served++;
       } catch {
         /* client went away */
