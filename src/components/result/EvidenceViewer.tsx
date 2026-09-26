@@ -75,6 +75,8 @@ export default function EvidenceViewer({
   onNavigate,
 }: EvidenceViewerProps) {
   const [mobileTab, setMobileTab] = useState<"submitted" | "retrieved">("retrieved");
+  /** Remote retrieved-image URL that failed to load (per-occurrence). */
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const occurrence = items[index] ?? null;
 
   useEffect(() => {
@@ -85,6 +87,11 @@ export default function EvidenceViewer({
   const domain = occurrence ? str(occurrence, "domain") : null;
   const url = occurrence ? (str(occurrence, "url") ?? str(occurrence, "sourceUrl")) : null;
   const retrievedImage = occurrence ? occurrenceImage(occurrence) : null;
+  const retrievedImageFailed = retrievedImage !== null && failedImageUrl === retrievedImage;
+
+  useEffect(() => {
+    setFailedImageUrl(null);
+  }, [index, retrievedImage]);
   const mediaLabel = occurrence ? mediaRelationshipLabel(occurrence) : null;
   const ctxLabel = occurrence ? contextLabel(occurrence) : null;
   const date = occurrence ? occurrenceDate(occurrence) : null;
@@ -184,11 +191,12 @@ export default function EvidenceViewer({
                       <figcaption className="mb-2 text-sm font-medium text-white/70">
                         Retrieved image
                       </figcaption>
-                      {retrievedImage ? (
+                      {retrievedImage && !retrievedImageFailed ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={retrievedImage}
                           alt={`Retrieved image from ${domain ?? "unknown source"}`}
+                          onError={() => setFailedImageUrl(retrievedImage)}
                           className="max-h-[60vh] w-full rounded-xl object-contain bg-black/40 ring-1 ring-white/15"
                         />
                       ) : (
