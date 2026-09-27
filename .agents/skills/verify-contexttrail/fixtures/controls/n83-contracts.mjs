@@ -105,6 +105,16 @@ function jsdomPage(html) {
     },
     configurable: true,
   });
+  // Honest geometry: jsdom lays out nothing, so the effective-visibility
+  // rendered-box check would zero every element. Elements carry a real box
+  // unless a control overrides one to zero (the zero-box negative).
+  Object.defineProperty(w.HTMLElement.prototype, "getBoundingClientRect", {
+    value() {
+      return { top: 10, left: 10, width: 200, height: 24, right: 210, bottom: 34 };
+    },
+    configurable: true,
+    writable: true,
+  });
   return {
     window: w,
     evaluate: async (src, arg) => (typeof src === "string" ? w.eval(src) : src(arg)),
@@ -251,6 +261,82 @@ const gateList = `<ul><li><p><span aria-hidden="true">✓ </span>Qualifying conf
   expect("N83-2: item-card h3s are not section headings (scope > h3)",
     s?.undated?.headingCount === 1 && s?.undated?.heading === "Additional evidence · date unknown",
     `headingCount=${s?.undated?.headingCount}`);
+}
+
+/* --- N83-R2: EFFECTIVE visibility — own/ancestor opacity + CSS hiding + box --- */
+
+{
+  // opacity:0 on the heading itself leaves display/visibility normal — only
+  // the effective check sees it. The gate list must not be owned.
+  const page = jsdomPage(
+    ANALYSIS_WRAP(`<h3>Comparison coverage</h3><p>t</p>
+      <h3 style="opacity:0">Why this result</h3>${gateList}
+      <h3>Reporting origins</h3><p>t</p>`),
+  );
+  const s = await page.evaluate(A8_ANALYSIS_PROBE_FN);
+  expect("N83-R2: own opacity:0 heading owns nothing (RED)",
+    (s?.gateItems?.length ?? 0) === 0, `gateItems=${s?.gateItems?.length}`);
+}
+{
+  // An ANCESTOR with display:none hides the heading while its own computed
+  // display stays normal — the ancestor walk must catch it.
+  const page = jsdomPage(
+    `<div id="ct-panel-analysis"><div style="display:none"><section aria-label="Analysis"><h3>Comparison coverage</h3><p>t</p>
+      <h3>Why this result</h3>${gateList}
+      <h3>Reporting origins</h3><p>t</p></section></div></div>`,
+  );
+  const s = await page.evaluate(A8_ANALYSIS_PROBE_FN);
+  expect("N83-R2: ancestor display:none heading owns nothing (RED)",
+    (s?.gateItems?.length ?? 0) === 0, `gateItems=${s?.gateItems?.length}`);
+}
+{
+  // A zero-size rendered box is not a rendered heading.
+  const page = jsdomPage(
+    ANALYSIS_WRAP(`<h3>Comparison coverage</h3><p>t</p>
+      <h3 id="zerobox">Why this result</h3>${gateList}
+      <h3>Reporting origins</h3><p>t</p>`),
+  );
+  page.window.document.getElementById("zerobox").getBoundingClientRect = () =>
+    ({ top: 0, left: 0, width: 0, height: 0, right: 0, bottom: 0 });
+  const s = await page.evaluate(A8_ANALYSIS_PROBE_FN);
+  expect("N83-R2: zero rendered box heading owns nothing (RED)",
+    (s?.gateItems?.length ?? 0) === 0, `gateItems=${s?.gateItems?.length}`);
+}
+{
+  // Ancestor opacity:0 hides the whole subtree the same way.
+  const page = jsdomPage(
+    `<div id="ct-panel-analysis"><div style="opacity:0"><section aria-label="Analysis"><h3>Comparison coverage</h3><p>t</p>
+      <h3>Why this result</h3>${gateList}
+      <h3>Reporting origins</h3><p>t</p></section></div></div>`,
+  );
+  const s = await page.evaluate(A8_ANALYSIS_PROBE_FN);
+  expect("N83-R2: ancestor opacity:0 heading owns nothing (RED)",
+    (s?.gateItems?.length ?? 0) === 0, `gateItems=${s?.gateItems?.length}`);
+}
+{
+  // Restored — same markup, visible heading owns its section again.
+  const s = await gateProbe(`<h3 style="text-transform:uppercase">Why this result</h3>${gateList}`);
+  expect("N83-R2: restored visible heading owns its section again",
+    (s?.gateItems?.length ?? 0) === 1, `gateItems=${s?.gateItems?.length}`);
+}
+{
+  // Timeline probe: undated heading opacity:0 → headingVisible false.
+  const page = jsdomPage(
+    `<div id="ct-panel-timeline"><section aria-label="Evidence with unknown dates"><h3 style="opacity:0">Additional evidence · date unknown</h3><ul><li><h3>t</h3><p>x</p></li></ul></section></div>`,
+  );
+  const s = await page.evaluate(A8_TIMELINE_PROBE_FN);
+  expect("N83-R2: undated heading own opacity:0 → headingVisible false (RED surface)",
+    s?.undated?.headingVisible === false && s?.undated?.headingCount === 1,
+    `visible=${s?.undated?.headingVisible}`);
+}
+{
+  // Timeline probe: hiding the undated SECTION ancestor reads invisible.
+  const page = jsdomPage(
+    `<div id="ct-panel-timeline"><section aria-label="Evidence with unknown dates" style="display:none"><h3>Additional evidence · date unknown</h3><ul><li><h3>t</h3><p>x</p></li></ul></section></div>`,
+  );
+  const s = await page.evaluate(A8_TIMELINE_PROBE_FN);
+  expect("N83-R2: undated section display:none → headingVisible false (RED surface)",
+    s?.undated?.headingVisible === false, `visible=${s?.undated?.headingVisible}`);
 }
 
 /* ----------------------------- N83-3 reading order ------------------------ */
@@ -421,6 +507,28 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
   // Restored.
   expect("N83-4: restored compared set is green again",
     a8CoverageVerdict(covRec, covSurface, opened, terminal).ok === true);
+  // N83-R4: per-row binding — swapping two performed rows' opened keys leaves
+  // the performed SET unchanged, so only per-row identity catches it.
+  const swapped = [...opened];
+  [swapped[0], swapped[2]] = [swapped[2], swapped[0]];
+  expect("N83-R4: performed rows 0/2 opening each other's pairs is RED",
+    a8CoverageVerdict(covRec, covSurface, swapped, terminal).ok === false);
+  // Reversed orientation on a single row is a wrong target, not the same pair.
+  const reversed = [...opened];
+  reversed[0] = `${edges[0].toOccurrenceId}|${edges[0].fromOccurrenceId}`;
+  expect("N83-R4: reversed endpoints on one performed row are RED",
+    a8CoverageVerdict(covRec, covSurface, reversed, terminal).ok === false);
+  // Wrong unexamined endpoint: red as a wrong target — never promotion.
+  const wrongUnx = [...opened];
+  wrongUnx[1] = "wrong-unexamined|wrong-unexamined";
+  const vUnx = a8CoverageVerdict(covRec, covSurface, wrongUnx, terminal);
+  expect("N83-R4: wrong unexamined endpoint is RED without status/count promotion",
+    vUnx.ok === false && /row 1/.test(vUnx.detail), vUnx.detail);
+  // A performed row whose endpoints never opened is red (null is not valid).
+  const unopened = [...opened];
+  unopened[0] = null;
+  expect("N83-R4: an unopened performed row is RED",
+    a8CoverageVerdict(covRec, covSurface, unopened, terminal).ok === false);
   // Helper sanity: the connector semantics match the pin's COMPARISON_COPY.
   expect("N83-4: uncertain counts as performed, unexamined never",
     comparisonIsUnexamined(edges[1]) === true &&

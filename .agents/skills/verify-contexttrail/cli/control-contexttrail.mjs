@@ -5662,6 +5662,16 @@ function comparisonEdgeKey(c) {
   );
 }
 
+/** The endpoint identity a row actually opens — ALWAYS the recorded
+ *  `fromOccurrenceId|toOccurrenceId` in order, never the `pairId` namespace:
+ *  the clicked buttons prove endpoints, and orientation is part of the
+ *  identity (a reversed pair is a wrong target, not the same pair). */
+function comparisonEndpointKey(c) {
+  return typeof c?.fromOccurrenceId === "string" && typeof c?.toOccurrenceId === "string"
+    ? `${c.fromOccurrenceId}|${c.toOccurrenceId}`
+    : null;
+}
+
 /** Whether a recorded relationship edge was never examined — the same token
  *  set the pin's `comparisonState` maps to the "unexamined" state. */
 function comparisonIsUnexamined(c) {
@@ -5742,23 +5752,34 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
       mism.push(`performed edges ${performedEdges.length} vs reported comparedPairs ${expect.comparedPairs}`);
     }
   }
-  // Opened identity is per-row aligned: byRow[i] is the pair key the i-th
-  // row's endpoint buttons actually opened (null when unopened/unopenable).
-  // Only non-unexamined rows contribute performed pair keys.
+  // Opened identity is bound PER ROW (N83-R4): byRow[i] is the pair key the
+  // i-th rendered row's endpoint buttons actually opened, and it must equal
+  // that row's OWN recorded endpoints in recorded from|to order — a key that
+  // belongs to another row, or reverses this row's orientation, is a wrong
+  // target even when it lands inside the compared set. Unexamined rows carry
+  // legitimate endpoint buttons too: their targets are bound the same way,
+  // and they still never contribute to the performed set. A genuinely
+  // unopenable row keeps its explicit null state rather than being read as
+  // valid.
   const performedKeys = [];
   (edges ?? []).forEach((c, i) => {
-    if (comparisonIsUnexamined(c)) {
-      if (comparedIds.includes(byRow[i])) mism.push(`unexamined row ${i} opened into the compared set`);
-    } else {
-      performedKeys.push(byRow[i] ?? null);
+    const want = comparisonEndpointKey(c);
+    const opened = byRow[i] ?? null;
+    if (want === null) {
+      mism.push(`row ${i} edge carries no recorded endpoints`);
+    } else if (opened !== null && opened !== want) {
+      mism.push(`row ${i} opened ${JSON.stringify(opened)} — recorded endpoints ${JSON.stringify(want)}`);
+    }
+    if (comparisonIsUnexamined(c)) return;
+    if (comparedIds.includes(comparisonEdgeKey(c))) {
+      if (opened === null) mism.push(`performed row ${i} endpoints did not open`);
+      else performedKeys.push(opened);
     }
   });
   const seen = new Set(performedKeys);
-  const missing = comparedIds.filter((p) => !seen.has(p));
-  const extra = performedKeys.filter((p) => p !== null && !comparedIds.includes(p));
-  if (missing.length) mism.push(`performed pairs not opened: ${JSON.stringify(missing)}`);
-  if (extra.length) mism.push(`performed rows opened unexpected pairs: ${JSON.stringify(extra)}`);
-  if (performedKeys.some((k) => k === null)) mism.push("a performed row's endpoints did not open");
+  if (performedKeys.length !== (edges ?? []).filter((c) => comparedIds.includes(comparisonEdgeKey(c)) && !comparisonIsUnexamined(c)).length) {
+    mism.push(`opened performed rows ${performedKeys.length} vs performed edges ${(edges ?? []).filter((c) => comparedIds.includes(comparisonEdgeKey(c)) && !comparisonIsUnexamined(c)).length}`);
+  }
   if (seen.size !== performedKeys.length) mism.push("duplicate performed pair keys");
   return {
     ok: mism.length === 0,
@@ -6066,6 +6087,24 @@ const A8_OVERVIEW_PROBE_FN = `(() => {
   return { headline: h1 ? (h1.innerText || "").trim() : null, paragraphs, metrics };
 })()`;
 
+/** Effective visibility for a heading (or any element), evaluated in-page:
+ *  own AND ancestor display/visibility/opacity, the [hidden] attribute chain,
+ *  and a real rendered box. A child of display:none keeps ordinary own
+ *  display — only the ancestor walk sees the hiding — and an opacity:0 heading
+ *  retains normal display/visibility, so both must be checked explicitly. */
+const A8_EFFECTIVE_VISIBLE_FN = `(el) => {
+  if (!el || el.nodeType !== 1) return false;
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    const st = getComputedStyle(n);
+    if (st.display === "none") return false;
+    if (st.visibility === "hidden" || st.visibility === "collapse") return false;
+    if (Number.parseFloat(st.opacity) === 0) return false;
+    if (n.hasAttribute("hidden")) return false;
+  }
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}`;
+
 /** The Timeline surface: dated items, both empty states, the undated section
  *  and the divergence note. Identity is never read off card text — openers
  *  are clicked and the dialog's identity line is the identity proof. */
@@ -6095,18 +6134,9 @@ const A8_TIMELINE_PROBE_FN = `(() => {
         heading: undatedH ? (undatedH.textContent ?? "").replace(/\\s+/g, " ").trim() : null,
         headingRendered: undatedH ? (undatedH.innerText ?? "").replace(/\\s+/g, " ").trim() : null,
         headingCount: undatedHeads.length,
-        headingVisible:
-          undatedH === null
-            ? false
-            : (() => {
-                const st = getComputedStyle(undatedH);
-                return (
-                  st.display !== "none" &&
-                  st.visibility !== "hidden" &&
-                  st.visibility !== "collapse" &&
-                  undatedH.closest("[hidden]") === null
-                );
-              })(),
+        // Effective visibility: own + ancestor display/visibility/opacity,
+        // [hidden], and a real rendered box — an invisible heading owns nothing.
+        headingVisible: (${A8_EFFECTIVE_VISIBLE_FN})(undatedH),
         items: [...undatedSec.querySelectorAll("ul > li")].map((li) => ({
           title: (li.querySelector("h3")?.innerText ?? "").trim(),
           text: li.innerText ?? "",
@@ -6153,15 +6183,7 @@ const A8_ANALYSIS_PROBE_FN = `(() => {
   // heading element itself; paragraph content is never case-normalized. A
   // section with zero or several matching visible headings owns nothing.
   const normHead = (s) => (s ?? "").replace(/\\s+/g, " ").trim().toLowerCase();
-  const headVisible = (h) => {
-    const st = getComputedStyle(h);
-    return (
-      st.display !== "none" &&
-      st.visibility !== "hidden" &&
-      st.visibility !== "collapse" &&
-      h.closest("[hidden]") === null
-    );
-  };
+  const headVisible = ${A8_EFFECTIVE_VISIBLE_FN};
   const findHeading = (name) => {
     const want = normHead(name);
     const matches = hs.filter((x) => {
@@ -10698,6 +10720,7 @@ export {
   a8HeadingTextMatches,
   comparisonStateLabel,
   comparisonEdgeKey,
+  comparisonEndpointKey,
   comparisonIsUnexamined,
   // N83: the reading-order measurement and the locator call-contract helper.
   longValueLayout,
@@ -10711,6 +10734,7 @@ export {
   A8_OVERVIEW_PROBE_FN,
   A8_TIMELINE_PROBE_FN,
   A8_ANALYSIS_PROBE_FN,
+  A8_EFFECTIVE_VISIBLE_FN,
   // The in-page function sources, exported so offline controls can assert they
   // at least parse — a broken in-page function is otherwise invisible offline.
   FOCUS_SAMPLER_FN,
