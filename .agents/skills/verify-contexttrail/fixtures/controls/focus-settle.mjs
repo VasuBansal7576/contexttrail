@@ -23,6 +23,8 @@ import {
   restorableFocusTargetOk,
   focusRestoreExpectation,
   driveOutcomeOk,
+  acquireFocusSettle,
+  focusLogFloor,
   FOCUS_SAMPLER_FN,
   FOCUS_DESCRIPTOR_FN,
   FOCUS_OPENER_MUTATE_FN,
@@ -166,6 +168,113 @@ for (const [name, rec] of [
   ["empty object", {}],
 ]) {
   expect(`malformed record is never acceptance: ${name}`, driveOutcomeOk(rec).ok === false);
+}
+
+/* -------- bounded close acquisition (F38-1), real acquireFocusSettle --------
+ * The drive's acquisition loop is exercised against a stub page whose
+ * evaluate() serves the sampler log and the selected-tab descriptor — the
+ * same calls the real drive makes. Every scenario drives the REAL loop:
+ * fresh-interval marker scoping, dwell counting, decisive early return and
+ * bound-exhausted truthful failure. */
+
+// A stub page: function args run against a scripted __ctFocusLog; the string
+// evaluate is the selected-tab descriptor call.
+const stubPage = (log, selectedTab) => {
+  globalThis.window = { __ctFocusLog: log };
+  return {
+    evaluate: async (arg) => (typeof arg === "function" ? arg() : selectedTab),
+  };
+};
+
+// Positive: a fresh open interval, an actual recorded close marker and a
+// full dwell of post-close samples on the expected opener key.
+{
+  const log = [];
+  const floor = log.length; // captured before the open click
+  log.push(frame(0, { tag: "DIV" }, true), frame(1, { tag: "DIV" }, true)); // open interval
+  for (let f = 2; f < 8; f++) log.push(frame(f, el("B"), false)); // settled post-close run
+  const page = stubPage(log, el("TAB"));
+  const r = await acquireFocusSettle(page, {
+    opener: el("B"),
+    openFloor: floor,
+    dwell: 3,
+    timeoutMs: 2000,
+    pollMs: 5,
+  });
+  expect("a fresh close window acquires (marker + dwell)", r.acquired === true, `marker=${r.closeMarker} post=${r.postCloseSamples}`);
+  expect("the acquired settle is GREEN on the recorded opener key", r.settle.ok === true, r.settle.reason);
+  expect("the persisted record carries the keyed frame log", Array.isArray(r.log) && r.log.length === 8);
+}
+
+// Marker isolation: a cumulative log that already contains an open/close
+// interval must NOT satisfy the second acquisition — its marker is scoped to
+// frames at/after THIS open's floor, so a borrowed first close is impossible.
+{
+  const log = [
+    frame(0, el("B"), true), frame(1, el("B"), true), // FIRST open interval
+    frame(2, el("B")), frame(3, el("B")), frame(4, el("B")), frame(5, el("B")), // first close + run
+  ];
+  const floor = await focusLogFloor(stubPage(log, el("TAB")));
+  // Second close happens but the sampler records NO new open interval
+  // (reopen click raced, or the sampler died): the first marker must not
+  // be borrowed.
+  log.push(frame(6, el("B")), frame(7, el("B")), frame(8, el("B")));
+  const r = await acquireFocusSettle(stubPage(log, el("TAB")), {
+    opener: el("B"),
+    openFloor: floor,
+    dwell: 3,
+    timeoutMs: 200,
+    pollMs: 5,
+  });
+  expect("a second close cannot borrow the first close's marker", r.closeMarker === null && r.acquired === false,
+    `marker=${r.closeMarker} acquired=${r.acquired}`);
+}
+
+// Premature bound: hidden DOM is not a sampled close — when the log never
+// reaches a dwell of post-close samples, the bound exhausts truthfully.
+{
+  const log = [frame(0, { tag: "DIV" }, true), frame(1, { tag: "DIV" }, true), frame(2, el("B"))];
+  const r = await acquireFocusSettle(stubPage(log, el("TAB")), {
+    opener: el("B"),
+    openFloor: 0,
+    dwell: 3,
+    timeoutMs: 200,
+    pollMs: 5,
+  });
+  expect("too few post-close samples is a bounded failure, not a pass", r.acquired === false && r.settle.ok === false,
+    `post=${r.postCloseSamples} settle=${r.settle.reason}`);
+}
+
+// Wrong-key settle is a decisive RED: acquisition completes but the run is on
+// the wrong recorded key.
+{
+  const log = [frame(0, { tag: "DIV" }, true)];
+  for (let f = 1; f < 7; f++) log.push(frame(f, el("WRONG"), false));
+  const r = await acquireFocusSettle(stubPage(log, el("TAB")), {
+    opener: el("B"),
+    openFloor: 0,
+    dwell: 3,
+    timeoutMs: 2000,
+    pollMs: 5,
+  });
+  expect("a settled wrong-key run is decisively RED", r.acquired === true && r.settle.ok === false && r.settle.reason === "settled-on-unexpected-target",
+    r.settle.reason);
+}
+
+// Descriptor-only final run: weaker proof, still rejected under key basis.
+{
+  const d = { tag: "BUTTON", label: "Close", role: null, selected: null, key: null };
+  const log = [frame(0, { tag: "DIV" }, true)];
+  for (let f = 1; f < 7; f++) log.push(frame(f, d, false));
+  const r = await acquireFocusSettle(stubPage(log, { tag: "BUTTON", label: "Close", key: null }), {
+    opener: { tag: "BUTTON", label: "Close", key: null },
+    openFloor: 0,
+    dwell: 3,
+    timeoutMs: 2000,
+    pollMs: 5,
+  });
+  expect("a descriptor-only run is RED under the recorded-key basis", r.acquired === true && r.settle.ok === false,
+    `${r.settle.reason} basis=${JSON.stringify(r.settle.stabilityBasis)}`);
 }
 
 console.log(

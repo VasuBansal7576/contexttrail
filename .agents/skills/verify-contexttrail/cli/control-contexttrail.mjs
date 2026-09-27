@@ -4059,27 +4059,71 @@ const FOCUS_OPENER_MUTATE_FN = `([key, kind]) => {
   };
 }`;
 
+/** The sampled-log boundary at this instant: every sample with
+ *  frame >= the returned value was recorded after this call. Captured
+ *  immediately before the click that opens a dialog so the close marker a
+ *  settle observes can only come from THAT open interval — a second close can
+ *  never borrow the first close's marker. */
+async function focusLogFloor(page) {
+  return page
+    .evaluate(() => (Array.isArray(window.__ctFocusLog) ? window.__ctFocusLog.length : 0))
+    .catch(() => 0);
+}
+
 /**
- * The post-close read: pull the sampled log, derive the ACTUAL recorded close
- * marker from it, re-describe the currently selected tab (a re-rendered tab is
- * a new element and keys itself fresh), and evaluate the settle against the
- * recorded-key expectation. Callers turn the pieces into named assertions.
+ * Bounded settle acquisition (F38-1): a DOM-hidden wait is not proof that a
+ * single post-close RAF has been sampled, and a one-shot read can therefore
+ * report `no-samples-at-or-after-close-marker` on an honest settle. This loop
+ * polls the sampled log until THIS close's open interval (frames at or after
+ * `openFloor`, never an earlier close's) yields a close marker AND at least
+ * `dwell` samples after it, evaluating the same `settleFocusRun` predicate on
+ * every poll. It returns early on a decisive verdict (settled on the expected
+ * key, or a full-length run settled on the wrong one), keeps polling while the
+ * run is still forming, and on bound exhaustion returns the last evaluation
+ * with `acquired:false` — a truthful bounded failure, not a guessed timing.
  */
-async function readFocusSettle(page, { opener }) {
-  const log = await page.evaluate(() => window.__ctFocusLog ?? []).catch(() => []);
-  const closeMarker = deriveDialogCloseMarker(log);
+async function acquireFocusSettle(
+  page,
+  { opener, openFloor, dwell = 3, timeoutMs = 6000, pollMs = 60 } = {},
+) {
+  const floor = typeof openFloor === "number" && Number.isFinite(openFloor) ? openFloor : 0;
+  const deadline = Date.now() + timeoutMs;
   const selectedTab = await page
     .evaluate(
       `(${FOCUS_DESCRIPTOR_FN})([...document.querySelectorAll('[role="tab"]')].find((t) => t.getAttribute('aria-selected') === 'true') ?? null)`,
     )
     .catch(() => null);
   const expectation = focusRestoreExpectation({ opener, selectedTab });
-  const settle = settleFocusRun(
-    log,
-    closeMarker,
-    { key: expectation.key ?? "ct-no-usable-target", requireKeyBasis: true },
-  );
-  return { log, closeMarker, selectedTab, expectation, settle };
+  let last = null;
+  for (;;) {
+    const log = await page.evaluate(() => window.__ctFocusLog ?? []).catch(() => []);
+    // Scope the open interval to frames at/after openFloor: an open observed
+    // only BEFORE this close's open click belongs to an earlier close and its
+    // marker must not satisfy this settle.
+    const scoped = log.filter((s) => s && typeof s.frame === "number" && s.frame >= floor);
+    const closeMarker = deriveDialogCloseMarker(scoped);
+    const postCloseSamples =
+      closeMarker === null ? 0 : log.filter((s) => s && s.frame >= closeMarker).length;
+    const acquired = closeMarker !== null && postCloseSamples >= dwell;
+    const settle = settleFocusRun(log, closeMarker, {
+      key: expectation.key ?? "ct-no-usable-target",
+      requireKeyBasis: true,
+    });
+    last = {
+      log,
+      closeMarker,
+      selectedTab,
+      expectation,
+      settle,
+      acquired,
+      postCloseSamples,
+      openFloor: floor,
+    };
+    const decisive =
+      acquired && (settle.ok || settle.reason === "settled-on-unexpected-target");
+    if (decisive || Date.now() >= deadline) return last;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
 }
 
 /* ------------- effective contrast (accepted A10 correction 2) ------------- *
@@ -4144,8 +4188,28 @@ const EFFECTIVE_CONTRAST_FN = `
     const fgEff = { r: fgRaw.r, g: fgRaw.g, b: fgRaw.b, a: effectiveAlpha };
     const fgOnBg = over(fgEff, backdrop);
     const r = ratio(fgOnBg, backdrop);
+    // Visibility of the measured node itself: own display/visibility, the
+    // whole ancestor rendering chain, and a real box. Contrast on a node the
+    // user cannot see is not proof of the visible surface.
+    const rect = el.getBoundingClientRect();
+    let hiddenByAncestor = null;
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const ps = getComputedStyle(p);
+      if (ps.display === 'none' || ps.visibility === 'hidden' || ps.visibility === 'collapse') {
+        hiddenByAncestor = { tag: p.tagName, id: p.id || undefined, display: ps.display, visibility: ps.visibility };
+        break;
+      }
+    }
+    const rendered =
+      cs.display !== 'none' && cs.visibility !== 'hidden' && cs.visibility !== 'collapse' &&
+      hiddenByAncestor === null && rect.width > 0 && rect.height > 0;
     return {
       text: (el.textContent || '').trim().slice(0, 70),
+      rendered,
+      display: cs.display,
+      visibility: cs.visibility,
+      rect: { width: Math.round(rect.width), height: Math.round(rect.height) },
+      hiddenByAncestor,
       tag: el.tagName,
       role: el.getAttribute('role'),
       className: (el.className && el.className.baseVal !== undefined ? el.className.baseVal : String(el.className || '')).slice(0, 90),
@@ -4177,9 +4241,17 @@ function aaThreshold(fontSizePx, fontWeight) {
 
 /** The single pass predicate. An UNSUPPORTED configuration is a non-pass: the
  *  helper still returns a diagnostic contrastRatio for an unmodelled group, and
- *  that number is never an accepted computed ratio. */
+ *  that number is never an accepted computed ratio. A node that is not actually
+ *  rendered (display:none, visibility hidden/collapse, an ancestor-hidden
+ *  chain, or no painted rect) cannot pass either — the visible surface is what
+ *  owes the ratio, and a hidden node proves nothing about it. */
 function contrastVerdictFor(node, threshold) {
   if (!node || typeof node !== "object") return { pass: false, why: "no contrast record" };
+  if (node.rendered !== true)
+    return {
+      pass: false,
+      why: `target is not rendered visible (display=${node.display ?? "?"}, visibility=${node.visibility ?? "?"}, ancestorHidden=${node.hiddenByAncestor ? `${node.hiddenByAncestor.tag}` : "none"}, rect=${node.rect ? `${node.rect.width}x${node.rect.height}` : "none"})`,
+    };
   if (node.verdict === "UNSUPPORTED") return { pass: false, why: "unsupported layer configuration" };
   if (node.verdict !== "COMPUTED") return { pass: false, why: `unknown verdict ${JSON.stringify(node.verdict)}` };
   if (!Number.isFinite(node.contrastRatio)) return { pass: false, why: "no computed ratio" };
@@ -4189,26 +4261,110 @@ function contrastVerdictFor(node, threshold) {
 /**
  * The accepted selected-panel contrast node set: for each result view, the
  * representative content nodes the correction measured INSIDE the selected
- * tab's aria-controls panel (real source title/metadata and panel copy — never
- * the shared ContextTrail header or an action link). Representative nodes, not
- * every row.
+ * tab's aria-controls panel — never the shared ContextTrail header or an
+ * action link. Every entry is contract-bound, not presence-optional:
+ * `populatedWhen` names the data contract that decides whether the populated
+ * selector must match; when the contract says the surface is empty the
+ * `empty` explanation text must instead be the node that renders, and it is
+ * THAT node whose visibility and contrast get measured. A populated node
+ * that never rendered is a measured miss, not a skipped target.
+ *
+ * Contract keys (resolved by `panelContractPopulated`):
+ *   "always"                — the node exists on every render of this panel
+ *   "hasAnyOccurrence"      — any of timeline/supporting/contextual/undated
+ *   "hasRetrievalAccounting"— requestLog non-empty OR searchCounts non-empty
+ *                             (the "Retrieval accounting" section at pin
+ *                             ResultView 603-640: per-operation engine rows
+ *                             with attempted/returned/retained and search id,
+ *                             plus the trailing accounting note)
  */
 const PANEL_NODE_TARGETS = {
   sources: [
-    { key: "sources-li-title", selector: "li p.font-medium", note: "the real Sources LI title, not the source action link" },
-    { key: "sources-li-metadata", selector: "li p.text-sm", note: "the adjacent Sources LI metadata line (domain · date · date source)" },
+    {
+      key: "sources-item-title",
+      populated: "ul li p.font-medium",
+      populatedWhen: "hasAnyOccurrence",
+      empty: { selector: "p.text-center", text: "No sources were retrieved." },
+      note: "a real Sources item title, not the source action link",
+    },
+    {
+      key: "sources-item-metadata",
+      populated: "ul li p.text-sm",
+      populatedWhen: "hasAnyOccurrence",
+      empty: { selector: "p.text-center", text: "No sources were retrieved." },
+      note: "the adjacent Sources item metadata line (domain · date · date source)",
+    },
   ],
   analysis: [
-    { key: "analysis-intro-paragraph", selector: "p.mt-2.max-w-3xl", note: "the real Analysis panel intro paragraph" },
-    { key: "analysis-coverage-entry", selector: "li.text-ink\\/75, li > span", note: "a real Analysis coverage entry line" },
-    { key: "analysis-coverage-note", selector: "p.mt-2.text-xs", note: "a real Analysis coverage trailing note" },
+    {
+      key: "analysis-intro-paragraph",
+      populated: "p.mt-2.max-w-3xl",
+      populatedWhen: "always",
+      note: "the real Analysis panel intro paragraph",
+    },
+    {
+      key: "analysis-retrieval-accounting-row",
+      populated: "ul li.text-ink\\/75, ul li > span.text-ink\\/75",
+      populatedWhen: "hasRetrievalAccounting",
+      empty: { selector: "p.mt-2.text-sm", text: "No retrieval counts were preserved" },
+      note: "a Retrieval-accounting operation row (engine · attempted/returned/retained) — the pin's section at ResultView 603-640",
+    },
+    {
+      key: "analysis-retrieval-accounting-note",
+      populated: "p.mt-2.text-xs",
+      populatedWhen: "hasRetrievalAccounting",
+      empty: { selector: "p.mt-2.text-sm", text: "No retrieval counts were preserved" },
+      note: "the Retrieval-accounting trailing note explaining search-id provenance",
+    },
   ],
   timeline: [
-    { key: "timeline-panel-heading", selector: "h2", note: "the real Timeline panel heading" },
-    { key: "timeline-panel-body", selector: "p", note: "the real Timeline panel body paragraph" },
-    { key: "timeline-panel-note", selector: "p:last-of-type", note: "the real Timeline panel trailing note" },
+    {
+      key: "timeline-panel-heading",
+      populated: "h2",
+      populatedWhen: "hasAnyOccurrence",
+      empty: { selector: "p.text-center", text: "No occurrences were returned" },
+      note: "the real Timeline panel heading",
+    },
+    {
+      key: "timeline-panel-body",
+      populated: "p",
+      populatedWhen: "hasAnyOccurrence",
+      empty: { selector: "p.text-center", text: "No occurrences were returned" },
+      note: "the real Timeline panel body paragraph",
+    },
+    {
+      key: "timeline-panel-note",
+      populated: "p:last-of-type",
+      populatedWhen: "hasAnyOccurrence",
+      empty: { selector: "p.text-center", text: "No occurrences were returned" },
+      note: "the real Timeline panel trailing note",
+    },
   ],
 };
+
+/**
+ * Resolve whether a target's populated branch is owed. An unknown contract
+ * (live run — no fixture terminal to compare) requires the populated branch:
+ * the harness cannot prove the surface should be empty, so absence is a
+ * defect, never a skip.
+ */
+function panelContractPopulated(mode, terminal) {
+  if (mode === "always") return true;
+  if (terminal === null || terminal === undefined) return true;
+  const evidenceTotal =
+    asLen(terminal.timeline) +
+    asLen(terminal.supportingEvidence) +
+    asLen(terminal.contextualEvidence) +
+    asLen(terminal.undatedEvidence);
+  if (mode === "hasAnyOccurrence") return evidenceTotal > 0;
+  if (mode === "hasRetrievalAccounting") {
+    return (
+      (Array.isArray(terminal.requestLog) && terminal.requestLog.length > 0) ||
+      (Array.isArray(terminal.searchCounts) && terminal.searchCounts.length > 0)
+    );
+  }
+  return true;
+}
 
 /**
  * Did the selected tab's aria-controls resolve to a real panel? The record must
@@ -4228,19 +4384,56 @@ function panelScopeOk(info) {
 
 /** Measures one node strictly INSIDE the resolved panel and reports whether it
  *  actually belongs there — a selector that escapes the panel fails the
- *  membership check instead of measuring a shared header. */
-const PANEL_MEASURE_FN = `({ panelId, selector }) => {
+ *  membership check instead of measuring a shared header. When `expectText`
+ *  is given (contract-empty explanations), the node's normalized text must
+ *  contain it — the required explanation measured on the REAL node. The node
+ *  is tagged data-ctnpm so the follow-up CLIP_FN measures this element's own
+ *  text range rather than any lookalike text elsewhere in the document. */
+const PANEL_MEASURE_FN = `({ panelId, selector, expectText }) => {
   const panel = document.getElementById(panelId);
   if (!panel) return { found: false, reason: 'no panel', panelId, selector };
   const el = panel.querySelector(selector);
   if (!el) return { found: false, reason: 'selector matched nothing inside the panel', panelId, selector };
   const owner = el.closest('[id^="ct-panel-"]');
   const membership = owner ? owner.id : null;
+  const norm = (s) => String(s ?? '').replace(/\\s+/g, ' ').trim();
+  const textMatched =
+    typeof expectText === 'string' && expectText.length > 0
+      ? norm(el.textContent).includes(norm(expectText))
+      : null;
+  const cs = getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  let hiddenByAncestor = null;
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const as = getComputedStyle(a);
+    if (as.display === 'none' || as.visibility === 'hidden' || as.visibility === 'collapse') {
+      hiddenByAncestor = { tag: a.tagName, id: a.id || undefined, display: as.display, visibility: as.visibility };
+      break;
+    }
+  }
+  const rendered =
+    cs.display !== 'none' && cs.visibility !== 'hidden' && cs.visibility !== 'collapse' &&
+    hiddenByAncestor === null && rect.width > 0 && rect.height > 0;
+  document.querySelectorAll('[data-ctnpm]').forEach((x) => x.removeAttribute('data-ctnpm'));
+  el.setAttribute('data-ctnpm', '1');
   const node = window.__ctEffectiveContrast ? window.__ctEffectiveContrast(el) : null;
   return {
     found: true,
     membership,
     isInsidePanel: panel.contains(el),
+    rendered,
+    display: cs.display,
+    visibility: cs.visibility,
+    rect: { width: rect.width, height: rect.height },
+    hiddenByAncestor,
+    textMatched,
+    nodeIdentity: {
+      ctnpm: '1',
+      tag: el.tagName,
+      className: String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || ''),
+      panelId,
+      containerDomSubset: true,
+    },
     node,
     tag: el.tagName,
     selector,
@@ -4248,9 +4441,10 @@ const PANEL_MEASURE_FN = `({ panelId, selector }) => {
   };
 }`;
 
-async function measurePanelContrast(page, panelId, selector) {
+async function measurePanelContrast(page, panelId, target) {
+  const arg = typeof target === "string" ? { panelId, selector: target } : { panelId, ...target };
   return page.evaluate(
-    `(${PANEL_MEASURE_FN})(${JSON.stringify({ panelId, selector })})`,
+    `(${PANEL_MEASURE_FN})(${JSON.stringify(arg)})`,
   );
 }
 
@@ -4335,80 +4529,186 @@ function motionAtRestOk(record) {
 }
 
 /**
- * No-clipping probe for a wrapped text node: finds the host element whose
- * trimmed text equals the needle, measures the FULL text range's laid-out
- * bounds, and reports every explicit clipping shape — line-clamp, ellipsis,
- * hidden/clipped overflow, line rects outside the host box, document-level
- * horizontal overflow. "Multiple lines, no page overflow" alone is not proof:
- * a clamped title can satisfy that while showing half its text.
+ * Geometry/clip measure for ONE specific rendered node, scoped by the same
+ * element-identity handle PANEL_MEASURE_FN already produces (data-ctnpm
+ * tagging in this session, container-DOM-subset fallback). A body-wide text
+ * search cannot stand in: identical strings elsewhere must never satisfy —
+ * or fail — the predicate for this node. Rects are measured from a real
+ * Range over the node's own text; clipping is checked in BOTH axes against
+ * the node's border box AND against every ancestor that establishes a clip
+ * (overflow hidden/clip/scroll/auto) — an overflow-x:hidden ancestor clips
+ * without telling the node's own overflow value, so the ancestor clip chain
+ * is computed from styles, not from the node alone.
  */
-const CLIP_FN = `(needle) => {
-  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  let node, host = null;
-  while ((node = walk.nextNode())) {
-    if ((node.nodeValue || '').trim() === needle) { host = node.parentElement; break; }
-  }
-  if (!host) return { found: false, needle: needle.slice(0, 60) };
-  const range = document.createRange();
-  let full = null, clippedChars = 0;
-  try {
-    range.selectNodeContents(host);
-    const rects = Array.from(range.getClientRects());
-    full = rects.length
-      ? { width: Math.round(Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left))),
-          height: Math.round(rects.reduce((a, r) => a + (r.bottom - r.top), 0)),
-          lineCount: rects.length }
-      : null;
-    if (full) {
-      const hr = host.getBoundingClientRect();
-      clippedChars = Array.from(range.getClientRects()).filter((r) => r.bottom > hr.bottom + 1 || r.top < hr.top - 1).length;
+const CLIP_FN = `(({ text, nodeIdentity } = {}) => {
+  if (typeof text !== 'string' || text.trim().length === 0)
+    return { found: false, reason: 'no expected text' };
+  const truthy = (s) => s !== null && s !== undefined && String(s).trim().length > 0;
+  const norm = (s) => String(s ?? '').replace(/\\s+/g, ' ').trim();
+  let node = null;
+  if (nodeIdentity && truthy(nodeIdentity.tag)) {
+    if (truthy(nodeIdentity.ctnpm)) {
+      node = document.querySelector('[data-ctnpm="' + nodeIdentity.ctnpm + '"]');
     }
-  } catch (e) { /* reported below */ }
-  const cs = getComputedStyle(host);
-  const doc = document.documentElement;
+    if (node === null && nodeIdentity.containerDomSubset === true) {
+      const panel = nodeIdentity.panelId ? document.getElementById(nodeIdentity.panelId) : document.body;
+      const cand = panel ? [...panel.querySelectorAll(nodeIdentity.tag)] : [];
+      node =
+        cand.find(
+          (el) =>
+            norm(el.textContent) === norm(text) &&
+            String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || '') ===
+              String(nodeIdentity.className ?? ''),
+        ) ?? null;
+    }
+  }
+  if (node === null) return { found: false, reason: 'scoped node not found' };
+  const styleOf = (el) => getComputedStyle(el);
+  const cs = styleOf(node);
+  const rect = node.getBoundingClientRect();
+  let hiddenByAncestor = null;
+  for (let a = node.parentElement; a; a = a.parentElement) {
+    const as = styleOf(a);
+    if (as.display === 'none' || as.visibility === 'hidden' || as.visibility === 'collapse') {
+      hiddenByAncestor = { tag: a.tagName, id: a.id || undefined, display: as.display, visibility: as.visibility };
+      break;
+    }
+  }
+  const rendered =
+    cs.display !== 'none' && cs.visibility !== 'hidden' && cs.visibility !== 'collapse' &&
+    hiddenByAncestor === null && rect.width > 0 && rect.height > 0;
+  if (!rendered)
+    return { found: true, rendered: false, hiddenByAncestor, display: cs.display, visibility: cs.visibility,
+      nodeRect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+      reason: 'node has no rendered box' };
+  // Real text geometry: a Range over this node's own text, not the element box.
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const union = range.getBoundingClientRect();
+  const lineRects = [...range.getClientRects()]
+    .filter((r) => r.width > 0 && r.height > 0)
+    .map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom }));
+  if (lineRects.length === 0)
+    return { found: true, rendered: true, rangeMeasured: false, reason: 'empty text range' };
+  const clippingAncestors = [];
+  for (let a = node.parentElement; a; a = a.parentElement) {
+    const as = styleOf(a);
+    if (as && (as.overflowX !== 'visible' || as.overflowY !== 'visible')) {
+      const ar = a.getBoundingClientRect();
+      clippingAncestors.push({
+        tag: a.tagName,
+        id: a.id || undefined,
+        overflowX: as.overflowX,
+        overflowY: as.overflowY,
+        paddingLeft: parseFloat(as.paddingLeft) || 0,
+        paddingRight: parseFloat(as.paddingRight) || 0,
+        paddingTop: parseFloat(as.paddingTop) || 0,
+        paddingBottom: parseFloat(as.paddingBottom) || 0,
+        rect: { left: ar.left, right: ar.right, top: ar.top, bottom: ar.bottom },
+      });
+    }
+  }
   return {
     found: true,
-    tag: host.tagName,
-    className: String(host.className || '').slice(0, 100),
-    textLength: needle.length,
-    fullContentBounds: full,
-    lineClampApplied: cs.webkitLineClamp && cs.webkitLineClamp !== 'none',
-    textOverflowEllipsis: cs.textOverflow === 'ellipsis',
-    verticalOverflowHidden: cs.overflowY === 'hidden' || cs.overflowY === 'clip',
-    overflowHidden: cs.overflow === 'hidden' || cs.overflow === 'clip',
-    clippedLineRects: clippedChars,
-    overflowWrap: cs.overflowWrap, wordBreak: cs.wordBreak, whiteSpace: cs.whiteSpace,
-    textOverflow: cs.textOverflow,
-    fullTextRendered: (host.textContent || '').trim() === needle,
-    documentScrollWidth: doc.scrollWidth, documentClientWidth: doc.clientWidth,
-    horizontalOverflow: doc.scrollWidth > doc.clientWidth + 1,
+    rendered: true,
+    rangeMeasured: true,
+    lineRects,
+    union: { left: union.left, right: union.right, top: union.top, bottom: union.bottom },
+    nodeRect: { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom },
+    hiddenByAncestor,
+    display: cs.display,
+    visibility: cs.visibility,
+    overflowX: cs.overflowX,
+    overflowY: cs.overflowY,
+    clippingAncestors,
+    documentHorizontalOverflow:
+      document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
   };
-}`;
+})`;
 
-/** The wrap verdict: every clipping shape is a red, and the full string must
- *  actually be laid out. */
-function wrapVerdict(r) {
-  if (!r || r.found !== true) return { pass: false, why: "the text node was not found" };
-  const problems = [];
-  if (r.lineClampApplied) problems.push("line-clamp applied");
-  if (r.textOverflowEllipsis) problems.push("text-overflow:ellipsis");
-  if (r.verticalOverflowHidden) problems.push("vertical overflow hidden/clip");
-  if (r.overflowHidden) problems.push("overflow hidden/clip");
-  if ((r.clippedLineRects ?? 0) > 0) problems.push(`${r.clippedLineRects} line rect(s) outside the host box`);
-  if (r.fullTextRendered !== true) problems.push("the full string is not rendered");
-  if (r.horizontalOverflow) problems.push("document horizontal overflow");
-  return problems.length
-    ? { pass: false, why: problems.join("; ") }
-    : { pass: true, why: `${r.fullContentBounds?.lineCount ?? "?"} line(s), ${r.fullContentBounds?.width ?? "?"}px wide, wraps without clipping` };
+/**
+ * The clip verdict (F38-2): a missing scoped node is a fail (populated
+ * content that never rendered is a defect, not a skip); an unrendered or
+ * empty-range node is a fail; content measured beyond the node's border box
+ * or beyond any clipping ancestor — in EITHER axis — is a fail; document
+ * horizontal overflow is a fail. Long inline content that genuinely wraps
+ * inside its bounds passes — length alone never fails.
+ */
+function wrapVerdict(m) {
+  if (!m || m.found !== true)
+    return { pass: false, why: m?.reason ?? "the scoped node was not found" };
+  if (m.rendered !== true)
+    return { pass: false, why: m.reason ?? `node has no rendered box (display=${m.display ?? "?"}, visibility=${m.visibility ?? "?"})` };
+  if (m.rangeMeasured !== true || !Array.isArray(m.lineRects) || m.lineRects.length === 0)
+    return { pass: false, why: m.reason ?? "no measurable text range" };
+  const rangeLeft = Math.min(...m.lineRects.map((r) => r.left));
+  const rangeRight = Math.max(...m.lineRects.map((r) => r.right));
+  const rangeTop = Math.min(...m.lineRects.map((r) => r.top));
+  const rangeBottom = Math.max(...m.lineRects.map((r) => r.bottom));
+  const nr = m.nodeRect;
+  if (nr) {
+    // The node's own border box bounds in both axes (1px subpixel tolerance).
+    if (rangeRight > nr.right + 1)
+      return { pass: false, why: `range right ${Math.round(rangeRight)}px exceeds node right ${Math.round(nr.right)}px` };
+    if (rangeBottom > nr.bottom + 1)
+      return { pass: false, why: `range bottom ${Math.round(rangeBottom)}px exceeds node bottom ${Math.round(nr.bottom)}px` };
+    if (rangeLeft < nr.left - 1)
+      return { pass: false, why: `range left ${Math.round(rangeLeft)}px precedes node left ${Math.round(nr.left)}px` };
+    if (rangeTop < nr.top - 1)
+      return { pass: false, why: `range top ${Math.round(rangeTop)}px precedes node top ${Math.round(nr.top)}px` };
+  }
+  // Ancestor clip chain: a hidden/clip/scroll/auto ancestor cuts content at
+  // its own padding box regardless of the node's own overflow value — this is
+  // the overflow-x:hidden too-wide case that element-box checks alone miss.
+  for (const a of m.clippingAncestors ?? []) {
+    const box = {
+      left: a.rect.left + a.paddingLeft,
+      right: a.rect.right - a.paddingRight,
+      top: a.rect.top + a.paddingTop,
+      bottom: a.rect.bottom - a.paddingBottom,
+    };
+    const xClip = a.overflowX !== "visible" && (rangeRight > box.right + 1 || rangeLeft < box.left - 1);
+    const yClip = a.overflowY !== "visible" && (rangeBottom > box.bottom + 1 || rangeTop < box.top - 1);
+    if (xClip || yClip)
+      return {
+        pass: false,
+        why: `range clipped by ${a.tag}${a.id ? "#" + a.id : ""} ancestor (${xClip ? "x" : ""}${xClip && yClip ? "+" : ""}${yClip ? "y" : ""})`,
+      };
+  }
+  if (m.documentHorizontalOverflow === true)
+    return { pass: false, why: "document scrollWidth exceeds clientWidth — horizontal overflow" };
+  return { pass: true, why: `${m.lineRects.length} line box(es) inside every clip bound` };
 }
 
-/** A real interactive control measurement: geometry of an actual control. */
+/** A real interactive control measurement: geometry AND actual rendered
+ *  visibility of an actual control — display, visibility, the ancestor
+ *  rendering chain, effective opacity, and a real box. A control the user
+ *  cannot see is not a hit target at all. */
 const TARGET_FN = `(el) => {
   if (!el) return { found: false };
   const r = el.getBoundingClientRect();
   const cs = getComputedStyle(el);
+  let hiddenByAncestor = null;
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const as = getComputedStyle(a);
+    if (as.display === 'none' || as.visibility === 'hidden' || as.visibility === 'collapse') {
+      hiddenByAncestor = { tag: a.tagName, id: a.id || undefined, display: as.display, visibility: as.visibility };
+      break;
+    }
+  }
+  let effectiveOpacity = Number.isFinite(parseFloat(cs.opacity)) ? parseFloat(cs.opacity) : 1;
+  for (let a = el.parentElement; a; a = a.parentElement) {
+    const o = parseFloat(getComputedStyle(a).opacity);
+    if (Number.isFinite(o)) effectiveOpacity *= o;
+  }
+  const rendered =
+    cs.display !== 'none' && cs.visibility !== 'hidden' && cs.visibility !== 'collapse' &&
+    hiddenByAncestor === null && r.width > 0 && r.height > 0 && effectiveOpacity > 0;
   return {
     found: true,
+    rendered,
+    hiddenByAncestor,
+    effectiveOpacity: Number(effectiveOpacity.toFixed(4)),
     tag: el.tagName, role: el.getAttribute('role'),
     accessibleName: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 60),
     width: Math.round(r.width), height: Math.round(r.height),
@@ -4419,14 +4719,21 @@ const TARGET_FN = `(el) => {
   };
 }`;
 
-/** The target verdict. PRIMARY controls owe the 44px floor. A secondary
- *  control under 44px is a recorded inconsistency, not a mandatory violation —
- *  pass:true with belowPrimaryFloor flagged so the record carries it. */
+/** The target verdict. A control must first be a VISIBLE rendered control —
+ *  display/visibility clean through the ancestor chain, a real painted box,
+ *  nonzero effective opacity — before its size is even a question. PRIMARY
+ *  controls then owe the 44px floor. A secondary control under 44px is a
+ *  recorded inconsistency, not a mandatory violation — pass:true with
+ *  belowPrimaryFloor flagged so the record carries it. */
 function targetVerdict(t, { primary = true } = {}) {
   if (!t || t.found !== true) return { pass: false, why: "control not found" };
+  if (t.rendered !== true)
+    return {
+      pass: false,
+      why: `control is not rendered visible (display=${t.display ?? "?"}, visibility=${t.visibility ?? "?"}, ancestorHidden=${t.hiddenByAncestor ? t.hiddenByAncestor.tag : "none"}, box=${t.width ?? 0}x${t.height ?? 0}, opacity=${t.effectiveOpacity ?? "?"})`,
+    };
   if (t.interactive !== true) return { pass: false, why: "not an interactive control" };
   if (t.disabled === true || t.ariaDisabled === "true") return { pass: false, why: "control disabled" };
-  if (!(t.width > 0) || !(t.height > 0)) return { pass: false, why: "no rendered box" };
   if (primary && t.height < 44) return { pass: false, why: `primary control ${t.height}px tall < 44px` };
   return { pass: true, why: `${t.width}x${t.height}`, belowPrimaryFloor: t.height < 44 };
 }
@@ -4576,6 +4883,131 @@ function fixtureOccurrence(name, id) {
       r.undatedEvidence ?? []
     )].find((o) => (o.evidenceId ?? o.occurrenceId) === id) ?? null
   );
+}
+
+/* ------------- rendered excerpt identity (F38-4) ------------- *
+ * The maintained predicate mirrors the product's own projection at the
+ * accepted pin (src/components/result/evidence-display.ts at 7b18c16): the
+ * composite "Title: / Snippet:" split, first-paragraph body selection,
+ * word-boundary truncation at the viewer's real 600-char budget, and the
+ * attribution labels. The rendered <blockquote> must EQUAL the projected
+ * span — whitespace-normalized exact equality after the typographic quote
+ * wrap — so a one-character prefix, a substituted string that happens to
+ * appear in the full-retrieved-text disclosure, and the bare composite
+ * title wrapper are all failures, not matches. */
+
+/** Port of the product's splitCompositeExcerpt: "Title:" line, then
+ *  "Snippet:" block, remainder is body; a bare "Title:" wrapper is no
+ *  excerpt at all. */
+function splitCompositeExcerpt(raw) {
+  const empty = { title: null, snippet: null, body: null };
+  if (typeof raw !== "string" || !raw) return empty;
+  let rest = raw;
+  let title = null;
+  let snippet = null;
+  const titleMatch = rest.match(/^Title:([^\n]*)\r?\n\r?\n([\s\S]*)$/);
+  if (titleMatch) {
+    title = titleMatch[1].trim() || null;
+    rest = titleMatch[2];
+  }
+  const snippetMatch = rest.match(/^Snippet:([\s\S]*?)\r?\n\r?\n([\s\S]*)$/);
+  if (snippetMatch) {
+    snippet = snippetMatch[1].trim() || null;
+    rest = snippetMatch[2];
+  } else {
+    const bareSnippet = rest.match(/^Snippet:([\s\S]*)$/);
+    if (bareSnippet) {
+      snippet = bareSnippet[1].trim() || null;
+      rest = "";
+    }
+  }
+  const body = rest.trim() || null;
+  if (title === null && snippet === null) {
+    const bareTitle = raw.match(/^Title:([^\n]*)$/);
+    if (bareTitle) return { title: bareTitle[1].trim() || null, snippet: null, body: null };
+    return { title: null, snippet: null, body: raw };
+  }
+  return { title, snippet, body };
+}
+
+/** Port of the product's truncateWords: cut at the last word boundary at or
+ *  before maxChars (unless that discards more than half), append "…". */
+function truncateExcerptWords(text, maxChars) {
+  if (text.length <= maxChars) return { text, truncated: false };
+  const cut = text.lastIndexOf(" ", maxChars);
+  const end = cut > maxChars * 0.5 ? cut : maxChars;
+  return { text: `${text.slice(0, end).trimEnd()}…`, truncated: true };
+}
+
+/** Port of the product's attributableSpan at the viewer's real maxChars=600:
+ *  page_text composites quote the first body paragraph (falling back to the
+ *  embedded snippet); every other source quotes the raw text truncated; an
+ *  occurrence with no quotable span renders "No excerpt available". */
+function expectedAttributableSpan(occurrence, maxChars = 600) {
+  if (!occurrence || typeof occurrence !== "object") return null;
+  const raw =
+    (typeof occurrence.excerpt === "string" && occurrence.excerpt) ||
+    (typeof occurrence.snippet === "string" && occurrence.snippet) ||
+    null;
+  const source =
+    (typeof occurrence.excerptSource === "string" && occurrence.excerptSource) ||
+    (typeof occurrence.excerptAttribution === "string" && occurrence.excerptAttribution) ||
+    null;
+  if (!raw) return null;
+  if (source === "page_text") {
+    const { body, snippet } = splitCompositeExcerpt(raw);
+    if (body) {
+      const firstParagraph = body.split(/\r?\n\r?\n/)[0].trim() || body;
+      const { text, truncated } = truncateExcerptWords(firstParagraph, maxChars);
+      return {
+        text,
+        attribution: "Extracted page excerpt",
+        truncated: truncated || body.length > firstParagraph.length,
+      };
+    }
+    if (snippet) {
+      const { text, truncated } = truncateExcerptWords(snippet, maxChars);
+      if (!text) return null;
+      return { text, attribution: "Search snippet", truncated };
+    }
+    return null;
+  }
+  const { text, truncated } = truncateExcerptWords(raw.trim(), maxChars);
+  if (!text) return null;
+  return { text, attribution: "Search snippet", truncated };
+}
+
+/** The attribution label the viewer must render over the excerpt block:
+ *  a backend-supplied displayAttribution wins, else the span's own label. */
+function expectedExcerptAttribution(occurrence, span) {
+  const d = typeof occurrence?.displayAttribution === "string" ? occurrence.displayAttribution.trim() : "";
+  return d || span?.attribution || null;
+}
+
+/**
+ * Exact rendered-quote identity. `quoteText` is the <blockquote> element's
+ * own rendered text — nothing else in the dialog may satisfy this: not the
+ * title, not the full retrieved text disclosure, not a snippet that shares
+ * words. The normalized rendered text must EQUAL the projected span.
+ */
+function renderedExcerptVerdict(quoteText, span) {
+  if (!span || typeof span.text !== "string" || span.text.length === 0)
+    return { ok: false, why: "the contract projects no attributable span for this occurrence" };
+  if (typeof quoteText !== "string" || quoteText.trim().length === 0)
+    return { ok: false, why: "no blockquote rendered for an occurrence whose contract has a quotable excerpt" };
+  const rendered = String(quoteText)
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[“”"'«»\s]+/, "")
+    .replace(/[“”"'«»\s]+$/, "");
+  const expected = String(span.text).replace(/\s+/g, " ").trim();
+  if (rendered === expected)
+    return { ok: true, why: `exact ${expected.length}-char span${span.truncated ? " (contract-truncated)" : ""}`, rendered, expected };
+  if (expected.startsWith(rendered))
+    return { ok: false, why: `rendered text is only a ${rendered.length}-char prefix of the ${expected.length}-char span`, rendered, expected };
+  if (rendered.startsWith(expected))
+    return { ok: false, why: "rendered text extends past the attributable span — the composite wrapper or body remainder leaked into the quote", rendered, expected };
+  return { ok: false, why: `rendered "${rendered.slice(0, 60)}" ≠ expected "${expected.slice(0, 60)}"`, rendered, expected };
 }
 
 /**
@@ -6515,32 +6947,73 @@ const DRIVE_CASES = {
         (layout.outOfOrder ? ` — first divergence ${JSON.stringify(layout.outOfOrder)}` : ""),
     );
 
+    // The selected panel is compared with the fixture it was rendered from:
+    // counts must line up, and no placeholder token may reach the user.
+    // A LIVE run has no fixture: the returned investigation is whatever the
+    // backend produced, so nothing here may be compared with controlled rows.
+    // `terminal` stays null and every fixture comparison is replaced by an
+    // observation of what was actually rendered — the contrast/measurement
+    // contract below treats that unknown contract as populated-required.
+    const terminal = live ? null : fixtureTerminal(caseName);
+
     // Selected-panel effective contrast (accepted A10 correction 2): each
     // accepted node is resolved strictly INSIDE the selected tab's own
     // aria-controls panel, membership is asserted per node, own opacity and
     // ancestor opacity enter the effective foreground alpha, and ANY
     // group-forming ancestor with opacity < 1 is verdict UNSUPPORTED — a
     // non-pass whose diagnostic ratio is never an accepted number.
+    // F38-3: every named target is contract-bound against the fixture's own
+    // terminal payload — populated content the data owes must render a real
+    // measured node (a miss is a failure, never a skip), and a contract-empty
+    // surface must render its required explanation text as the measured node.
     const panelTargets = PANEL_NODE_TARGETS[view] ?? [];
     if (panelTargets.length > 0 && panelScopeOk(panelInfo)) {
       await page.evaluate(EFFECTIVE_CONTRAST_FN).catch(() => {});
       const measured = [];
       for (const t of panelTargets) {
-        const m = await measurePanelContrast(page, panelInfo.panelId, t.selector).catch((e) => ({
-          found: false,
-          reason: String(e),
-        }));
-        rec.check(
-          `result.${view}-contrast-${t.key}-inside-selected-panel`,
-          m.found === true && m.isInsidePanel === true && m.membership === panelInfo.panelId,
-          JSON.stringify({ key: t.key, note: t.note, found: m.found, membership: m.membership ?? null, reason: m.reason ?? null }),
-        );
+        const wantPopulated = panelContractPopulated(t.populatedWhen, terminal);
+        let m;
+        if (wantPopulated) {
+          m = await measurePanelContrast(page, panelInfo.panelId, t.populated).catch((e) => ({
+            found: false,
+            reason: String(e),
+          }));
+          rec.check(
+            `result.${view}-contrast-${t.key}-inside-selected-panel`,
+            m.found === true && m.isInsidePanel === true && m.membership === panelInfo.panelId,
+            JSON.stringify({ key: t.key, note: t.note, found: m.found, membership: m.membership ?? null, reason: m.reason ?? null }),
+          );
+        } else {
+          // Contract-empty: the populated selector must match NOTHING inside
+          // the panel (data cannot produce it), and the required explanation
+          // text must be the visible measured node instead.
+          const leaked = await page
+            .evaluate(
+              `(() => { const p = document.getElementById(${JSON.stringify(panelInfo.panelId)}); return p ? p.querySelectorAll(${JSON.stringify(t.populated)}).length : -1; })()`,
+            )
+            .catch(() => -1);
+          rec.check(
+            `result.${view}-contrast-${t.key}-populated-absent`,
+            leaked === 0,
+            `contract ${t.populatedWhen}=empty for this fixture; ${leaked} populated node(s) rendered`,
+          );
+          m = await measurePanelContrast(page, panelInfo.panelId, {
+            selector: t.empty.selector,
+            expectText: t.empty.text,
+          }).catch((e) => ({ found: false, reason: String(e) }));
+          rec.check(
+            `result.${view}-contrast-${t.key}-empty-explanation-rendered`,
+            m.found === true && m.isInsidePanel === true && m.textMatched === true && m.rendered === true,
+            JSON.stringify({ key: t.key, found: m.found, textMatched: m.textMatched ?? null, rendered: m.rendered ?? null, expected: t.empty.text }),
+          );
+        }
         if (m.found !== true || !m.node) continue;
         const th = aaThreshold(m.node.fontSizePx, m.node.fontWeight);
         const v = contrastVerdictFor(m.node, th.threshold);
         measured.push({
           key: t.key,
-          selector: t.selector,
+          selector: m.selector,
+          branch: wantPopulated ? "populated" : "empty-explanation",
           membership: m.membership,
           text: m.text,
           threshold: th.threshold,
@@ -6558,12 +7031,13 @@ const DRIVE_CASES = {
       }
       rec.check(
         `result.${view}-contrast-surface-measured`,
-        measured.length > 0 || panelInfo.rowsInPanel === 0,
-        `${measured.length} node(s) measured inside ${panelInfo.panelId}; panel rows=${panelInfo.rowsInPanel}`,
+        measured.length === panelTargets.length,
+        `${measured.length}/${panelTargets.length} contract-bound node(s) measured inside ${panelInfo.panelId}`,
       );
       writeJson(path.join(driveDir, `panel-contrast-${view}.json`), {
         view,
         panelId: panelInfo.panelId,
+        contract: live ? "live-populated-required" : "fixture-terminal",
         scope: {
           tabAriaControls: panelInfo.tabAriaControls,
           panelRole: panelInfo.panelRole,
@@ -6573,30 +7047,56 @@ const DRIVE_CASES = {
       });
     }
 
-    // Host clipping on mobile: the longest rendered Sources title must lay out
-    // its FULL text — line-clamp, ellipsis, overflow-clipped lines and document
-    // horizontal overflow are all red, not just "multiple lines observed".
+    // Host clipping on mobile, on the node's own measured text range: the
+    // longest rendered Sources item title (populated contract) or the visible
+    // empty-state explanation (empty contract) must lay out its FULL text —
+    // range outrunning the node box or any clipping ancestor in either axis,
+    // and document horizontal overflow, are all red.
     if (viewport === "mobile" && view === "sources" && panelScopeOk(panelInfo)) {
-      const longest = await page.evaluate((pid) => {
-        const panel = document.getElementById(pid);
-        if (!panel) return null;
-        const texts = [...panel.querySelectorAll("li p")]
-          .map((p) => (p.textContent || "").trim())
-          .filter((t) => t.length > 0);
-        return texts.sort((a, b) => b.length - a.length)[0] ?? null;
-      }, panelInfo.panelId);
-      const clip = longest
-        ? await page.evaluate(`(${CLIP_FN})(${JSON.stringify(longest)})`).catch((e) => ({ found: false, reason: String(e) }))
-        : { found: false, reason: "no Sources title text" };
+      const wantPopulated = panelContractPopulated("hasAnyOccurrence", terminal);
+      const picked = await page.evaluate(
+        `((pid, populated) => {
+          const panel = document.getElementById(pid);
+          if (!panel) return null;
+          let el = null;
+          if (populated) {
+            const els = [...panel.querySelectorAll("ul li p")]
+              .filter((p) => (p.textContent || "").trim().length > 0);
+            el = els.sort((a, b) => (b.textContent || "").trim().length - (a.textContent || "").trim().length)[0] ?? null;
+          } else {
+            el = [...panel.querySelectorAll("p")]
+              .find((p) => /no sources were retrieved/i.test(p.textContent || "")) ?? null;
+          }
+          if (!el) return null;
+          document.querySelectorAll("[data-ctnpm]").forEach((x) => x.removeAttribute("data-ctnpm"));
+          el.setAttribute("data-ctnpm", "1");
+          return {
+            text: (el.textContent || "").trim(),
+            nodeIdentity: {
+              ctnpm: "1",
+              tag: el.tagName,
+              className: String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || ""),
+              panelId: pid,
+              containerDomSubset: true,
+            },
+          };
+        })(${JSON.stringify(panelInfo.panelId)}, ${wantPopulated ? "true" : "false"})`,
+      );
+      const clip = picked
+        ? await page.evaluate(`(${CLIP_FN})(${JSON.stringify(picked)})`).catch((e) => ({ found: false, reason: String(e) }))
+        : { found: false, reason: wantPopulated ? "no populated Sources item text inside the panel" : "no rendered empty-state explanation inside the panel" };
       const wv = wrapVerdict(clip);
       rec.check(
-        "result.sources-long-title-wraps-not-clipped",
+        wantPopulated
+          ? "result.sources-long-title-wraps-not-clipped"
+          : "result.sources-empty-explanation-not-clipped",
         wv.pass,
-        `${wv.why}${clip.found === true ? ` — ${clip.textLength} chars, bounds=${JSON.stringify(clip.fullContentBounds)}` : ` — ${clip.reason ?? "not found"}`}`,
+        `${wv.why}${picked ? ` — ${picked.text.length} chars on the scoped node` : ""}`,
       );
       writeJson(path.join(driveDir, "mobile-title-clip.json"), {
         panelId: panelInfo.panelId,
-        longest: longest === null ? null : longest.slice(0, 80),
+        branch: wantPopulated ? "populated" : "empty-explanation",
+        measured: picked === null ? null : picked.text.slice(0, 80),
         clip,
       });
     }
@@ -6604,13 +7104,8 @@ const DRIVE_CASES = {
     await shot(page, driveDir, `01-result-${view}`);
     await aria(page, driveDir, `result-${view}`);
 
-    // The selected panel is compared with the fixture it was rendered from:
-    // counts must line up, and no placeholder token may reach the user.
-    // A LIVE run has no fixture: the returned investigation is whatever the
-    // backend produced, so nothing here may be compared with controlled rows.
-    // `terminal` stays null and every fixture comparison is replaced by an
-    // observation of what was actually rendered.
-    const terminal = live ? null : fixtureTerminal(caseName);
+    // `terminal` was resolved above (null on live runs): fixture comparisons
+    // below apply only to controlled drives; live drives observe instead.
     const panel = page.locator(`#ct-panel-${view}`);
     const panelText = await panel.innerText({ timeout: 10_000 }).catch(() => "");
     rec.check(
@@ -7175,6 +7670,9 @@ const DRIVE_CASES = {
       "the recorded trigger is document.activeElement captured synchronously on open; the opener must hold focus at that instant",
     );
 
+    // The settle floor: sampled frames at/after this index belong to THIS
+    // open interval, so the first close's marker can only derive from it.
+    const openFloor1 = await focusLogFloor(page);
     await entryBtn.click();
 
     const dialog = page.locator('[role="dialog"]');
@@ -7525,31 +8023,31 @@ const DRIVE_CASES = {
         `occurrence title "${wantTitle.slice(0, 60)}" must render in the dialog`,
       );
       const quote = await dialog.locator("blockquote").first().innerText().catch(() => null);
-      if (typeof openRow.excerpt === "string" && openRow.excerpt.trim().length > 0) {
-        // Excerpt identity is read against the FIXTURE row's own excerpt: the
-        // rendered quote (when a quote element exists) must be a strict prefix
-        // of it — typographic wrapping and an ellipsis suffix are allowed — or
-        // the excerpt's own leading text must appear verbatim in the dialog.
-        // A merely plausible-looking quote is not identity.
-        const core = (quote ?? "")
-          .replace(/^[“”"'\s]+|[“”"'\s]+$/g, "")
-          .replace(/…\s*$/, "")
-          .replace(/\s+/g, " ")
-          .trim();
-        const want = openRow.excerpt.replace(/\s+/g, " ").trim();
-        const leading = want.slice(0, Math.min(48, want.length));
-        const identified =
-          (core.length > 0 && want.startsWith(core)) || (leading.length >= 8 && dialogText.includes(leading));
+      const expectedSpan = expectedAttributableSpan(openRow);
+      if (expectedSpan !== null) {
+        // Exact source-bound identity (F38-4): the <blockquote> element's own
+        // text must EQUAL the span the product contract projects from the
+        // fixture row — composite-split, first-paragraph, word-boundary
+        // truncated at the viewer's 600-char budget. A prefix, a substituted
+        // authentic string elsewhere in the dialog (the full retrieved text
+        // disclosure, the title), or the bare composite wrapper are all RED.
+        const v = renderedExcerptVerdict(quote, expectedSpan);
         rec.check(
           "viewer.excerpt-matches-occurrence",
-          identified,
-          `rendered "${(core || dialogText.slice(0, 50)).slice(0, 50)}" vs fixture excerpt (${want.length} chars) for ${openIdNow}`,
+          v.ok,
+          `${v.why} — for ${openIdNow}`,
+        );
+        const wantAttribution = expectedExcerptAttribution(openRow, expectedSpan);
+        rec.check(
+          "viewer.excerpt-attribution-label",
+          wantAttribution !== null && dialogText.includes(wantAttribution),
+          `attribution "${wantAttribution}" must label the excerpt block for ${openIdNow}`,
         );
       } else {
         rec.check(
-          "viewer.excerpt-absent-when-fixture-has-none",
+          "viewer.excerpt-absent-when-contract-has-none",
           /no excerpt available/i.test(dialogText) && quote === null,
-          `fixture has no excerpt for ${openIdNow}; rendered quote=${quote === null ? "none" : "present"}`,
+          `contract projects no quotable span for ${openIdNow}; rendered quote=${quote === null ? "none" : "present"}`,
         );
       }
     }
@@ -7577,19 +8075,31 @@ const DRIVE_CASES = {
     rec.check("viewer.escape-closes", true, "dialog hidden");
     await settleFocusFault(page);
     // Focus can pass through <body> between the unmount and the passive
-    // restore, so the settle is read from the per-frame SAMPLED LOG once the
-    // active element stops changing — never a single immediate read. The close
-    // marker is the frame the log actually recorded the dialog leaving the
-    // DOM, and the expected element is identified by its recorded key: two
-    // same-label controls cannot satisfy each other's run.
-    const first = await readFocusSettle(page, { opener: openerDesc });
+    // restore, so the settle is read from the per-frame SAMPLED LOG — but a
+    // DOM-hidden wait is not proof that even one post-close RAF landed, so a
+    // bounded acquisition loop waits for THIS open interval's recorded close
+    // marker plus a full dwell of post-close samples before evaluating the
+    // same final-run predicate. A bound that never acquires is a truthful
+    // failure, not a skipped measurement.
+    const first = await acquireFocusSettle(page, { opener: openerDesc, openFloor: openFloor1 });
     writeJson(path.join(driveDir, "focus-settle-close.json"), {
+      openFloor: first.openFloor,
       closeMarker: first.closeMarker,
+      postCloseSamples: first.postCloseSamples,
+      acquired: first.acquired,
       expectation: first.expectation,
       selectedTab: first.selectedTab,
       settle: { ...first.settle },
       framesObserved: first.log.length,
+      log: first.log,
     });
+    rec.check(
+      "viewer.focus-settle-window-acquired",
+      first.acquired === true,
+      first.acquired === true
+        ? `close marker frame ${first.closeMarker} + ${first.postCloseSamples} post-close sample(s) acquired`
+        : `bounded acquisition exhausted: marker=${first.closeMarker} postCloseSamples=${first.postCloseSamples} — no truthful settle window exists`,
+    );
     rec.check(
       "viewer.focus-close-marker-recorded",
       first.closeMarker !== null,
@@ -7622,6 +8132,10 @@ const DRIVE_CASES = {
 
     // Reopen for the technical-details assertions: they only exist once the
     // disclosure has been expanded, which moves focus inside the dialog.
+    // The second settle's floor is captured BEFORE the reopen click so its
+    // close marker can only derive from this second open interval — it can
+    // never borrow the first close's marker.
+    const openFloor2 = await focusLogFloor(page);
     await entryBtn.click();
     await dialog.waitFor({ timeout: 10_000 });
     await dialog.getByText("Technical details").click();
@@ -7749,19 +8263,33 @@ const DRIVE_CASES = {
 
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "hidden", timeout: 10_000 });
-    await delay(200);
     await settleFocusFault(page);
-    const second = await readFocusSettle(page, {
+    // Same bounded acquisition as the first close — a fixed delay is not a
+    // substitute for the recorded marker + dwell window, and the floor keeps
+    // this close scoped to the second open interval.
+    const second = await acquireFocusSettle(page, {
       opener: fallbackMutation?.mutated === true ? fallbackMutation.after : openerDesc,
+      openFloor: openFloor2,
     });
     writeJson(path.join(driveDir, "focus-settle-disclosure-close.json"), {
       fallbackMutation,
+      openFloor: second.openFloor,
       closeMarker: second.closeMarker,
+      postCloseSamples: second.postCloseSamples,
+      acquired: second.acquired,
       expectation: second.expectation,
       selectedTab: second.selectedTab,
       settle: { ...second.settle },
       framesObserved: second.log.length,
+      log: second.log,
     });
+    rec.check(
+      "viewer.focus-settle-window-acquired-after-disclosure",
+      second.acquired === true,
+      second.acquired === true
+        ? `close marker frame ${second.closeMarker} + ${second.postCloseSamples} post-close sample(s) acquired`
+        : `bounded acquisition exhausted: marker=${second.closeMarker} postCloseSamples=${second.postCloseSamples} — no truthful settle window exists`,
+    );
     rec.check(
       "viewer.focus-close-marker-recorded-after-disclosure",
       second.closeMarker !== null,
@@ -8745,13 +9273,17 @@ const DRIVE_CASES = {
           .map((el) => fn(el));
       })()`)
       .catch(() => []);
+    // getClientRects alone is not the visibility proof — visibility:hidden and
+    // opacity:0 controls still have boxes — so every measured control must
+    // carry rendered:true through display, visibility, the ancestor chain and
+    // effective opacity.
     rec.check(
       "a11y.interactive-targets-measured",
-      targets.length > 0 && targets.every((t) => t.found === true && t.interactive === true && t.width > 0 && t.height > 0),
+      targets.length > 0 && targets.every((t) => t.found === true && t.rendered === true && t.interactive === true && t.width > 0 && t.height > 0),
       `${targets.length} interactive control(s) measured on real geometry`,
     );
     const targetsBelowFloor = targets.filter(
-      (t) => t.found === true && t.interactive === true && t.disabled !== true && t.ariaDisabled !== "true" && t.height > 0 && t.height < 44,
+      (t) => t.found === true && t.rendered === true && t.interactive === true && t.disabled !== true && t.ariaDisabled !== "true" && t.height > 0 && t.height < 44,
     );
     rec.note(
       "a11y.secondary-targets-below-44px",
@@ -9102,13 +9634,16 @@ async function evidence() {
       recorded: d.recordedAssertions,
     }));
 
-  // A drive record that CLAIMS pass while being malformed (missing/incomplete
-  // assertion totals, unknown outcome, or pass asserted alongside failures or
-  // zero assertions) is never accepted — the seal names every such drive and
-  // fails, the same way it fails assertion-record divergence.
-  const malformedPassRecords = drives
-    .filter((d) => d.outcome === "PASS" && d.recordVerdict?.ok === false)
-    .map((d) => ({ driveId: d.driveId, problems: d.recordVerdict.problems }));
+  // A drive record whose structure itself is malformed — missing/incomplete
+  // assertion totals, a missing complete flag, an UNKNOWN outcome such as
+  // "GREEN", or a verdict inconsistent with its own counts — is not a
+  // sealable record no matter which outcome it claims (F38-5). A legitimate
+  // complete FAIL and an honest INCOMPLETE recording pass this structural
+  // gate and remain inspectable failed/incomplete tests; only structural
+  // invalidity is a seal error.
+  const malformedRecords = drives
+    .filter((d) => d.recordVerdict?.ok === false)
+    .map((d) => ({ driveId: d.driveId, outcome: d.outcome ?? null, problems: d.recordVerdict.problems }));
 
   const summary = {
     runId,
@@ -9134,7 +9669,7 @@ async function evidence() {
     },
     retainedIntegrityOk: retainedOk,
     assertionDivergence,
-    malformedPassRecords,
+    malformedRecords,
     appRevision: m.revision,
     buildId: m.buildId,
     live: m.live === true,
@@ -9186,7 +9721,7 @@ async function evidence() {
       retainedStreams: summary.retainedStreams,
       retainedIntegrityOk: summary.retainedIntegrityOk,
       assertionDivergence: summary.assertionDivergence,
-      malformedPassRecords: summary.malformedPassRecords,
+      malformedRecords: summary.malformedRecords,
     }),
   );
   // The seal is written either way, so the failure is inspectable, but a run whose
@@ -9219,11 +9754,11 @@ async function evidence() {
           .join("; "),
     );
   }
-  if (malformedPassRecords.length > 0) {
+  if (malformedRecords.length > 0) {
     failures.push(
-      `FAILED malformed PASS record(s): ` +
-        malformedPassRecords
-          .map((x) => `${x.driveId} claims PASS but ${x.problems.join(", ")}`)
+      `FAILED malformed drive record(s): ` +
+        malformedRecords
+          .map((x) => `${x.driveId} (${x.outcome ?? "no-outcome"}): ${x.problems.join(", ")}`)
           .join("; "),
     );
   }
@@ -9346,11 +9881,20 @@ export {
   restorableFocusTargetOk,
   focusRestoreExpectation,
   settleFocusRun,
+  acquireFocusSettle,
+  focusLogFloor,
   // Selected-panel effective contrast (accepted A10 correction 2 semantics).
   aaThreshold,
   contrastVerdictFor,
   PANEL_NODE_TARGETS,
   panelScopeOk,
+  panelContractPopulated,
+  // Rendered excerpt identity (F38-4): the product-bound projection port.
+  splitCompositeExcerpt,
+  truncateExcerptWords,
+  expectedAttributableSpan,
+  expectedExcerptAttribution,
+  renderedExcerptVerdict,
   // Media/wrap/target/motion predicates (accepted A10 residual predicates).
   visibleImageVerdict,
   wrapVerdict,

@@ -19,6 +19,7 @@ import {
   aaThreshold,
   contrastVerdictFor,
   panelScopeOk,
+  panelContractPopulated,
   PANEL_NODE_TARGETS,
   EFFECTIVE_CONTRAST_FN,
   PANEL_MEASURE_FN,
@@ -42,7 +43,8 @@ for (const [name, src] of Object.entries({ EFFECTIVE_CONTRAST_FN, PANEL_MEASURE_
   expect(`${name} parses as a page-side function`, ok);
 }
 
-// Synthetic node records in exactly the shape EFFECTIVE_CONTRAST_FN returns.
+// Synthetic node records in exactly the shape EFFECTIVE_CONTRAST_FN returns,
+// including the rendered-visibility record the verdict now requires.
 const node = (over = {}) => ({
   tag: "P",
   fontSizePx: 14,
@@ -55,6 +57,11 @@ const node = (over = {}) => ({
   unsupportedLayerConfigurations: [],
   contrastRatio: 7.2,
   verdict: "COMPUTED",
+  rendered: true,
+  display: "block",
+  visibility: "visible",
+  rect: { width: 320, height: 21 },
+  hiddenByAncestor: null,
   ...over,
 });
 
@@ -107,6 +114,30 @@ expect(
   contrastVerdictFor(node({ verdict: "MAYBE" }), 4.5).pass === false,
 );
 
+// Visibility prerequisite (F38-2): contrast is accepted only on a node the
+// user can actually see — hidden, ancestor-hidden and boxless targets are
+// non-pass even with a computed ratio above threshold.
+expect(
+  "a display:none node is a non-pass despite a good ratio",
+  contrastVerdictFor(node({ rendered: false, display: "none", rect: { width: 0, height: 0 } }), 4.5).pass === false,
+);
+expect(
+  "a visibility:hidden node is a non-pass despite a good ratio",
+  contrastVerdictFor(node({ rendered: false, visibility: "hidden" }), 4.5).pass === false,
+);
+expect(
+  "an ancestor-hidden node is a non-pass despite a good ratio",
+  contrastVerdictFor(node({ rendered: false, hiddenByAncestor: { tag: "SECTION", display: "none" } }), 4.5).pass === false,
+);
+expect(
+  "a node with no painted rect is a non-pass despite a good ratio",
+  contrastVerdictFor(node({ rendered: false, rect: { width: 0, height: 0 } }), 4.5).pass === false,
+);
+expect(
+  "a node without a rendered record at all is a non-pass (fail-closed)",
+  contrastVerdictFor(node({ rendered: undefined }), 4.5).pass === false,
+);
+
 // Panel scope: the measurement surface must resolve to the selected tab's own
 // aria-controls panel — the defect this corrects was a broad union that
 // measured shared headers.
@@ -126,15 +157,44 @@ expect("a panel id that is not the tab's aria-controls is RED", panelScopeOk(sco
 expect("a panel without role=tabpanel is RED", panelScopeOk(scope({ panelRole: null })) === false);
 expect("a null scope record is RED", panelScopeOk(null) === false);
 
-// The accepted node set is scoped per view and names real content targets —
-// never the shared ContextTrail header or a bare action link.
+// The accepted node set is scoped per view and names real, contract-bound
+// content targets — never the shared ContextTrail header or a bare action
+// link. Every entry carries a populated selector and the contract that
+// decides whether it is owed; contract-empty targets name the explanation
+// node that must render instead (F38-3).
 for (const [view, targets] of Object.entries(PANEL_NODE_TARGETS)) {
   expect(
-    `${view} panel targets name ${targets.length} representative content node(s)`,
-    targets.length > 0 && targets.every((t) => typeof t.key === "string" && typeof t.selector === "string" && typeof t.note === "string"),
+    `${view} panel targets name ${targets.length} contract-bound content node(s)`,
+    targets.length > 0 &&
+      targets.every(
+        (t) =>
+          typeof t.key === "string" &&
+          typeof t.populated === "string" &&
+          typeof t.populatedWhen === "string" &&
+          typeof t.note === "string" &&
+          (t.populatedWhen === "always" ||
+            (t.empty && typeof t.empty.selector === "string" && typeof t.empty.text === "string")),
+      ),
   );
 }
 expect("no panel targets are declared for overview", (PANEL_NODE_TARGETS.overview ?? []).length === 0);
+
+// The measurement contract itself discriminates: a fixture terminal that
+// ships occurrences owes populated Sources/Timeline nodes; a terminal with
+// none owes the visible explanation; absent/nullable retrieval accounting
+// owes its explanation; an unknown contract (live run) requires populated —
+// a selector finding nothing is a measured miss, never a skip.
+const populatedTerminal = { timeline: [{}], supportingEvidence: [], contextualEvidence: [], undatedEvidence: [] };
+const emptyTerminal = { timeline: [], supportingEvidence: [], contextualEvidence: [], undatedEvidence: [], requestLog: null, searchCounts: null };
+expect("populated contract: occurrences present", panelContractPopulated("hasAnyOccurrence", populatedTerminal) === true);
+expect("empty contract: no occurrences at all", panelContractPopulated("hasAnyOccurrence", emptyTerminal) === false);
+expect("empty contract: retrieval accounting absent", panelContractPopulated("hasRetrievalAccounting", emptyTerminal) === false);
+expect("populated contract: requestLog rows present", panelContractPopulated("hasRetrievalAccounting", { requestLog: [{ engine: "x" }] }) === true);
+expect("populated contract: legacy searchCounts rows present", panelContractPopulated("hasRetrievalAccounting", { requestLog: null, searchCounts: [{ engine: "x", count: 2 }] }) === true);
+expect("empty contract: empty requestLog array owes the explanation", panelContractPopulated("hasRetrievalAccounting", { requestLog: [] }) === false);
+expect("an unknown contract (live) requires the populated branch", panelContractPopulated("hasAnyOccurrence", null) === true);
+expect("the always contract never requires an explanation", panelContractPopulated("always", emptyTerminal) === true);
+expect("an unknown contract mode requires the populated branch", panelContractPopulated("never-heard-of", emptyTerminal) === true);
 
 console.log(
   JSON.stringify({ control: "contrast-panel", checks: results.length, failures, ok: failures === 0 }),

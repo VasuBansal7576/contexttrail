@@ -180,10 +180,15 @@ lists its own; the standing set is:
   exported predicates from `cli/control-contexttrail.mjs` (never a copy) and
   runs positive plus opposing isolated negatives with no browser, server or
   provider: `focus-settle.mjs` (keyed settle, close marker, dwell, descriptor
-  weakness, opener-validity fallbacks, fail-closed drive records),
-  `contrast-panel.mjs` (panel scope, AA thresholds, UNSUPPORTED non-pass),
-  `media-predicates.mjs` (visible image, wrap/clipping, targets, at-rest
-  motion), `stream-buffer-provenance.mjs`, `request-projection.mjs`,
+  weakness, opener-validity fallbacks, bounded fresh-interval close
+  acquisition, fail-closed drive records), `contrast-panel.mjs` (panel scope,
+  AA thresholds, UNSUPPORTED non-pass, rendered-visibility prerequisite,
+  contract-bound populated/empty targets), `media-predicates.mjs` (visible
+  image, scoped node clip in both axes, rendered targets, at-rest motion),
+  `excerpt-identity.mjs` (product-bound span projection + exact rendered-quote
+  verdict), `seal-records.mjs` (real `evidence` command: malformed records and
+  unknown outcomes exit 2, valid FAIL/INCOMPLETE seal inspectably),
+  `stream-buffer-provenance.mjs`, `request-projection.mjs`,
   `retained-integrity.mjs`, `reading-order-target.mjs`,
   `assertions-durable.mjs`.
 - 3 schema rejections for `--focus-fallback`: an unknown value, a viewer-only

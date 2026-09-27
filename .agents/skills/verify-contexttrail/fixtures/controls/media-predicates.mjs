@@ -88,40 +88,102 @@ expect("a running animation is NOT at rest", motionAtRestOk(img({ runningAnimati
 expect("an unmeasured animation count is NOT at rest", motionAtRestOk(img({ runningAnimationCount: null })) === false);
 expect("an unmeasured record is NOT at rest", motionAtRestOk({}) === false);
 
-// Synthetic records in exactly the shape CLIP_FN returns.
+// Synthetic records in exactly the shape the scoped CLIP_FN returns: a real
+// Range over the measured node's own text, the node's border box, and the
+// ancestor clip chain — never a body-global text search.
 const clip = (over = {}) => ({
   found: true,
-  tag: "P",
-  textLength: 64,
-  fullContentBounds: { width: 320, height: 42, lineCount: 2 },
-  lineClampApplied: false,
-  textOverflowEllipsis: false,
-  verticalOverflowHidden: false,
-  overflowHidden: false,
-  clippedLineRects: 0,
-  fullTextRendered: true,
-  documentScrollWidth: 390,
-  documentClientWidth: 390,
-  horizontalOverflow: false,
+  rendered: true,
+  rangeMeasured: true,
+  lineRects: [
+    { left: 8, right: 328, top: 10, bottom: 28 },
+    { left: 8, right: 200, top: 30, bottom: 48 },
+  ],
+  union: { left: 8, right: 328, top: 10, bottom: 48 },
+  nodeRect: { left: 8, right: 336, top: 8, bottom: 50 },
+  display: "block",
+  visibility: "visible",
+  overflowX: "visible",
+  overflowY: "visible",
+  clippingAncestors: [],
+  documentHorizontalOverflow: false,
   ...over,
 });
 
-// Positive: fully rendered wrapped text passes.
-expect("fully rendered wrapped text passes", wrapVerdict(clip()).pass === true);
+// Positive: a long inline text that genuinely wraps inside every bound
+// passes — length alone never fails.
+expect("a wrapped in-bounds range passes", wrapVerdict(clip()).pass === true);
+expect(
+  "a long multi-line range that stays inside its bounds passes",
+  wrapVerdict(
+    clip({
+      lineRects: Array.from({ length: 8 }, (_, i) => ({ left: 8, right: 328, top: 10 + i * 20, bottom: 28 + i * 20 })),
+      nodeRect: { left: 8, right: 336, top: 8, bottom: 170 },
+    }),
+  ).pass === true,
+);
 
-// Negatives — each explicit clipping shape is red.
-expect("a missing text node is RED", wrapVerdict({ found: false }).pass === false);
-expect("line-clamp is RED", wrapVerdict(clip({ lineClampApplied: true })).pass === false);
-expect("text-overflow:ellipsis is RED", wrapVerdict(clip({ textOverflowEllipsis: true })).pass === false);
-expect("vertical overflow hidden is RED", wrapVerdict(clip({ verticalOverflowHidden: true })).pass === false);
-expect("overflow hidden is RED", wrapVerdict(clip({ overflowHidden: true })).pass === false);
-expect("line rects outside the host box are RED", wrapVerdict(clip({ clippedLineRects: 2 })).pass === false);
-expect("a partially rendered string is RED", wrapVerdict(clip({ fullTextRendered: false })).pass === false);
-expect("document horizontal overflow is RED", wrapVerdict(clip({ horizontalOverflow: true })).pass === false);
+// Negatives — missing, hidden, and boxless nodes are all red, as is an
+// empty range.
+expect("a missing scoped node is RED", wrapVerdict({ found: false, reason: "scoped node not found" }).pass === false);
+expect("a hidden (no-rect) node is RED", wrapVerdict(clip({ rendered: false, reason: "node has no rendered box", nodeRect: { left: 0, right: 0, top: 0, bottom: 0 } })).pass === false);
+expect("an ancestor-hidden node is RED", wrapVerdict(clip({ rendered: false, hiddenByAncestor: { tag: "DIV", display: "none" } })).pass === false);
+expect("an empty text range is RED", wrapVerdict(clip({ rangeMeasured: false, lineRects: [] })).pass === false);
 
-// Synthetic records in exactly the shape TARGET_FN returns.
+// Clipping in BOTH axes: the range outrunning its own node box horizontally
+// or vertically is red, as is any clipping ancestor cutting it.
+expect(
+  "a range wider than its node box is RED (horizontal clip)",
+  wrapVerdict(clip({ lineRects: [{ left: 8, right: 500, top: 10, bottom: 28 }] })).pass === false,
+);
+expect(
+  "a range extending below its node box is RED (vertical clip)",
+  wrapVerdict(clip({ lineRects: [{ left: 8, right: 328, top: 10, bottom: 80 }] })).pass === false,
+);
+expect(
+  "an overflow-x:hidden ancestor narrower than the range is RED (too-wide)",
+  wrapVerdict(
+    clip({
+      nodeRect: { left: 8, right: 600, top: 8, bottom: 30 },
+      lineRects: [{ left: 8, right: 600, top: 10, bottom: 28 }],
+      clippingAncestors: [
+        { tag: "LI", overflowX: "hidden", overflowY: "visible", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, rect: { left: 8, right: 340, top: 8, bottom: 30 } },
+      ],
+    }),
+  ).pass === false,
+);
+expect(
+  "an overflow-y:hidden ancestor cutting the range is RED",
+  wrapVerdict(
+    clip({
+      clippingAncestors: [
+        { tag: "DIV", overflowX: "visible", overflowY: "hidden", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, rect: { left: 0, right: 390, top: 8, bottom: 40 } },
+      ],
+    }),
+  ).pass === false,
+);
+expect(
+  "a visible-overflow ancestor wider than the range does not fail it",
+  wrapVerdict(
+    clip({
+      clippingAncestors: [
+        { tag: "DIV", overflowX: "auto", overflowY: "visible", paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, rect: { left: 0, right: 390, top: 0, bottom: 200 } },
+      ],
+    }),
+  ).pass === true,
+);
+expect(
+  "document horizontal overflow is RED",
+  wrapVerdict(clip({ documentHorizontalOverflow: true })).pass === false,
+);
+
+// Synthetic records in exactly the shape TARGET_FN returns — found, rendered
+// visibility through the ancestor chain, real geometry, interactivity.
 const target = (over = {}) => ({
   found: true,
+  rendered: true,
+  hiddenByAncestor: null,
+  effectiveOpacity: 1,
   tag: "BUTTON",
   role: null,
   accessibleName: "Start investigation",
@@ -132,6 +194,8 @@ const target = (over = {}) => ({
   interactive: true,
   disabled: false,
   ariaDisabled: null,
+  display: "inline-flex",
+  visibility: "visible",
   ...over,
 });
 
@@ -139,12 +203,20 @@ const target = (over = {}) => ({
 expect("a valid primary target passes", targetVerdict(target()).pass === true);
 expect("a primary target exactly at 44px passes", targetVerdict(target({ height: 44 })).pass === true);
 
+// Visibility prerequisite (F38-2): a control the user cannot see is not a
+// hit target — before its size is even a question.
+expect("a display:none control is RED", targetVerdict(target({ rendered: false, display: "none", width: 0, height: 0 })).pass === false);
+expect("a visibility:hidden control is RED", targetVerdict(target({ rendered: false, visibility: "hidden" })).pass === false);
+expect("an ancestor-hidden control is RED", targetVerdict(target({ rendered: false, hiddenByAncestor: { tag: "DIV", display: "none" } })).pass === false);
+expect("a zero-opacity control is RED", targetVerdict(target({ rendered: false, effectiveOpacity: 0 })).pass === false);
+expect("a control without a rendered record is RED (fail-closed)", targetVerdict(target({ rendered: undefined })).pass === false);
+
 // Negatives.
 expect("a primary target under 44px is RED", targetVerdict(target({ height: 20 })).pass === false);
 expect("a non-interactive element is RED", targetVerdict(target({ interactive: false, tag: "P" })).pass === false);
 expect("a disabled control is RED", targetVerdict(target({ disabled: true })).pass === false);
 expect("a missing control is RED", targetVerdict({ found: false }).pass === false);
-expect("a zero-geometry control is RED", targetVerdict(target({ width: 0, height: 0 })).pass === false);
+expect("a zero-geometry control is RED", targetVerdict(target({ rendered: false, width: 0, height: 0 })).pass === false);
 
 // A secondary sub-44 control is recorded, not failed against the primary
 // requirement: pass:true with the belowPrimaryFloor flag carrying the finding.

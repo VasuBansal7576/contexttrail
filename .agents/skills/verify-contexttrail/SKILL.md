@@ -271,9 +271,14 @@ Provenance is per drive, not per run:
   retained file fails the seal non-zero.
 - The drive record itself is fail-closed (`driveOutcomeOk`): PASS requires a
   complete record with integer pass/fail/info totals, zero failed assertions
-  and a positive assertion count. `evidence` records a `recordVerdict` per
-  drive, and a drive that CLAIMS `outcome: "PASS"` on a malformed record
-  (`malformedPassRecords`) fails the seal non-zero.
+  and a positive assertion count; FAIL requires failure evidence; an
+  incomplete drive must record `INCOMPLETE`. `evidence` records a
+  `recordVerdict` per drive, and ANY structurally invalid record — an unknown
+  outcome such as `GREEN`, a malformed PASS, or a malformed FAIL/INCOMPLETE —
+  is a seal error named in `malformedRecords` that fails the seal non-zero.
+  A legitimate complete FAIL and an honest INCOMPLETE recording are
+  well-formed: they seal as inspectable failed/incomplete tests, not
+  integrity failures.
 
 ## Live input contract
 
@@ -423,10 +428,18 @@ proof.
   copy that can drift — and runs positive plus opposing isolated negatives with
   no browser, server or provider: `focus-settle.mjs` (keyed settle, close
   marker, dwell, descriptor-only weakness, the four invalid-opener fallbacks,
-  fail-closed drive records), `contrast-panel.mjs` (aria-controls panel scope,
-  AA thresholds, UNSUPPORTED as a non-pass despite diagnostic ratios),
-  `media-predicates.mjs` (visible image, wrap/clipping, interactive targets,
-  at-rest motion), `stream-buffer-provenance.mjs`, `request-projection.mjs`,
+  bounded fresh-interval close acquisition with marker isolation, fail-closed
+  drive records), `contrast-panel.mjs` (aria-controls panel scope, AA
+  thresholds, UNSUPPORTED as a non-pass despite diagnostic ratios, rendered
+  visibility prerequisite, contract-bound populated/empty targets),
+  `media-predicates.mjs` (visible image, scoped node clip in both axes plus
+  the ancestor clip chain, rendered-visibility prerequisite for interactive
+  targets, at-rest motion), `excerpt-identity.mjs` (the product-bound excerpt
+  projection — composite split, 600-char word-boundary truncation — and the
+  exact rendered-quote verdict), `seal-records.mjs` (the real `evidence`
+  command on synthetic runs: valid PASS/FAIL/INCOMPLETE seal at exit 0;
+  malformed records, unknown outcomes and durable-count divergence exit 2),
+  `stream-buffer-provenance.mjs`, `request-projection.mjs`,
   `retained-integrity.mjs`, `reading-order-target.mjs`,
   `assertions-durable.mjs` and `a8-map-bindings.mjs` (the map digest gate, all
   17 recipe bindings vs the real spec table, digest stability, and every
@@ -439,8 +452,16 @@ proof.
   opacity product enter the effective foreground alpha, and every
   group-forming ancestor with `opacity < 1` is verdict `UNSUPPORTED` — a
   non-pass whose diagnostic `contrastRatio` is never an accepted number.
-  These predicates prove behavior on the controlled fixtures; they do not
-  establish global accessibility coverage or release acceptance.
+  A node must also be actually RENDERED — display/visibility clean through
+  the ancestor chain with a real painted box — before any ratio counts.
+  Every named target is contract-bound to the fixture's own terminal payload
+  (`panelContractPopulated`): populated content the data owes must render a
+  real measured node (a selector miss is a failure, never a skip), and a
+  contract-empty surface must render its required explanation text — that
+  explanation node is the one measured. On a live run with no fixture the
+  populated branch is required fail-closed. These predicates prove behavior
+  on the controlled fixtures; they do not establish global accessibility
+  coverage or release acceptance.
 - `.verify/` is gitignored scratch; evidence inside it survives cleanup by
   design.
 - `evidence --run-id <id>` seals the run: after sealing, further `drive`

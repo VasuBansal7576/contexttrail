@@ -66,7 +66,7 @@ non-pass whose diagnostic ratio is never an accepted contrast number:
 | `result.selected-panel-aria-controls-resolved` | the selected tab's own `aria-controls` resolves to a real `[role=tabpanel]` whose id matches — the measurement scope itself is asserted |
 | `result.timeline-contrast-timeline-panel-heading-inside-selected-panel` / `-body` / `-note` | the real heading, body paragraph and trailing note were measured inside this panel, not a shared header |
 | `result.timeline-contrast-<node>-meets-AA` | canvas-resolved effective contrast meets 4.5 (or 3.0 for large text); `UNSUPPORTED` is a non-pass |
-| `result.timeline-contrast-surface-measured` | at least one accepted node was measured, or the panel is genuinely empty |
+| `result.timeline-contrast-surface-measured` | every contract-bound node was measured — populated content owed by the fixture, or the visible `No occurrences were returned` explanation when the fixture ships none |
 
 Entering an occurrence from the timeline:
 

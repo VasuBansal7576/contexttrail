@@ -103,8 +103,9 @@ Navigation and content:
 | `viewer.occurrence-attributed-to-fixture` | the rendered `Occurrence ID` resolves to an actual fixture row |
 | `viewer.source-link-targets-occurrence` | the source link's `href` equals the fixture row's own `canonicalUrl`/`sourceUrl` — attribution proved against the fixture, not the DOM's claim |
 | `viewer.attribution-matches-occurrence` | the fixture row's title renders inside the dialog |
-| `viewer.excerpt-matches-occurrence` | the rendered quote is a strict prefix of that row's own excerpt — typographic wrapping/ellipsis still identifies the same excerpt |
-| `viewer.excerpt-absent-when-fixture-has-none` | when the fixture row has no excerpt, no quote renders and `no excerpt available` is shown |
+| `viewer.excerpt-matches-occurrence` | the rendered `<blockquote>`'s own text EQUALS the span the product contract projects from the fixture row (`expectedAttributableSpan` — composite `Title:`/`Snippet:` split, first-paragraph body, word-boundary truncation at the viewer's 600-char budget). A prefix, a substituted quote found elsewhere in the dialog, or the bare title wrapper are all RED |
+| `viewer.excerpt-attribution-label` | the excerpt block carries the projected attribution — the backend's `displayAttribution` when present, else `Extracted page excerpt`/`Search snippet` |
+| `viewer.excerpt-absent-when-contract-has-none` | when the contract projects no quotable span (no excerpt, or a bare `Title:` wrapper), no quote renders and `No excerpt available` is shown |
 | `viewer.technical-details-fields` | expanding `Technical details` yields ≥1 `<dd>` |
 | `viewer.technical-details-real-fields` | no `<dt>` label contains `undefined`, `null` or `NaN` |
 | `viewer.technical-details-model-value` | the model field equals the **fixture's** `jevModel` verbatim |
@@ -122,7 +123,8 @@ Focus:
 | `viewer.opener-holds-focus-at-trigger` | `document.activeElement` is the opener at the instant of the click — the product captures its `triggerRef` synchronously, so an unfocused click would record the wrong element |
 | `viewer.escape-closes` | Escape hides the dialog |
 | `viewer.focus-inside-dialog-before-close` | focus is on a live in-dialog control before the close, so the assertion measures the product and not the harness's last click |
-| `viewer.focus-close-marker-recorded` / `-after-disclosure` | the per-frame log recorded an open dialog before this close — the settle starts at the frame the log actually recorded the dialog leaving the DOM, never a guess |
+| `viewer.focus-settle-window-acquired` / `-after-disclosure` | a bounded acquisition loop observed THIS open interval's recorded close marker plus ≥3 post-close samples within the bound — DOM-hidden alone is not proof a post-close frame was sampled, and an exhausted bound is a truthful failure |
+| `viewer.focus-close-marker-recorded` / `-after-disclosure` | the per-frame log recorded an open dialog in THIS close's own interval (frames at/after the open click) — the settle starts at the frame the log actually recorded the dialog leaving the DOM, and a second close can never borrow the first close's marker |
 | `viewer.focus-expectation-computed` | a usable expectation exists (a key-able restorable opener, or a key-able selected tab) |
 | `viewer.focus-not-left-in-hidden-dialog` | the final sampled active element is not `<body>`/null after close |
 | `viewer.focus-restored-after-close` | the final consecutive identity run (dwell ≥3 frames) holds the recorded opener's element key across EVERY sample — same-label lookalikes cannot satisfy it |
@@ -135,7 +137,13 @@ Focus restoration is proven from a **per-frame sampled log** installed before
 navigation: `document.activeElement` is sampled every animation frame, every
 element that takes focus carries a recorded per-element `data-ctfk` key, and
 the close marker is the first frame after the last frame on which the log saw
-the dialog open. The settle requires the final consecutive identity run of
+the dialog open IN THIS OPEN INTERVAL — a sampled-log floor is captured before
+each open click, so a later close can never borrow an earlier close's marker.
+A bounded acquisition loop (`acquireFocusSettle`) polls the log until that
+interval's marker exists AND ≥3 post-close samples have landed, evaluating the
+same settle predicate on every poll — a DOM-hidden wait or fixed delay is not
+a substitute for the sampled window, and a bound that never acquires is a
+truthful failure. The settle requires the final consecutive identity run of
 ≥3 frames to carry the expected element's recorded key in every sample —
 descriptor-only identity (label/role/selected) is recorded as weaker proof and
 cannot satisfy a keyed assertion. A missing close marker, no post-marker
@@ -147,8 +155,9 @@ samples, a short run or the wrong key are all failures, never guesses.
 `01-viewer-<entry>-<case>.png`, `01/02/03-viewer-pair-*.png` for the pair case,
 `viewer-<entry>-<case>.aria.txt`, `focus-targets.json` (the keyed opener and
 selected-tab descriptors), `focus-settle-close.json` and
-`focus-settle-disclosure-close.json` (the close marker, the expectation and
-its basis, and the full settle result per close), `viewer-media.json` (the
+`focus-settle-disclosure-close.json` (per close: the open-interval floor, the
+close marker, post-close sample count, the acquired flag, the expectation and
+its basis, the full settle result and the complete keyed frame `log`), `viewer-media.json` (the
 visible-image probe record on `image-load`), `fixture-controlled-<n>.ndjson`
 (the exact replayed bytes), `video/<name>.webm` (the browser's own uncut
 recording, copied after the context closes and hashed), and `drive.json`
