@@ -70,10 +70,21 @@ function timelineHtml(c) {
   const placement = rec("placement");
   const divergence = rec("divergence");
   const edges = c.expectedIds?.connectorEdges ?? [];
+  // D3: the map's connectors record carries the first-observed-divergence
+  // expectations — the unresolved sentence inside the note and the badge on
+  // the actual later endpoint card (product: TimelineView.tsx173/290 at pin).
+  const lp = rec("connectors")?.expect?.laterDivergencePair ?? null;
+  const laterId = lp?.expectInspection?.laterId ?? null;
+  const laterBadge =
+    lp?.isFirstObservedDivergence === true ? (lp.expectInspection?.laterBadge ?? null) : null;
   const items = ids
     .map((id) => {
       const edge = edges.find((e) => e.toOccurrenceId === id);
-      return `<li><h3>Card ${id}</h3>${
+      const badge =
+        id === laterId && laterBadge !== null
+          ? `<div class="mt-2 flex flex-wrap gap-2"><span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset">${esc(laterBadge)}</span></div>`
+          : "";
+      return `<li><h3>Card ${id}</h3>${badge}${
         edge ? `<p>${esc(edge.expectConnectorLabel)}</p>` : ""
       }<button aria-label="Inspect evidence for ${id}" data-open-id="${id}">inspect</button></li>`;
     })
@@ -96,8 +107,17 @@ function timelineHtml(c) {
         )
         .join("")}</ul></section>`
     : "";
+  // The product's note body is the strong lead sentence plus the unresolved
+  // qualification when the map declares earlierTransitionsUnresolved — the
+  // exact sentence the connectors record binds, not a placeholder.
+  const noteSentence =
+    lp?.earlierTransitionsUnresolved === true && typeof lp.expectDivergenceNote === "string"
+      ? lp.expectDivergenceNote
+      : "The later occurrence below presents the media in a different context than the earlier one, in retrieved evidence.";
   const divNote = divergence
-    ? `<div role="note" aria-label="First observed context divergence"><p>earlier · later</p><button data-open-id="${esc(
+    ? `<div role="note" aria-label="First observed context divergence"><p><strong>First observed context divergence in retrieved evidence.</strong> ${esc(
+        noteSentence,
+      )}</p><button data-open-id="${esc(
         divergence.expect.from,
       )}">earlier</button><button data-open-id="${esc(divergence.expect.to)}">later</button></div>`
     : "";
@@ -436,6 +456,64 @@ for (const [label, c] of Object.entries(CASES)) {
   });
   const chk = findCheck(r, `${c.fixture}-analysis-segments`);
   expect("overview: a wrong segments metric is RED", chk?.ok === false, chk?.detail);
+}
+// Origins (D2): a phantom reporting-group row WITH the empty copy retained —
+// the contradictory "No resolved reporting groups" paragraph must not license
+// an extra row, and its forged member's opened id must not go uncounted.
+{
+  const c = CASES.insufficient;
+  const r = await runView(c, "analysis", (doc) => {
+    const grpH = [...doc.querySelectorAll("#ct-panel-analysis h3")].find(
+      (x) => x.textContent.trim() === "Reporting groups",
+    );
+    const ul = doc.createElement("ul");
+    ul.innerHTML = `<li><p>Reporting group of 1 occurrences · shared_origin</p><button data-open-id="ev-phantom-member">member</button></li>`;
+    grpH.parentElement.insertBefore(ul, grpH.nextElementSibling);
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-origins`);
+  expect(
+    "analysis: a phantom group row under retained empty copy is RED (unconditional cardinality)",
+    chk?.ok === false,
+    chk?.detail,
+  );
+}
+// Divergence note + later badge (D3): the map binds the unresolved sentence
+// inside the note itself and the "First observed divergence" badge on the
+// actual later endpoint card — neither is decoration.
+{
+  const c = CASES.uncertain;
+  const r = await runView(c, "timeline", (doc) => {
+    doc.querySelector('#ct-panel-timeline ol > li .flex.flex-wrap.gap-2 > span')?.remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-connectors`);
+  expect("timeline: removing the later endpoint's divergence badge is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.uncertain;
+  const r = await runView(c, "timeline", (doc) => {
+    const p = doc.querySelector('[role="note"][aria-label="First observed context divergence"] p');
+    if (p)
+      p.innerHTML = `<strong>First observed context divergence in retrieved evidence.</strong> The later occurrence below presents the media in a different context than the earlier one, in retrieved evidence.`;
+  });
+  const chk = findCheck(r, `${c.fixture}-connectors`);
+  expect("timeline: substituting the unresolved note sentence is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.uncertain;
+  const r = await runView(c, "timeline", (doc) => {
+    const items = doc.querySelectorAll("#ct-panel-timeline ol > li");
+    items[2]?.querySelector(".flex.flex-wrap.gap-2 > span")?.remove();
+    const row = doc.createElement("div");
+    row.className = "mt-2 flex flex-wrap gap-2";
+    row.innerHTML = `<span>First observed divergence</span>`;
+    items[0]?.insertBefore(row, items[0].querySelector("p"));
+  });
+  const chk = findCheck(r, `${c.fixture}-connectors`);
+  expect(
+    "timeline: the same badge on the WRONG card is still RED (badge binds by opened identity)",
+    chk?.ok === false,
+    chk?.detail,
+  );
 }
 
 /* ============================== RESTORED =================================== */

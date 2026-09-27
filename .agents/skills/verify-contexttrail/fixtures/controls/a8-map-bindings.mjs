@@ -437,15 +437,46 @@ expect("F5 divergence RED when the note is absent", a8DivergenceVerdict(divRec, 
 // Connectors: F2 owner — each edge's label must sit on the 'to' item.
 const f2 = expectedCaseFor("controlled-trace-uncertain-transition");
 const connRec = f2.visibleExpectations.find((r) => expectedRecordKind(r, "controlled-trace-uncertain-transition") === "connectors");
+const lp = connRec.expect?.laterDivergencePair ?? {};
 const connSurface = {
   datedIdsOpened: f2.expectedIds.timeline,
   datedItems: [
     { title: "t1", text: "2024-01-01 item one" },
     { title: "t2", text: "2024-01-02 Not compared in this investigation item two" },
-    { title: "t3", text: "2024-01-03 Different context from previous · compared item three" },
+    { title: "t3", text: "2024-01-03 Different context from previous · compared item three", badges: [lp.expectInspection?.laterBadge] },
   ],
+  divergenceNote: {
+    present: true,
+    text: `First observed context divergence in retrieved evidence. ${lp.expectDivergenceNote}`,
+    buttons: ["Earlier: x →", "Later: y →"],
+  },
 };
 expect("F2 connectors green on per-edge labels at the right occurrence", a8ConnectorsVerdict(connRec, f2, connSurface).ok === true);
+expect(
+  "F2 connectors RED when the required unresolved note sentence is absent",
+  a8ConnectorsVerdict(connRec, f2, {
+    ...connSurface,
+    divergenceNote: { ...connSurface.divergenceNote, text: "The later occurrence below presents the media in a different context than the earlier one, in retrieved evidence." },
+  }).ok === false,
+);
+expect(
+  "F2 connectors RED when the later card lacks the divergence badge",
+  a8ConnectorsVerdict(connRec, f2, {
+    ...connSurface,
+    datedItems: [connSurface.datedItems[0], connSurface.datedItems[1], { title: "t3", text: "2024-01-03 Different context from previous · compared item three" }],
+  }).ok === false,
+);
+expect(
+  "F2 connectors RED when the badge rides on the WRONG card",
+  a8ConnectorsVerdict(connRec, f2, {
+    ...connSurface,
+    datedItems: [
+      { title: "t1", text: "2024-01-01 item one", badges: [lp.expectInspection?.laterBadge] },
+      connSurface.datedItems[1],
+      { title: "t3", text: "2024-01-03 Different context from previous · compared item three" },
+    ],
+  }).ok === false,
+);
 expect(
   "F2 connectors RED when the unexamined edge is mislabeled compared",
   a8ConnectorsVerdict(connRec, f2, { ...connSurface, datedItems: [connSurface.datedItems[0], { title: "t2", text: "Different context from previous · compared item two" }, connSurface.datedItems[2]] }).ok === false,

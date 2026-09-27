@@ -452,9 +452,40 @@ expect(
   const dup = await openedOccurrenceId(mkDialog(TECH(`<p>Occurrence ID: ev-a</p><p>Occurrence ID: ev-b</p>`)));
   expect("identity: two fields are ambiguous → refused", dup.ok === false, dup.reason);
   const legacy = await openedOccurrenceId(mkDialog(TECH(`<p>Evidence ID: ev-old-3</p>`)));
-  expect("identity: the historical Evidence ID label is still read (compat)", legacy.ok === true && legacy.id === "ev-old-3");
+  expect(
+    "identity: a legacy 'Evidence ID' label is NOT the field — no supported source renders it",
+    legacy.ok === false,
+    legacy.reason,
+  );
   const noDisclosure = await openedOccurrenceId(mkDialog(`<p>Occurrence ID: ev-x</p>`));
   expect("identity: a field outside Technical details is not the identity", noDisclosure.ok === false);
+  // D1: the owning disclosure must be THE exact "Technical details" summary —
+  // a misleading prefixed summary can never own the identity field, and a
+  // second exact duplicate makes the owner ambiguous.
+  const FORGED = (id) =>
+    `<details><summary>Not Technical details</summary><p>Occurrence ID: ${id}</p></details>`;
+  const forgedFirst = await openedOccurrenceId(
+    mkDialog(FORGED("ev-forged-0") + TECH(`<p>Occurrence ID: ev-real-1</p>`)),
+  );
+  expect(
+    "identity: a 'Not Technical details' disclosure before the real one cannot license its forged id",
+    forgedFirst.ok === true && forgedFirst.id === "ev-real-1",
+    JSON.stringify(forgedFirst),
+  );
+  const forgedOnly = await openedOccurrenceId(mkDialog(FORGED("ev-forged-0")));
+  expect(
+    "identity: a forged-prefix disclosure alone is a refused read",
+    forgedOnly.ok === false,
+    forgedOnly.reason,
+  );
+  const twoOwners = await openedOccurrenceId(
+    mkDialog(TECH(`<p>Occurrence ID: ev-a</p>`) + TECH(`<p>Occurrence ID: ev-b</p>`)),
+  );
+  expect(
+    "identity: two exact Technical-details disclosures are ambiguous → refused",
+    twoOwners.ok === false,
+    twoOwners.reason,
+  );
 }
 
 console.log(`\n${results.length} checks, ${failures} failure(s)`);

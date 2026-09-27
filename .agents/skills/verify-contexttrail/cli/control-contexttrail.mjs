@@ -3792,25 +3792,28 @@ async function activeElement(page) {
 }
 
 /** The opened dialog's identity is the `Occurrence ID:` paragraph inside the
- *  collapsed Technical-details <details> — exactly one such field must exist
- *  there. Reading textContent works while collapsed; a phrase inside an
- *  excerpt, the title or any other dialog text can never satisfy this, and a
- *  second spoofed field makes the read ambiguous → failure. Returns
- *  { ok, id, reason, matches } — callers assert on ok/id, never on a string
- *  found somewhere in the dialog. */
+ *  collapsed Technical-details <details>. There must be EXACTLY ONE disclosure
+ *  whose summary is the exact product label — a `Not Technical details` forged
+ *  summary is a different string and cannot own the field, and a second exact
+ *  duplicate makes the owning disclosure ambiguous → failure — and exactly one
+ *  ID paragraph inside that single disclosure. Reading textContent works while
+ *  collapsed; a phrase inside an excerpt, the title or any other dialog text
+ *  can never satisfy this. Returns { ok, id, reason, matches } — callers
+ *  assert on ok/id, never on a string found somewhere in the dialog. */
 async function openedOccurrenceId(dialog) {
   const r = await dialog
     .evaluate((d) => {
-      const det = [...d.querySelectorAll("details")].find((x) =>
-        /technical details/i.test(x.querySelector("summary")?.textContent ?? ""),
+      const dets = [...d.querySelectorAll("details")].filter(
+        (x) => (x.querySelector("summary")?.textContent ?? "").trim() === "Technical details",
       );
-      if (!det) return { ok: false, reason: "no Technical-details disclosure in the dialog" };
-      const matches = [...det.querySelectorAll("p")]
+      if (dets.length !== 1)
+        return { ok: false, reason: `${dets.length} Technical-details disclosure(s) in the dialog` };
+      const matches = [...dets[0].querySelectorAll("p")]
         .map((p) => (p.textContent ?? "").trim())
-        .filter((t) => /^(?:Occurrence|Evidence) ID:\s*\S+/.test(t));
+        .filter((t) => /^Occurrence ID:\s*\S+/.test(t));
       if (matches.length !== 1)
         return { ok: false, reason: `${matches.length} occurrence-id field(s) inside Technical details`, matches };
-      return { ok: true, id: /(?:Occurrence|Evidence) ID:\s*(\S+)/.exec(matches[0])[1] };
+      return { ok: true, id: /Occurrence ID:\s*(\S+)/.exec(matches[0])[1] };
     })
     .catch(() => ({ ok: false, reason: "dialog evaluate failed" }));
   return r;
@@ -5664,11 +5667,17 @@ function a8OriginsVerdict(record, surface, openedMemberIds) {
   }
   const items = surface?.groupItems ?? [];
   const groups = expect.groups ?? [];
-  if (groups.length === 0 && (surface?.groupsEmpty ?? null) === null && items.length > 0) {
-    mism.push(`no groups expected but ${items.length} rendered`);
-  }
-  if (groups.length > 0 && items.length !== groups.length) {
+  // Cardinality is unconditional: a retained "No resolved reporting groups"
+  // empty paragraph does not license extra rendered rows — the contradictory
+  // empty copy plus a phantom group is a real inconsistency, not decoration.
+  if (items.length !== groups.length) {
     mism.push(`group rows ${items.length} vs expected ${groups.length}`);
+  }
+  // …and the opened-identity collection is bound the same way: opened member
+  // ids from rows that should not exist can never go uncounted.
+  const openedGroupKeys = Object.keys(openedMemberIds ?? {}).filter((k) => k !== "unresolved");
+  if (openedGroupKeys.length !== groups.length) {
+    mism.push(`opened group sets ${openedGroupKeys.length} vs expected ${groups.length}`);
   }
   for (const [i, g] of groups.entries()) {
     const item = items[i] ?? {};
@@ -5811,6 +5820,44 @@ function a8ConnectorsVerdict(record, expectedCase, surface) {
       mism.push(`edge ${edge.pair}: connector ${JSON.stringify(edge.expectConnectorLabel)} absent in item ${idx}`);
     }
   }
+  // When the map declares the later edge the first-observed divergence, the
+  // product owes two more rendered facts beyond the connector label: the
+  // unresolved-transitions sentence inside the divergence note itself, and
+  // the divergence badge on the actual LATER endpoint card (the card whose
+  // opened identity is laterId — not merely the same words anywhere).
+  const lp = record.expect?.laterDivergencePair ?? null;
+  if (lp?.isFirstObservedDivergence === true) {
+    const note = surface?.divergenceNote ?? null;
+    if (note?.present !== true) mism.push("first-observed divergence note absent");
+    if (typeof lp.expectDivergenceNote === "string") {
+      const noteText = (note?.text ?? "").replace(/\s+/g, " ").trim();
+      if (!noteText.includes(lp.expectDivergenceNote)) {
+        mism.push(`divergence note ${JSON.stringify(noteText || null)} lacks the required sentence ${JSON.stringify(lp.expectDivergenceNote)}`);
+      }
+    }
+    const laterId = lp.expectInspection?.laterId ?? null;
+    const laterBadge = lp.expectInspection?.laterBadge ?? null;
+    if (laterId !== null && typeof laterBadge === "string") {
+      const idx = ids.indexOf(laterId);
+      if (idx < 0) {
+        mism.push(`later endpoint ${laterId} not among opened dated ids — badge unverifiable`);
+      } else if (!(items[idx]?.badges ?? []).includes(laterBadge)) {
+        mism.push(
+          `later endpoint card badges ${JSON.stringify(items[idx]?.badges ?? null)} lack ${JSON.stringify(laterBadge)}`,
+        );
+      }
+    }
+  }
+  // `comparedPairIdsExcludeUnexamined` declares exactly which edges count as
+  // successful comparisons: the unexamined early edge is a connector, never a
+  // compared pair — assert the map's own compared set equals it so a phantom
+  // gap pair can never be smuggled in by either direction.
+  if (Array.isArray(record.expect?.comparedPairIdsExcludeUnexamined)) {
+    const declared = new Set(record.expect.comparedPairIdsExcludeUnexamined);
+    const compared = new Set(expectedCase?.expectedIds?.comparedPairIds ?? []);
+    for (const p of compared) if (!declared.has(p)) mism.push(`compared pair ${p} not among the record's compared pairs`);
+    for (const p of declared) if (!compared.has(p)) mism.push(`expected compared pair ${p} absent from expectedIds.comparedPairIds`);
+  }
   return { ok: mism.length === 0, detail: mism.join("; ") || `${edges.length} connector edge(s) verified` };
 }
 
@@ -5863,6 +5910,9 @@ const A8_TIMELINE_PROBE_FN = `(() => {
   const datedItems = [...(ol ? ol.querySelectorAll(":scope > li") : [])].map((li) => ({
     title: (li.querySelector("h3")?.innerText ?? "").trim(),
     text: li.innerText ?? "",
+    badges: [...li.querySelectorAll("div.flex.flex-wrap.gap-2 > span")].map((s) =>
+      (s.innerText || s.textContent || "").trim(),
+    ),
     inspectLabel: li.querySelector('button[aria-label^="Inspect evidence"]')?.getAttribute("aria-label") ?? null,
   }));
   const undatedSec = panel.querySelector('section[aria-label="Evidence with unknown dates"]');
@@ -5886,8 +5936,12 @@ const A8_TIMELINE_PROBE_FN = `(() => {
     noOccurrencesState: texts.some((t) => /No occurrences were returned in this investigation/.test(t)),
     undated,
     divergenceNote: note
-      ? { present: true, buttons: [...note.querySelectorAll("button")].map((b) => (b.innerText || "").trim()) }
-      : { present: false, buttons: [] },
+      ? {
+          present: true,
+          text: (note.querySelector("p")?.innerText ?? "").replace(/\\s+/g, " ").trim(),
+          buttons: [...note.querySelectorAll("button")].map((b) => (b.innerText || "").trim()),
+        }
+      : { present: false, text: null, buttons: [] },
   };
 })()`;
 
