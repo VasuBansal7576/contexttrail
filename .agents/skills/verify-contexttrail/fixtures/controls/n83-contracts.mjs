@@ -38,6 +38,8 @@ import {
   longValueLayout,
   compareReadingOrder,
   fixtureResult,
+  fixtureViewerOrder,
+  viewerEvidenceId,
   expectedCaseFor,
   expectedRecordKind,
   A8_TIMELINE_PROBE_FN,
@@ -587,140 +589,486 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
       comparisonStateLabel("unexamined") === "Not compared in this investigation");
 }
 
-/* ------------- native-002: Technical-details reader on the real 7b shape --- */
+/* ------------- native-002: the REAL extracted viewer caller block over a
+ * jsdom dialog — the 23-case opposing matrix from the independent 446f review.
+ * The block is read verbatim out of control-contexttrail.mjs (from
+ * `const disclosures = dialog.locator("details")` to the second-close work)
+ * and run with a locator adapter: a stub `rec`, `live:false`, the real
+ * fixture helpers and the real serialized reader/verdicts. Every check is
+ * driven through the production code path — nothing reimplemented.
+ * ----------------------------------------------------------- */
 
 {
-  // Pin-faithful disclosure: retrieval rows as dl>div>dt/dd; the model as the
-  // " · jev-1.13.0" suffix of the classification heading <p>; page-metadata
-  // <dl>s nested under their own blocks (Type/Headline, og:*) — the surfaces
-  // the actual product renders at 7b18c16.
-  const TD_DL = `
-    <dl class="mt-2 space-y-1 text-xs text-white/70">
-      <div class="flex gap-2"><dt>Search ids:</dt><dd>fixture-lens-a8</dd></div>
-      <div class="flex gap-2"><dt>Retrieval engine:</dt><dd>Google Lens</dd></div>
-      <div class="flex gap-2"><dt>Result type:</dt><dd>Exact match</dd></div>
-      <div class="flex gap-2"><dt>Result position:</dt><dd>1</dd></div>
-      <div class="flex gap-2"><dt>Source URL:</dt><dd>https://conflict-alpha.test/controlled/1</dd></div>
-      <div class="flex gap-2"><dt>Canonical URL:</dt><dd>https://conflict-alpha.test/controlled/1</dd></div>
-      <div class="flex gap-2"><dt>Media relationship:</dt><dd>Exact match — reported by Google Lens</dd></div>
-      <div class="flex gap-2"><dt>Publication-date source:</dt><dd>Page structured data</dd></div>
-      <div class="flex gap-2"><dt>Retrieved at:</dt><dd>2026-09-26T21:17:45.919Z</dd></div>
-    </dl>`;
-  const TD_META = `
-    <div class="mt-3"><p>Page metadata</p>
-      <ul><li><span>Structured data root_entity:</span>
-        <dl><div><dt>Type:</dt><dd>NewsArticle</dd></div>
-            <div><dt>Headline:</dt><dd>CONTROLLED article</dd></div>
-            <div><dt>Retrieved at:</dt><dd>WRONG-METADATA-VALUE</dd></div></dl>
-      </li></ul>
-      <dl><div><dt>og:title:</dt><dd>CONTROLLED article</dd></div></dl>
-    </div>`;
-  const tdDom = (inner) =>
-    new JSDOM(`<details><summary>Technical details</summary>${inner}
-      <p class="mt-3 break-all text-xs text-white/60">Occurrence ID: ev-x</p></details>`)
-      .window.document.querySelector("details");
+  const fixtureName = "controlled-conflict";
+  const order = fixtureViewerOrder(fixtureName);
+  const canonicalRow = fixtureResult(fixtureName).timeline[0];
+  const expectedId = canonicalRow.occurrenceId;
+  const RENDERED_AT = canonicalRow.retrievedAt;
+  const MODEL = canonicalRow.jevModel;
 
-  const goodCls = `<div class="mt-3"><p>Classification question answers · jev-1.13.0</p>
-    <p>These are the classification model's answers…</p></div>`;
+  const HEADER_P = `<p style="margin:0;">Classification question answers · ${MODEL}</p>` +
+    `<p style="margin-top:2px;">Evidence item produced by the context pruning pass.</p>`;
 
-  // Positive: the real structure discharges all three readers.
-  let d = tdDom(TD_DL + goodCls + TD_META);
-  let td = technicalDetailsDisclosureReader(d);
-  expect("TD: scoped read returns exactly the 9 retrieval fields",
-    td.fieldCount === 9 && td.labels.length === 9 &&
-      !td.labels.some((l) => /^(Type|Headline|og:title)$/.test(l)),
-    JSON.stringify(td.labels));
-  const tdPairs = td.labels.map((l, i) => [l, td.values[i] ?? ""]);
-  const m = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  expect("TD: classification heading suffix binds the model verbatim", m.ok === true,
-    JSON.stringify(m));
-  const ts = technicalDetailsFieldVerdict(tdPairs, /^retrieved at$/i, "2026-09-26T21:17:45.919Z");
-  expect("TD: 'Retrieved at' binds the fixture timestamp, page-metadata dl not flattened",
-    ts.ok === true && ts.candidates === 1, JSON.stringify(ts));
+  const FIELD_ROW = (label, value) =>
+    `<div style="display:flex;gap:8px;"><dt style="color:#555;">${label}:</dt>` +
+    `<dd style="margin:0;">${value}</dd></div>`;
+  const TD_DL_BODY =
+    FIELD_ROW("Search ids", "s-01") +
+    FIELD_ROW("Retrieval engine", "jev") +
+    FIELD_ROW("Result type", "web") +
+    FIELD_ROW("Result position", canonicalRow.serpPosition) +
+    FIELD_ROW("Source URL", "https://conflict-alpha.test/source/1") +
+    FIELD_ROW("Canonical URL", canonicalRow.canonicalUrl) +
+    FIELD_ROW("Media relationship", "page image") +
+    FIELD_ROW("Publication-date source", "none") +
+    FIELD_ROW("Retrieved at", RENDERED_AT);
 
-  // Missing model paragraph (distributions absent — the product renders
-  // "No classification answers were recorded").
-  td = technicalDetailsDisclosureReader(
-    tdDom(TD_DL + `<p>No classification answers were recorded for this occurrence.</p>` + TD_META));
-  const mMiss = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  expect("TD: absent classification heading is a missing candidate, not a pass",
-    mMiss.ok === false && mMiss.candidates === 0 && mMiss.rendered === null, JSON.stringify(mMiss));
+  const TD_META =
+    `<div style="border:1px solid #ddd;margin-top:14px;padding:8px 12px;">` +
+    `<p style="margin:0;">Page metadata</p>` +
+    `<div style="display:grid;gap:2px 16px;margin-top:8px;"><dt>Type</dt><dd>web</dd>` +
+    `<dt>Headline</dt><dd>Controlled summary title A</dd>` +
+    `<dt>Description</dt><dd>CONTROLLED-FIRST excerpt.</dd>` +
+    `<dt>Site name</dt><dd>conflict-alpha</dd>` +
+    `<dt>Published</dt><dd>2026-09-10</dd>` +
+    `<dt>Meta description</dt><dd>Meta says CONTROLLED-FIRST.</dd>` +
+    `<dt>Open Graph</dt><dd>site_name=conflict-alpha</dd></div></div>`;
 
-  // Wrong model suffix.
-  const mWrong = technicalDetailsModelVerdict(
-    ["Classification question answers · jev-0.0.0"], "jev-1.13.0");
-  expect("TD: wrong model suffix is RED", mWrong.ok === false, JSON.stringify(mWrong));
+  const TD_DETAILS = (inner, openAttr = " open") =>
+    `<details${openAttr} style="margin-top:10px;"><summary>Technical details</summary>` +
+    `<dl style="margin-top:10px;">${TD_DL_BODY}</dl>` +
+    `<div style="margin-top:12px;">${HEADER_P}</div>${TD_META}` +
+    `<p style="margin-top:12px;">Occurrence ID: ${expectedId}</p>` +
+    `${inner}</details>`;
 
-  // Heading present but model suffix absent (product renders label only).
-  const mBare = technicalDetailsModelVerdict(["Classification question answers"], "jev-1.13.0");
-  expect("TD: heading without a model suffix is RED", mBare.ok === false && mBare.rendered === null);
+  // The harness page: role=dialog wrapping the disclosure, locator adapter
+  // reproducing the Playwright calls the block makes — details+summary
+  // filter, first().evaluate, dialog.evaluate — and a getByText click that
+  // carries REAL toggle semantics on <details> (msg 074: never a no-op that
+  // hides caller behavior). clickToggles=false injects the fault "the click
+  // could not open the disclosure" for the forced-closed-at-observation case.
+  const callerPage = async (detailsHtml, { clickToggles = true } = {}) => {
+    const dom = new JSDOM(
+      `<div role="dialog"><h3>controlled pair alpha vs beta</h3><ul></ul>${detailsHtml}</div>`,
+    );
+    const w = dom.window;
+    // jsdom has no layout — every element renders a 1x1 box unless a case
+    // removes it; getComputedStyle resolves the authored inline styles.
+    const proto = w.HTMLElement.prototype;
+    proto.getBoundingClientRect = function () {
+      return this.__zeroBox === true
+        ? { width: 0, height: 0, x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0 }
+        : { width: 8, height: 8, x: 0, y: 0, top: 0, left: 0, right: 8, bottom: 8 };
+    };
+    const doc = w.document;
+    const dialogEl = doc.querySelector('[role="dialog"]');
+    const summaryHasText = (el, text) =>
+      (el.querySelector("summary")?.textContent ?? "").includes(text);
+    const loc = (root) => (sel, opts = {}) => ({
+      filter: ({ has }) => {
+        const { hasText } = has.__opts ?? {};
+        const els = [...root.querySelectorAll(sel)].filter((el) =>
+          hasText === undefined ? true : summaryHasText(el, hasText));
+        return {
+          count: async () => els.length,
+          first: () => ({ evaluate: async (fn) => fn(els[0]) }),
+        };
+      },
+      count: async () => root.querySelectorAll(sel).length,
+      evaluate: async (fn) => fn(root),
+      __opts: opts,
+    });
+    return {
+      doc,
+      dialog: {
+        evaluate: async (fn) => fn(dialogEl),
+        locator: loc(dialogEl),
+        getByText: (text) => ({
+          click: async () => {
+            if (!clickToggles) return;
+            const det = [...dialogEl.querySelectorAll("details")].find((d) =>
+              (d.querySelector("summary")?.textContent ?? "").includes(text));
+            if (det) det.toggleAttribute("open");
+          },
+        }),
+      },
+      page: { locator: (sel, opts) => ({ __opts: opts, __sel: sel }) },
+    };
+  };
 
-  // Duplicate classification headings — ambiguous scope, never a pass.
-  td = technicalDetailsDisclosureReader(tdDom(TD_DL + goodCls + goodCls));
-  const mDup = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  expect("TD: duplicate classification headings are RED",
-    mDup.ok === false && mDup.candidates === 2, JSON.stringify(mDup));
+  // Extract the real caller block — verbatim — between its two fixed anchors.
+  const cliSrc = await import("node:fs").then((fs) =>
+    fs.readFileSync(new URL("../../cli/control-contexttrail.mjs", import.meta.url), "utf8"));
+  const blockStart = cliSrc.indexOf('const disclosures = dialog.locator("details")');
+  const blockEnd = cliSrc.indexOf("const triggerAfterDetails");
+  const CALLER_BLOCK = cliSrc.slice(blockStart, blockEnd);
+  const runBlock = new Function(
+    "dialog", "page", "rec", "live", "fixture", "fixtureViewerOrder",
+    "viewerEvidenceId", "fixtureResult", "technicalDetailsDisclosureReader",
+    "technicalDetailsModelVerdict", "technicalDetailsFieldVerdict",
+    "expectedViewerId",
+    `return (async () => {\n${CALLER_BLOCK}\n})();`,
+  );
 
-  // Wrong scope: the model text living in a DIFFERENT disclosure or in an
-  // unrelated paragraph must never satisfy this occurrence's disclosure.
-  td = technicalDetailsDisclosureReader(
-    tdDom(TD_DL + `<p>Provider report · jev-1.13.0</p>` + TD_META));
-  const mScope = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  expect("TD: jev-1.13.0 in an unrelated paragraph cannot pass",
-    mScope.ok === false && mScope.candidates === 0);
-  const otherDetails = new JSDOM(`<div>
-      <details><summary>Other</summary><p>Classification question answers · jev-1.13.0</p></details>
-      <details><summary>Technical details</summary>${TD_DL}${TD_META}</details>
-    </div>`).window.document;
-  td = technicalDetailsDisclosureReader(otherDetails.querySelectorAll("details")[1]);
-  const mOther = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  expect("TD: a sibling disclosure's model suffix is out of scope",
-    mOther.ok === false && mOther.candidates === 0, JSON.stringify(mOther));
+  const EXPECTED_VIEWER_ID = expectedCaseFor(fixtureName).expectedIds.timeline[0];
 
-  // Old-surface negative: the pre-7ab28e9 "Model version"/"Retrieval
-  // timestamp" dt rows are now the WRONG surface — both must reject.
-  const oldDl = `<dl><div><dt>Model version:</dt><dd>jev-1.13.0</dd></div>
-    <div><dt>Retrieval timestamp:</dt><dd>2026-09-26T21:17:45.919Z</dd></div></dl>`;
-  td = technicalDetailsDisclosureReader(tdDom(oldDl + goodCls));
-  const mOld = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  const tsOld = technicalDetailsFieldVerdict(
-    td.labels.map((l, i) => [l, td.values[i] ?? ""]), /^retrieved at$/i, "2026-09-26T21:17:45.919Z");
-  expect("TD: the heading is the sole model authority — a stray 'Model version' dt row is neither required nor consulted",
-    mOld.ok === true);
-  expect("TD: the obsolete 'Retrieval timestamp' label is RED under the current surface",
-    tsOld.ok === false && tsOld.candidates === 0, JSON.stringify(tsOld));
+  const runCaller = async (detailsHtml, { clickToggles = true, orderOverride = null } = {}) => {
+    const { dialog, page } = await callerPage(detailsHtml, { clickToggles });
+    const orderFn = orderOverride ?? fixtureViewerOrder;
+    const checks = [];
+    const rec = {
+      check: (id, ok, detail) => {
+        checks.push({ id, ok });
+        if (!ok) throw Object.assign(new Error(`${id}: ${detail}`), { checks });
+      },
+      note: () => {},
+    };
+    try {
+      await runBlock(
+        dialog, page, rec, false, fixtureName, orderFn,
+        viewerEvidenceId, fixtureResult, technicalDetailsDisclosureReader,
+        technicalDetailsModelVerdict, technicalDetailsFieldVerdict,
+        EXPECTED_VIEWER_ID,
+      );
+    } catch (e) {
+      if (!Array.isArray(e.checks)) throw e;
+      return { ok: false, checks, failed: e.message };
+    }
+    return { ok: true, checks, failed: null };
+  };
 
-  // Missing timestamp label, duplicate labels, wrong value — all reject.
-  td = technicalDetailsDisclosureReader(tdDom(TD_DL.replace("Retrieved at:", "Collected at:")));
-  const tsNone = technicalDetailsFieldVerdict(
-    td.labels.map((l, i) => [l, td.values[i] ?? ""]), /^retrieved at$/i, "x");
-  expect("TD: missing 'Retrieved at' is RED", tsNone.ok === false && tsNone.candidates === 0);
-  const tsDup = technicalDetailsFieldVerdict(
-    [["Retrieved at", "a"], ["Retrieved at", "a"]], /^retrieved at$/i, "a");
-  expect("TD: duplicate 'Retrieved at' rows are RED", tsDup.ok === false && tsDup.candidates === 2);
-  const tsBad = technicalDetailsFieldVerdict(
-    [["Retrieved at", "2020-01-01T00:00:00.000Z"]], /^retrieved at$/i, "2026-09-26T21:17:45.919Z");
-  expect("TD: wrong timestamp value is RED", tsBad.ok === false);
+  // Case 1: normal — full positive bind through the real block.
+  const normal = await runCaller(TD_DETAILS(""));
+  expect(
+    "tech-details: real caller block — normal dialog passes every check",
+    normal.ok === true &&
+      normal.checks.some((c) => c.id === "viewer.technical-details-occurrence-resolved" && c.ok),
+    `ok=${normal.ok} failed=${normal.failed}`,
+  );
 
-  // The model string as ordinary body text (a dd value in a nested, non-primary
-  // list) is never a candidate.
-  td = technicalDetailsDisclosureReader(
-    tdDom(TD_DL + `<div><dl><div><dt>Note:</dt><dd>jev-1.13.0</dd></div></dl></div>`));
-  const mBody = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
-  expect("TD: jev-1.13.0 carried in a dd value cannot satisfy the model check",
-    mBody.ok === false && mBody.candidates === 0);
+  // Cases 2–7: scalar wrongs/missings/duplicates on model and timestamp.
+  const cases = {};
+  cases["wrong model suffix"] = TD_DETAILS("").replace(
+    ` · ${MODEL}</p>`, " · jev-9.9.9</p>");
+  cases["no model heading"] = TD_DETAILS("").replace(
+    ` · ${MODEL}</p>`, "</p>");
+  cases["two classification headings"] = TD_DETAILS("").replace(
+    `${TD_META}`,
+    `${TD_META}<div style="margin-top:12px;"><p style="margin:0;">` +
+      `Classification question answers · ${MODEL}</p></div>`);
+  cases["wrong timestamp"] = TD_DETAILS("").replace(
+    `<dd style="margin:0;">${RENDERED_AT}</dd>`,
+    `<dd style="margin:0;">2020-01-01T00:00:00.000Z</dd>`);
+  cases["no timestamp row"] = TD_DETAILS("").replace(
+    FIELD_ROW("Retrieved at", RENDERED_AT), "");
+  cases["two timestamp rows"] = TD_DETAILS("").replace(
+    "</dl>", `${FIELD_ROW("Retrieved at", RENDERED_AT)}</dl>`);
+  for (const [label, html] of Object.entries(cases)) {
+    const r = await runCaller(html);
+    expect(
+      `tech-details: real caller — ${label} rejects`,
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
 
-  // A second top-level retrieval list is ambiguous scope — both are ignored
-  // (listCount≠1 zeroes the field read).
-  td = technicalDetailsDisclosureReader(tdDom(TD_DL + TD_DL));
-  expect("TD: two top-level retrieval lists are ambiguous — no fields bound",
-    td.listCount === 2 && td.fieldCount === 0);
+  // Case 8: the model string exists but only as plain body text — no heading.
+  const bodyOnly = TD_DETAILS("").replace(` · ${MODEL}</p>`, "</p>").replace(
+    "</details>",
+    `<p>the stored model string is ${MODEL}, verbatim, but not as a heading</p></details>`,
+  );
+  {
+    const r = await runCaller(bodyOnly);
+    expect(
+      "tech-details: real caller — model in arbitrary body text rejects",
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
 
-  // No disclosure-level dl: field count zero (never a pass).
-  td = technicalDetailsDisclosureReader(tdDom(goodCls));
-  expect("TD: disclosure without its own retrieval dl yields zero fields",
-    td.fieldCount === 0 && td.labels.length === 0);
+  // Case 9: the model heading lives in a sibling disclosure outside Technical details.
+  {
+    const html = TD_DETAILS("").replace(` · ${MODEL}</p>`, "</p>") +
+      `<details><summary>Other information</summary>` +
+      `<div><p>Classification question answers · ${MODEL}</p></div></details>`;
+    const r = await runCaller(html);
+    expect(
+      "tech-details: real caller — model in sibling disclosure rejects",
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Case 10: model heading moved into the nested Page-metadata block — the
+  // block's first p is not a heading, so no candidate must be found.
+  {
+    const borrowed = TD_DETAILS("").replace(` · ${MODEL}</p>`, "</p>").replace(
+      `<p style="margin:0;">Page metadata</p>`,
+      `<p style="margin:0;">Page metadata</p><p>Classification question answers · ${MODEL}</p>`,
+    );
+    const r = await runCaller(borrowed);
+    expect(
+      "tech-details: real caller — model in nested Page metadata rejects",
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Case 11: model heading inside a nested disclosure within Technical details.
+  {
+    const nested = TD_DETAILS("").replace(` · ${MODEL}</p>`, "</p>").replace(
+      `Occurrence ID: ${expectedId}</p>`,
+      `Occurrence ID: ${expectedId}</p><details><summary>Nested panel</summary>` +
+        `<div><p>Classification question answers · ${MODEL}</p></div></details>`,
+    );
+    const r = await runCaller(nested);
+    expect(
+      "tech-details: real caller — model in nested disclosure rejects",
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Cases 12–17: effective visibility and the open gate.
+  {
+    const hiddenHeading = TD_DETAILS("").replace(
+      `<p style="margin:0;">Classification question answers · ${MODEL}</p>`,
+      `<p style="margin:0;" hidden>Classification question answers · ${MODEL}</p>`,
+    );
+    const r = await runCaller(hiddenHeading);
+    expect(
+      "tech-details: real caller — hidden model paragraph rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-model-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    const hiddenBlock = TD_DETAILS("").replace(
+      `<div style="margin-top:12px;">${HEADER_P}</div>`,
+      `<div style="margin-top:12px;display:none;">${HEADER_P}</div>`,
+    );
+    const r = await runCaller(hiddenBlock);
+    expect(
+      "tech-details: real caller — display:none classification ancestor rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-model-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    const fadedBlock = TD_DETAILS("").replace(
+      `<div style="margin-top:12px;">${HEADER_P}</div>`,
+      `<div style="margin-top:12px;opacity:0;">${HEADER_P}</div>`,
+    );
+    const r = await runCaller(fadedBlock);
+    expect(
+      "tech-details: real caller — opacity:0 classification ancestor rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-model-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    // 074: the caller opens an initially-closed disclosure by clicking —
+    // real toggle semantics on the adapter, then the same assertions pass.
+    const closedThenOpen = await runCaller(TD_DETAILS("", ""));
+    expect(
+      "tech-details: real caller — initially-closed disclosure is opened idempotently and passes",
+      closedThenOpen.ok === true,
+      `ok=${closedThenOpen.ok} failed=${closedThenOpen.failed}`,
+    );
+  }
+  {
+    // 074: the unconditional click is gone — an already-open disclosure stays
+    // open through the observation (the positive cases above all run this
+    // path: `open` is set in TD_DETAILS and the click is skipped).
+    // Forced closed at observation: the click is issued but cannot open the
+    // disclosure — the open gate must reject rather than read hidden text.
+    const stuckClosed = await runCaller(TD_DETAILS("", ""), { clickToggles: false });
+    expect(
+      "tech-details: real caller — disclosure closed at observation rejects at the open gate",
+      stuckClosed.ok === false && stuckClosed.failed.startsWith("viewer.technical-details-fields"),
+      `ok=${stuckClosed.ok} failed=${stuckClosed.failed}`,
+    );
+  }
+  {
+    const hiddenList = TD_DETAILS("").replace("<dl style=", "<dl hidden style=");
+    const r = await runCaller(hiddenList);
+    expect(
+      "tech-details: real caller — hidden primary list rejects at the gate",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-fields"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    const hiddenRow = TD_DETAILS("").replace(
+      FIELD_ROW("Retrieved at", RENDERED_AT),
+      FIELD_ROW("Retrieved at", RENDERED_AT).replace("<div ", "<div hidden "),
+    );
+    const r = await runCaller(hiddenRow);
+    expect(
+      "tech-details: real caller — hidden Retrieved-at row rejects",
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Cases 18–19: TD3 — unverifiable or unknown occurrence identity.
+  {
+    const noId = TD_DETAILS("").replace(`Occurrence ID: ${expectedId}`, "Occurrence ID: ")
+      .replace(`${MODEL}</p>`, "jev-WRONG</p>")
+      .replace(`${RENDERED_AT}</dd>`, "2099-01-01T00:00:00.000Z</dd>");
+    const r = await runCaller(noId);
+    expect(
+      "tech-details: real caller — missing occurrence ID rejects before expected checks",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-occurrence-resolved"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    const badId = TD_DETAILS("").replace(
+      `Occurrence ID: ${expectedId}`, "Occurrence ID: ev-zz99-not-in-fixture",
+    );
+    const r = await runCaller(badId);
+    expect(
+      "tech-details: real caller — unknown occurrence ID rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-occurrence-resolved"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  {
+    // 073: the reopened dialog shows a DIFFERENT valid fixture row — the id
+    // resolves uniquely, but it is not the entry this drive opened. Internal
+    // consistency with that other row must not buy a pass.
+    const row2 = fixtureResult(fixtureName).timeline[1];
+    const wrongKnown = TD_DETAILS("")
+      .replace(`Occurrence ID: ${expectedId}`, `Occurrence ID: ${row2.occurrenceId}`)
+      .replace(`${RENDERED_AT}</dd>`, `${row2.retrievedAt}</dd>`)
+      .replace(canonicalRow.canonicalUrl, row2.canonicalUrl)
+      .replace(FIELD_ROW("Result position", canonicalRow.serpPosition),
+               FIELD_ROW("Result position", row2.serpPosition));
+    const r = await runCaller(wrongKnown);
+    expect(
+      "tech-details: real caller — wrong-but-known fixture occurrence ID rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-occurrence-resolved"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    // 073: the opened id exists but appears twice in the viewer order —
+    // ambiguous resolution rejects just like missing/unknown.
+    const r = await runCaller(TD_DETAILS(""), {
+      orderOverride: () => [expectedId, expectedId, ...order.slice(1)],
+    });
+    expect(
+      "tech-details: real caller — ambiguous duplicate occurrence ID rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-occurrence-resolved"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Cases 20–21: canonical URL / result position still exact against the
+  // uniquely-resolved fixture row.
+  {
+    const wrongUrl = TD_DETAILS("").replace(
+      canonicalRow.canonicalUrl, "https://wrong.example/not-the-fixture");
+    const r = await runCaller(wrongUrl);
+    expect(
+      "tech-details: real caller — wrong canonical URL rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-canonical-url-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    const wrongPos = TD_DETAILS("").replace(
+      FIELD_ROW("Result position", canonicalRow.serpPosition),
+      FIELD_ROW("Result position", canonicalRow.serpPosition + 5));
+    const r = await runCaller(wrongPos);
+    expect(
+      "tech-details: real caller — wrong result position rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-result-position-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Case 22: a nested dl inside a primary dd carrying the right timestamp —
+  // direct row ownership must not read it once the real row is gone.
+  {
+    const nestedDl = TD_DETAILS("").replace(
+      FIELD_ROW("Retrieved at", RENDERED_AT),
+      `<div style="display:flex;gap:8px;"><dt style="color:#555;">Notes:</dt>` +
+        `<dd style="margin:0;"><dl>${FIELD_ROW("Retrieved at", RENDERED_AT)}</dl></dd></div>`,
+    );
+    const r = await runCaller(nestedDl);
+    expect(
+      "tech-details: real caller — timestamp in nested dl inside a dd rejects",
+      r.ok === false,
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Case 23: restored — the untouched positive binds again.
+  const restored = await runCaller(TD_DETAILS(""));
+  expect(
+    "tech-details: real caller — restored dialog passes again",
+    restored.ok === true,
+    `ok=${restored.ok} failed=${restored.failed}`,
+  );
+
+  // Unit-level: a SECOND top-level dl in the same disclosure is an
+  // ambiguous-scope candidate — the reader surfaces it and the gate rejects.
+  {
+    const { dialog } = await callerPage(
+      TD_DETAILS(`<dl><div><dt>Extra</dt><dd>1</dd></div></dl>`),
+    );
+    const td = await dialog.locator("details")
+      .filter({ has: { __opts: { hasText: "Technical details" } } })
+      .first().evaluate(technicalDetailsDisclosureReader);
+    expect(
+      "tech-details: reader surfaces a second top-level dl as ambiguous",
+      td.listCount === 2,
+      `listCount=${td.listCount}`,
+    );
+    const r = await runCaller(
+      TD_DETAILS(`<dl><div><dt>Extra</dt><dd>1</dd></div></dl>`));
+    expect(
+      "tech-details: real caller — ambiguous double primary list rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-fields"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // Unit-level verdict probes on real reader output.
+  {
+    const { dialog } = await callerPage(TD_DETAILS(""));
+    const td = await dialog.locator("details")
+      .filter({ has: { __opts: { hasText: "Technical details" } } })
+      .first().evaluate(technicalDetailsDisclosureReader);
+    expect(
+      "tech-details: reader sees one open disclosure, one visible dl, fields visible",
+      td.open === true && td.listCount === 1 && td.listVisible === true &&
+        td.fieldCount >= 5 && td.fields.every((f) => f.visible === true),
+      `open=${td.open} dl=${td.listCount}/${td.listVisible} fields=${td.fieldCount}`,
+    );
+    expect(
+      "tech-details: timestamp verdict requires exact label+value equality",
+      technicalDetailsFieldVerdict(td.fields, /^retrieved at$/i, RENDERED_AT).ok === true &&
+        technicalDetailsFieldVerdict(td.fields, /^retrieval timestamp$/i, RENDERED_AT).ok === false &&
+        technicalDetailsFieldVerdict(td.fields, /^retrieved at$/i, "2030-01-01").ok === false,
+      "label/value verdicts reject the obsolete dt and wrong value",
+    );
+    expect(
+      "tech-details: model verdict requires exactly one visible heading + suffix",
+      technicalDetailsModelVerdict(td.modelParas, MODEL).ok === true &&
+        technicalDetailsModelVerdict(td.modelParas, "jev-9.9.9").ok === false &&
+        technicalDetailsModelVerdict(
+          [...td.modelParas, ...td.modelParas], MODEL).ok === false &&
+        technicalDetailsModelVerdict(
+          td.modelParas.map((p) => ({ ...p, visible: false })), MODEL).ok === false,
+      "model verdict rejects wrong suffix, duplicates, and hidden headings",
+    );
+  }
 }
+
 
 console.log(
   JSON.stringify({ control: "n83-contracts", checks: results.length, failures, ok: failures === 0 }),

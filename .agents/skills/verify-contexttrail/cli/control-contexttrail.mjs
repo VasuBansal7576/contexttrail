@@ -4012,53 +4012,120 @@ async function readFocusDescriptor(locator) {
 /** The product's Technical-details disclosure at the reviewed pin renders the
  *  retrieval fields as dt/dd rows inside its OWN first-level <dl> only —
  *  page-metadata <dl>s nested under "Page metadata" / structured-data <li>s
- *  must not be flattened into the same field lookup. The classification model
- *  identity is rendered as the ` · <model>` suffix of the "Classification
- *  question answers" heading paragraph inside the same disclosure, never as a
- *  dt/dd "Model version" row. This reader is a real serializable function (the
- *  Locator.evaluate contract), scoped to the ONE disclosure element passed in;
- *  candidates outside it cannot leak in. */
+ *  and any <dl> nested inside a primary row must not be flattened into the
+ *  same field lookup. The classification model identity is rendered as the
+ *  ` · <model>` suffix of the "Classification question answers" heading
+ *  paragraph that OPENS the disclosure's own direct classification block —
+ *  a paragraph inside a nested <details>, a page-metadata block, or a
+ *  non-leading block paragraph can never lend the value.
+ *
+ *  This reader is a real serializable function (the Locator.evaluate
+ *  contract), scoped to the ONE disclosure element passed in. It observes the
+ *  open state and the accepted effective-visibility semantics (own + ancestor
+ *  display/visibility/opacity/[hidden] + a real rendered box) so closed or
+ *  effectively hidden content cannot satisfy rendered-field claims; being
+ *  below a scrollable fold is NOT invisibility — a rendered box suffices. */
 function technicalDetailsDisclosureReader(details) {
-  const dls = details.querySelectorAll(":scope > dl");
+  const effVis = (el) => {
+    if (!el || el.nodeType !== 1) return false;
+    const view = el.ownerDocument && el.ownerDocument.defaultView;
+    const gcs = view && view.getComputedStyle ? view.getComputedStyle : getComputedStyle;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const st = gcs(n);
+      if (st.display === "none") return false;
+      if (st.visibility === "hidden" || st.visibility === "collapse") return false;
+      if (Number.parseFloat(st.opacity) === 0) return false;
+      if (n.hasAttribute("hidden")) return false;
+    }
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const open = details.open === true;
+  // Primary retrieval list: the disclosure's own direct-child <dl>.
+  const dls = [...details.children].filter((c) => c.tagName === "DL");
   const dl = dls.length === 1 ? dls[0] : null;
-  const dts = dl ? [...dl.querySelectorAll(":scope dt")] : [];
-  const dds = dl ? [...dl.querySelectorAll(":scope dd")] : [];
-  const labels = dts.map((d) => (d.textContent ?? "").replace(/:\s*$/, ""));
-  const values = dds.map((d) => d.textContent ?? "");
-  const modelParas = [...details.querySelectorAll(":scope p")]
-    .map((p) => (p.textContent ?? "").trimStart())
-    .filter((t) => t.startsWith("Classification question answers"));
-  return { listCount: dls.length, fieldCount: dds.length, labels, values, modelParas };
-}
-
-/** Model-identity verdict for the current occurrence-bound disclosure: exactly
- *  one "Classification question answers" heading paragraph must exist inside
- *  it, and its ` · <model>` suffix must equal the fixture's own jevModel
- *  verbatim. Missing paragraph, missing suffix, wrong suffix, or a duplicate
- *  heading all fail — a stray `jev-1.13.0` elsewhere in the dialog can never
- *  satisfy this. */
-function technicalDetailsModelVerdict(modelParas, expectedModel) {
-  const suffixes = modelParas.map((t) =>
-    t.slice("Classification question answers".length).trimStart(),
-  );
-  const rendered = suffixes.length === 1 && suffixes[0] !== "" ? suffixes[0] : null;
+  // Direct rows only, each row's OWN direct dt/dd pair — never two
+  // independent descendant arrays, and never a nested <dl>'s fields.
+  const rows = [];
+  if (dl) {
+    const kids = [...dl.children];
+    for (let i = 0; i < kids.length; i++) {
+      const row = kids[i];
+      if (row.tagName === "DT") {
+        const nxt = kids[i + 1];
+        const dd = nxt && nxt.tagName === "DD" ? nxt : null;
+        rows.push({ row, dt: row, dd });
+        if (dd) i++;
+      } else if (row.tagName === "DD") {
+        rows.push({ row, dt: null, dd: row });
+      } else {
+        rows.push({
+          row,
+          dt: row.querySelector(":scope > dt"),
+          dd: row.querySelector(":scope > dd"),
+        });
+      }
+    }
+  }
+  const fields = rows
+    .filter((r) => r.dt)
+    .map((r) => ({
+      label: (r.dt.textContent ?? "").replace(/:\s*$/, ""),
+      value: r.dd ? (r.dd.textContent ?? "") : "",
+      visible: effVis(r.row),
+    }));
+  // The classification block is a direct div child of THIS disclosure whose
+  // FIRST paragraph is the heading — nested disclosures and page-metadata
+  // blocks are structurally incapable of lending a candidate.
+  const modelParas = [...details.children]
+    .filter((c) => c.tagName === "DIV")
+    .map((block) => [...block.children].find((c) => c.tagName === "P"))
+    .filter((p) => p && (p.textContent ?? "").trimStart().startsWith("Classification question answers"))
+    .map((p) => ({ text: (p.textContent ?? "").trimStart(), visible: effVis(p) }));
   return {
-    ok: rendered !== null && rendered === `· ${expectedModel}`,
-    rendered,
-    candidates: suffixes.length,
+    open,
+    listCount: dls.length,
+    listVisible: dl ? effVis(dl) : false,
+    fieldCount: fields.length,
+    labels: fields.map((f) => f.label),
+    fields,
+    modelParas,
   };
 }
 
-/** Scoped field-value verdict over a disclosure's own dt/dd pairs: exactly one
- *  row carrying `label` must exist and its value must equal `expected`
- *  verbatim. Zero or duplicate candidates fail. */
-function technicalDetailsFieldVerdict(pairs, labelRe, expected) {
-  const rows = pairs.filter(([l]) => labelRe.test(l));
-  const rendered = rows.length === 1 ? rows[0][1] : null;
+/** Model-identity verdict for the current occurrence-bound disclosure: exactly
+ *  one effectively-visible "Classification question answers" heading paragraph
+ *  inside it, whose ` · <model>` suffix equals the fixture's own jevModel
+ *  verbatim. Missing/hidden/absent-suffix/wrong/duplicate all fail — a stray
+ *  `jev-1.13.0` elsewhere in the dialog can never satisfy this. */
+function technicalDetailsModelVerdict(modelParas, expectedModel) {
+  const suffixes = modelParas.map((p) =>
+    p.text.slice("Classification question answers".length).trimStart(),
+  );
+  const rendered = suffixes.length === 1 && suffixes[0] !== "" ? suffixes[0] : null;
+  return {
+    ok:
+      rendered !== null &&
+      rendered === `· ${expectedModel}` &&
+      modelParas.length === 1 &&
+      modelParas[0].visible === true,
+    rendered,
+    candidates: suffixes.length,
+    visible: modelParas.length === 1 ? modelParas[0].visible === true : null,
+  };
+}
+
+/** Scoped field-value verdict over a disclosure's own field rows: exactly one
+ *  effectively-visible row carrying `label` must exist and its value must
+ *  equal `expected` verbatim. Zero, hidden or duplicate candidates fail. */
+function technicalDetailsFieldVerdict(fields, labelRe, expected) {
+  const cands = fields.filter((f) => labelRe.test(f.label));
+  const rendered = cands.length === 1 && cands[0].visible ? cands[0].value : null;
   return {
     ok: rendered !== null && rendered === expected,
     rendered,
-    candidates: rows.length,
+    candidates: cands.length,
+    visible: cands.length === 1 ? cands[0].visible === true : null,
   };
 }
 
@@ -9013,7 +9080,6 @@ const DRIVE_CASES = {
     const openFloor2 = await focusLogFloor(page);
     await entryBtn.click();
     await dialog.waitFor({ timeout: 10_000 });
-    await dialog.getByText("Technical details").click();
     // Resolve the ONE Technical-details disclosure in the current
     // occurrence-bound dialog; its own first-level <dl> is the primary
     // retrieval field list (page-metadata <dl>s nested deeper are excluded),
@@ -9024,14 +9090,26 @@ const DRIVE_CASES = {
       has: page.locator("summary", { hasText: "Technical details" }),
     });
     const disclosureCount = await disclosures.count();
+    // Open the disclosure IDEMPOTENTLY: inspect its current state, click only
+    // when closed, then read. An unconditional click on an already-open
+    // disclosure would toggle it shut and the observation below would fail on
+    // the harness's own action rather than the product's state.
+    if (disclosureCount === 1) {
+      const wasOpen = await disclosures.first().evaluate((d) => d.open === true);
+      if (!wasOpen) await dialog.getByText("Technical details").click();
+    }
     const td =
       disclosureCount === 1
         ? await disclosures.first().evaluate(technicalDetailsDisclosureReader)
-        : { listCount: 0, fieldCount: 0, labels: [], values: [], modelParas: [] };
+        : { open: false, listCount: 0, listVisible: false, fieldCount: 0, labels: [], fields: [], modelParas: [] };
+    // The disclosure must be open and its own primary retrieval list
+    // effectively visible at observation time — a click that failed to open
+    // it, or content rendered invisible by any ancestor, is not observed
+    // content.
     rec.check(
       "viewer.technical-details-fields",
-      disclosureCount === 1 && td.listCount === 1 && td.fieldCount > 0,
-      `${disclosureCount} disclosure(s), ${td.listCount} retrieval list(s), ${td.fieldCount} field(s)`,
+      disclosureCount === 1 && td.open === true && td.listCount === 1 && td.listVisible && td.fieldCount > 0,
+      `${disclosureCount} disclosure(s), open=${td.open}, ${td.listCount} retrieval list(s) (visible=${td.listVisible}), ${td.fieldCount} field(s)`,
     );
     const sourceLabels = td.labels;
     rec.check(
@@ -9041,52 +9119,74 @@ const DRIVE_CASES = {
     );
 
     // Actual values, compared with the fixture's own row — not just "some dd
-    // exists somewhere in the dialog". The open occurrence is the first item of
-    // the fixture's flat viewer order at this point in the drive.
+    // exists somewhere in the dialog". The reopened viewer must be showing
+    // the INTENDED entry: the recorded opener's expected id when the map
+    // binds one (A8 timeline), otherwise the first item of the fixture's flat
+    // viewer order — the entry this drive opened above. A missing, unknown,
+    // ambiguous, or valid-but-different occurrence id can never reduce the
+    // expected checks.
     const order = live ? [] : fixtureViewerOrder(fixture);
+    const intendedId = expectedViewerId ?? (order.length > 0 ? order[0] : null);
     const currentId = await viewerEvidenceId(dialog);
-    const idx = order.indexOf(currentId);
+    const idx = currentId === null ? -1 : order.indexOf(currentId);
+    const uniqueIdx = idx >= 0 && idx === order.lastIndexOf(currentId) ? idx : -1;
+    const resolved =
+      uniqueIdx >= 0 && intendedId !== null && currentId === intendedId;
+    if (!live) {
+      rec.check(
+        "viewer.technical-details-occurrence-resolved",
+        resolved,
+        `opened Occurrence ID=${JSON.stringify(currentId)} ${
+          resolved
+            ? "resolves uniquely to the intended entry"
+            : uniqueIdx < 0
+              ? `resolves ${idx >= 0 ? "ambiguously" : "not at all"}`
+              : `resolves to viewer-order row ${uniqueIdx} — not the intended ${JSON.stringify(intendedId)}`
+        }`,
+      );
+    }
     const rows = live ? null : fixtureResult(fixture);
     if (live) {
       rec.note(
         "viewer.live-observed-technical-details",
         JSON.stringify(
-          td.labels.map((label, i) => [label, td.values[i] ?? ""]),
+          td.labels.map((label, i) => [label, td.fields[i] ? td.fields[i].value : ""]),
         ),
       );
     }
     const occurrenceRow =
-      idx >= 0 && rows
+      resolved && rows
         ? [
             ...(rows.timeline ?? []),
             ...(rows.supportingEvidence ?? []),
             ...(rows.contextualEvidence ?? []),
             ...(rows.undatedEvidence ?? []),
-          ][idx] ?? null
+          ][uniqueIdx] ?? null
         : null;
-    const pairs = td.labels.map((label, i) => [label, td.values[i] ?? ""]);
+    const pairs = td.fields.map((f) => [f.label, f.value]);
     // Model identity must be the configured pin, rendered verbatim as the
-    // disclosure's own classification-heading ` · <model>` suffix.
+    // effectively-visible ` · <model>` suffix of this disclosure's own
+    // classification heading.
     if (occurrenceRow && typeof occurrenceRow.jevModel === "string") {
       const model = technicalDetailsModelVerdict(td.modelParas, occurrenceRow.jevModel);
       rec.check(
         "viewer.technical-details-model-value",
         model.ok,
-        `rendered=${model.rendered ?? "absent"} candidates=${model.candidates} fixture=${occurrenceRow.jevModel}`,
+        `rendered=${model.rendered ?? "absent"} candidates=${model.candidates} visible=${model.visible} fixture=${occurrenceRow.jevModel}`,
       );
     }
     // Retrieval timestamp, when the fixture ships one, must match exactly —
     // the product's own label is "Retrieved at".
     if (occurrenceRow && typeof occurrenceRow.retrievedAt === "string") {
       const tsRow = technicalDetailsFieldVerdict(
-        pairs,
+        td.fields,
         /^retrieved at$/i,
         occurrenceRow.retrievedAt,
       );
       rec.check(
         "viewer.technical-details-retrieved-at-value",
         tsRow.ok,
-        `rendered=${tsRow.rendered ?? `absent (${tsRow.candidates} candidate(s))`} fixture=${occurrenceRow.retrievedAt}`,
+        `rendered=${tsRow.rendered ?? `absent (${tsRow.candidates} candidate(s))`} visible=${tsRow.visible} fixture=${occurrenceRow.retrievedAt}`,
       );
     }
     // Every rendered value must be non-empty: a label with a blank value is a
@@ -10784,6 +10884,7 @@ export {
   panelContractPopulated,
   // Consumed-state contract machinery + scoped identity reader (V39-3/4/7/8).
   fixtureResult,
+  fixtureViewerOrder,
   fixtureTerminal,
   fixtureOccurrence,
   driveFixture,
