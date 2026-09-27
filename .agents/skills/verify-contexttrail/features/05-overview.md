@@ -22,6 +22,14 @@ Defaults: `--case controlled-claim`, `--view overview`. `--case` accepts any
 fixture present in `fixtures/`; `--view` ends with that tab selected, after
 every tab has been visited and asserted.
 
+For the 17 A8 fixture names the drive also discharges every expected-case-map
+record bound to the chosen view as individual `a8.expect.<record-id>`
+assertions (overview → headline/support/caveat/segments; analysis → coverage,
+comparisons, gates, groups, unresolved candidates; timeline → IDs, placement,
+connectors, divergence). Serialized-only records are checked against the
+consumed terminal payload on the overview run. See features/README.md →
+Coverage status.
+
 ## Assertions (executable contract)
 
 | ID | What it proves |
@@ -57,7 +65,8 @@ and the drive exits 1.
 | `drive result --run-id <id> --view tab` | exit 2, lists the four views |
 | `drive result --run-id <id> --mode claim` | exit 2, result declares no `--mode` |
 | `drive result --run-id <id> --case pair` | exit 2 (no such fixture) |
-| `drive result --run-id <id> --claim-text hi` | exit 2, `--claim-text` is only valid with `--live` |
+| `drive result --run-id <id> --claim-text hi` | exit 2 — on a controlled drive `--claim-text` must equal the resolved fixture's own submitted claim (`hi` never does); trace fixtures reject it outright |
+| `drive result --run-id <id> --case controlled-conflict --claim-text "A controlled claim used to drive a corroborated context conflict."` | parses — the exact fixture claim pins the replayed investigation |
 | `drive result --run-id <id> --fault bad-selection` | **exit 1** — `result.tab-sources-selected` fails |
 
 ## Gotchas

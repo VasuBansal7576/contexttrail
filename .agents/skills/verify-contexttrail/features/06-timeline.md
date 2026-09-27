@@ -17,8 +17,16 @@ the context change — and it never invents an item.
 bin/control-contexttrail drive result --run-id <id> --view timeline \
   [--case controlled-claim|controlled-trace|controlled-viewer|controlled-insufficient]
 bin/control-contexttrail drive viewer --run-id <id> --entry timeline \
-  --case image-load|image-fail|no-excerpt --viewport desktop|mobile
+  --case image-load|image-fail|no-excerpt|pair|<a8-fixture-name> \
+  --viewport desktop|mobile
 ```
+
+An A8 fixture name as `--case` replays that fixture; the dated Inspect opener
+is scoped to the map's exact occurrence (`a8.expect.viewer-expected-target-
+identified`) and the opened dialog's identity is asserted against it
+(`a8.expect.viewer-opened-identity`). No viewer-view map record kind exists —
+the 147 records all bucket into the result views — so the viewer binding is
+those two assertions, not a record loop.
 
 ## Assertions (executable contract)
 
@@ -48,6 +56,19 @@ uncertain edge breaks the decisive run, that fixture's `contextSegmentCount` is
 | `result.timeline-section-nonempty-evidence-with-unknown-dates` | same for unknown-date evidence |
 | `result.timeline-no-placeholder` | no `undefined`, `null`, `NaN` or `Invalid Date` in the panel text |
 | `result.tab-timeline-present` / `result.tab-timeline-selected` | the tab exists and reports `aria-selected=true` |
+
+Selected-panel contrast — each measured node is resolved strictly INSIDE the
+selected tab's own `aria-controls` panel, membership is asserted per node, own
+and ancestor opacity enter the effective foreground alpha, and any
+group-forming ancestor with `opacity < 1` is verdict `UNSUPPORTED` — a
+non-pass whose diagnostic ratio is never an accepted contrast number:
+
+|| ID | What it proves |
+|| --- | --- |
+| `result.selected-panel-aria-controls-resolved` | the selected tab's own `aria-controls` resolves to a real `[role=tabpanel]` whose id matches — the measurement scope itself is asserted |
+| `result.timeline-contrast-timeline-panel-heading-inside-selected-panel` / `-body` / `-note` | the real heading, body paragraph and trailing note were measured inside this panel, not a shared header |
+| `result.timeline-contrast-<node>-meets-AA` | canvas-resolved effective contrast meets 4.5 (or 3.0 for large text); `UNSUPPORTED` is a non-pass |
+| `result.timeline-contrast-surface-measured` | every contract-bound node was measured — populated content owed by the fixture, or the visible `No occurrences were returned` explanation when the fixture ships none |
 
 Entering an occurrence from the timeline:
 

@@ -17,16 +17,39 @@ safely, and hands focus back when it closes.
 ```
 bin/control-contexttrail drive viewer --run-id <id> \
   --entry timeline|sources|takeaway \
-  --case image-load|image-fail|no-excerpt|pair \
+  --case image-load|image-fail|no-excerpt|pair|<a8-fixture-name> \
   --viewport desktop|mobile
 ```
 
+```
+bin/control-contexttrail drive viewer --run-id <id> \
+  --focus-fallback hidden|disabled|disconnected|tabindex-negative
+```
+
 Defaults: `--entry timeline`, `--case image-load`, `--viewport desktop`.
+
+`--focus-fallback <kind>` is the invalid-opener scenario: while the reopened
+dialog is up, the recorded opener is mutated into the named un-restorable
+state (the four prerequisites the product's own restore check rejects), then
+the close must settle focus on the **selected tab's** recorded element key
+instead of the opener's. It is an asserted positive contract, so it cannot be
+combined with `--fault` — a second sabotage would make the outcome ambiguous
+and the schema refuses it.
 
 `--case pair` replays `controlled-pair`, the fixture whose terminal result
 carries a real `firstObservedContextDivergence` whose two endpoints are
 occurrences the report actually displays. If no checked-in fixture has one, the
 case exits 2 naming the missing fixture rather than skipping silently.
+
+`--case <a8-fixture-name>` (any of the 17 A8 fixture names) replays that
+fixture. The map's 147 expectation records bucket only into the three result
+views (overview/timeline/analysis) — no viewer-view record kind exists — so
+the viewer drive binds the map through two viewer assertions instead:
+`a8.expect.viewer-expected-target-identified` (the map's expected dated
+occurrence resolves to a real fixture row, and the Inspect opener is scoped
+to that card, never the first Inspect button) and
+`a8.expect.viewer-opened-identity` (the opened dialog's `Occurrence ID:` line
+inside Technical details equals the expected id).
 
 Media cases are inspected with a **bounded, non-waiting** DOM read: an
 auto-waiting locator against a missing `<img>` burns a full timeout per
@@ -48,6 +71,8 @@ Media (per `--case`):
 | ID | Case | What it proves |
 | --- | --- | --- |
 | `viewer.image-load` | `image-load` | an `img[alt^="Retrieved image"]` reaches `complete && naturalWidth > 0` |
+| `viewer.image-decoded-and-rendered` | `image-load` | the accepted visible-image predicate: complete + decoded + non-transparent pixels + nonzero geometry + in-viewport, with no hiding ancestor (display, visibility, `hidden`, `aria-hidden`, opacity, content-visibility checked on EVERY ancestor) |
+| `viewer.image-no-running-animation-at-rest` | `image-load` | the image's own recorded `runningAnimationCount` is 0 on the settled screen — unmeasured is a non-pass |
 | `viewer.image-fail-shows-fallback` | `image-fail` | the `retrieved image unavailable` fallback renders and no broken `<img>` remains |
 | `viewer.no-excerpt-state` | `no-excerpt` | `No excerpt available` renders |
 | `viewer.image-matches-fixture-source` | `image-load` | the rendered `src` is byte-identical to the image the **fixture** shipped for that occurrence |
@@ -77,6 +102,12 @@ Navigation and content:
 | `viewer.mobile-toggle-pressed-state` (mobile) | `aria-pressed` is reported on the submitted-image button |
 | `viewer.desktop-hides-mobile-toggle` (desktop) | the same group is attached but **not visible** (`lg:hidden`) |
 | `viewer.source-link-present` / `-url` / `-noopener` | `Open original source` is an `https?` link with `target="_blank"` and `rel` containing `noopener` |
+| `viewer.occurrence-attributed-to-fixture` | the rendered `Occurrence ID` resolves to an actual fixture row |
+| `viewer.source-link-targets-occurrence` | the source link's `href` equals the fixture row's own `canonicalUrl`/`sourceUrl` — attribution proved against the fixture, not the DOM's claim |
+| `viewer.attribution-matches-occurrence` | the fixture row's title renders inside the dialog |
+| `viewer.excerpt-matches-occurrence` | the rendered `<blockquote>`'s own text EQUALS the span the product contract projects from the fixture row (`expectedAttributableSpan` — composite `Title:`/`Snippet:` split, first-paragraph body, word-boundary truncation at the viewer's 600-char budget). A prefix, a substituted quote found elsewhere in the dialog, or the bare title wrapper are all RED |
+| `viewer.excerpt-attribution-label` | the excerpt block carries the projected attribution — the backend's `displayAttribution` when present, else `Extracted page excerpt`/`Search snippet` — read ONLY from the `h3` immediately preceding that blockquote's own `figure`; the same phrase elsewhere in the dialog never satisfies it. The rendered quote is compared after stripping only the product's exact outer `“…”` wrapper pair — inner quotes/guillemets are content and survive |
+| `viewer.excerpt-absent-when-contract-has-none` | when the contract projects no quotable span (no excerpt, or a bare `Title:` wrapper), no quote renders and `No excerpt available` is shown |
 | `viewer.technical-details-fields` | expanding `Technical details` yields ≥1 `<dd>` |
 | `viewer.technical-details-real-fields` | no `<dt>` label contains `undefined`, `null` or `NaN` |
 | `viewer.technical-details-model-value` | the model field equals the **fixture's** `jevModel` verbatim |
@@ -90,24 +121,49 @@ Focus:
 
 | ID | What it proves |
 | --- | --- |
+| `viewer.focus-targets-recorded` | both focus targets carry sampler-assigned per-element keys: the opener (the element that holds focus at the click) and the currently selected tab (the restore fallback) |
+| `viewer.opener-holds-focus-at-trigger` | `document.activeElement` is the opener at the instant of the click — the product captures its `triggerRef` synchronously, so an unfocused click would record the wrong element |
 | `viewer.escape-closes` | Escape hides the dialog |
-| `viewer.focus-not-left-in-hidden-dialog` | `document.activeElement` is not inside a `[role=dialog]` after close |
 | `viewer.focus-inside-dialog-before-close` | focus is on a live in-dialog control before the close, so the assertion measures the product and not the harness's last click |
-| `viewer.focus-restored-after-close` | focus is not on `<body>` **and** it is back on the entry control that opened the dialog |
+| `viewer.focus-settle-window-acquired` / `-after-disclosure` | a bounded acquisition loop observed THIS open interval's recorded close marker plus ≥3 post-close samples within the bound — DOM-hidden alone is not proof a post-close frame was sampled, and an exhausted bound is a truthful failure |
+| `viewer.focus-close-marker-recorded` / `-after-disclosure` | the per-frame log recorded an open dialog in THIS close's own interval (frames at/after the open click) — the settle starts at the frame the log actually recorded the dialog leaving the DOM, and a second close can never borrow the first close's marker |
+| `viewer.focus-expectation-computed` | a usable expectation exists (a key-able restorable opener, or a key-able selected tab) |
+| `viewer.focus-not-left-in-hidden-dialog` | the final sampled active element is not `<body>`/null after close |
+| `viewer.focus-restored-after-close` | the final consecutive identity run (dwell ≥3 frames) holds the recorded opener's element key across EVERY sample — same-label lookalikes cannot satisfy it |
+| `viewer.focus-settle-basis-is-recorded-key` | the stable run's identity basis is the recorded element key, not a descriptor-only comparison (weaker proof) |
+| `viewer.focus-fallback-opener-made-invalid` (`--focus-fallback`) | the keyed opener mutation landed and the opener is no longer restorable under the product's own prerequisites |
+| `viewer.focus-fallback-lands-on-selected-tab` (`--focus-fallback`) | the settle lands on the SELECTED TAB's recorded key with basis `selected-tab-fallback` |
 | `viewer.focus-return-after-disclosure-close` | the same return contract holds when the dialog is closed **after** the `Technical details` disclosure was used — an asserted requirement, not an INFO note |
 
-Focus restoration is applied after the dialog leaves the DOM, so the drive
-waits (bounded) for focus to leave `<body>` before reading it. Reading it in the
-same tick measured a harness race and produced a false "focus lost" INFO.
+Focus restoration is proven from a **per-frame sampled log** installed before
+navigation: `document.activeElement` is sampled every animation frame, every
+element that takes focus carries a recorded per-element `data-ctfk` key, and
+the close marker is the first frame after the last frame on which the log saw
+the dialog open IN THIS OPEN INTERVAL — a sampled-log floor is captured before
+each open click, so a later close can never borrow an earlier close's marker.
+A bounded acquisition loop (`acquireFocusSettle`) polls the log until that
+interval's marker exists AND ≥3 post-close samples have landed, evaluating the
+same settle predicate on every poll — a DOM-hidden wait or fixed delay is not
+a substitute for the sampled window, and a bound that never acquires is a
+truthful failure. The settle requires the final consecutive identity run of
+≥3 frames to carry the expected element's recorded key in every sample —
+descriptor-only identity (label/role/selected) is recorded as weaker proof and
+cannot satisfy a keyed assertion. A missing close marker, no post-marker
+samples, a short run or the wrong key are all failures, never guesses.
 
 ## Evidence
 
 `00-viewer-open-<entry>-<case>.png` (the open dialog, before any close),
 `01-viewer-<entry>-<case>.png`, `01/02/03-viewer-pair-*.png` for the pair case,
-`viewer-<entry>-<case>.aria.txt`, `fixture-controlled-<n>.ndjson` (the exact
-replayed bytes), `video/<name>.webm` (the browser's own uncut recording, copied
-after the context closes and hashed), and `drive.json` (`entry`, `case`,
-`viewport`, `fixture`, `fixtureSha256`, `input`, `videos`).
+`viewer-<entry>-<case>.aria.txt`, `focus-targets.json` (the keyed opener and
+selected-tab descriptors), `focus-settle-close.json` and
+`focus-settle-disclosure-close.json` (per close: the open-interval floor, the
+close marker, post-close sample count, the acquired flag, the expectation and
+its basis, the full settle result and the complete keyed frame `log`), `viewer-media.json` (the
+visible-image probe record on `image-load`), `fixture-controlled-<n>.ndjson`
+(the exact replayed bytes), `video/<name>.webm` (the browser's own uncut
+recording, copied after the context closes and hashed), and `drive.json`
+(`entry`, `case`, `viewport`, `fixture`, `fixtureSha256`, `input`, `videos`).
 
 ## Negative controls
 
@@ -116,6 +172,9 @@ after the context closes and hashed), and `drive.json` (`entry`, `case`,
 | `drive viewer --run-id <id> --case pair --fault pair-endpoint-wrong` | exit 1 on `viewer.order-starts-at-first-fixture-occurrence` | `verify5/gen-1` drive 011 |
 | `drive viewer --run-id <id> --case pair --fault pair-note-wrong` | exit 1 on `viewer.pair-earlier-note` | `verify5/gen-1` drive 012 |
 | `drive viewer --run-id <id> --case image-load --fault focus-return-broken` | exit 1 on `viewer.focus-restored-after-close` | `verify5/gen-1` drive 013 |
+| `drive viewer --run-id <id> --focus-fallback bogus` | exit 2, lists `hidden\|disabled\|disconnected\|tabindex-negative` | schema spot-check |
+| `drive viewer --run-id <id> --focus-fallback hidden --fault focus-return-broken` | exit 2, the fallback is a positive contract and cannot combine with a sabotage | schema spot-check |
+| `drive result --run-id <id> --focus-fallback hidden` | exit 2, the flag is viewer-only | schema spot-check |
 | `drive viewer --run-id <id> --entry magic` | exit 2, lists `timeline\|sources\|takeaway` | schema spot-check |
 | `drive viewer --run-id <id> --viewport tablet` | exit 2, lists `desktop\|mobile` | schema spot-check |
 | `drive viewer --run-id <id> --live` without `RUN_LIVE_TESTS=1` | exit 2, provider credit gate | schema spot-check |
@@ -162,16 +221,22 @@ byte-for-byte after cleanup.
   `fixture-*` hosts are `controlled-image-failure`, stream-origin failures are
   `blocked-api`, anything else is `unexpected` and fails
   `console.no-unexpected-errors`.
-- Focus is captured with a dedicated `activeElement()` helper that reports
-  `null` for `<body>`, so "focus lost to body" and "focus somewhere real" are
-  distinguishable. Read it only after the bounded settle wait.
+- Focus is proven from the sampled log, not a single post-close read: a
+  transient `<body>` frame between unmount and restore is tolerated mid-run,
+  but `<body>` as the final identity is lost focus and fails.
+- The `--focus-fallback` mutation addresses the opener by its recorded
+  `data-ctfk` key, so the element the product actually captured is the one
+  invalidated — not a same-labelled lookalike.
 - The client normalizes the uploaded multipart part to the name
   `investigation-image` and submits its own preprocessed encoding, so the
   submitted bytes are never the harness file's bytes; the submission is
   verified by part presence, image media type, non-emptiness and the
   normalized name.
-- The viewer exposes its open occurrence as `Evidence ID: <id>`, which is what
-  the pair and order assertions compare against the fixture's own ids.
+- The viewer exposes its open occurrence as `Occurrence ID: <id>` inside the
+  collapsed Technical-details disclosure (`Evidence ID:` on pre-7ab28e9
+  builds), which is what the pair and order assertions compare against the
+  fixture's own ids — read via `textContent`, since `innerText` skips the
+  collapsed section.
 
 Keep screenshots, ARIA snapshots, action video, sanitized response/events and
 invariant results with the feature ID. Cleanup closes owned runtime state and

@@ -1,0 +1,4137 @@
+{
+ "stage": "A8 native preparation — correction-final machine map (post-033 recheck)",
+ "instructedBy": "relaunch note 2026-09-26T23:26:59Z — C1-C4 + errata batch",
+ "status": "CORRECTED PREPARATION, final map revision. Still documentation only: no native execution, no acceptance, no A8 result, ACK PENDING and not forged.",
+ "supersedes": "expected-case-map-corrected.json (033) — PRESERVED BYTE-FOR-BYTE; the 032 originals remain preserved under HISTORY-032.json. This file corrects the map; it does not replace history.",
+ "acceptedInventory": {
+  "publicStreams": 17,
+  "expectationEntriesInPriorPlan": 95,
+  "distinctCarriedIds": 76,
+  "acceptedBy": "a8-native-preparation-independent-review.md — inventory correct, no fixture drift",
+  "changedHere": "semantics only; the 17/76/95 inventory is retained",
+  "distinctCarriedIdsBasis": "evidenceIds across timeline + undatedEvidence + supportingEvidence + contextualEvidence over the 17 accepted streams — the accepted 76",
+  "occurrenceIdsInTerminalTimeline": 50,
+  "expectationEntryReconciliation": "the 032 map carried 95 expectation entries and the 033 correction carried 129 (123 visible + 6 serialized-only). This final map carries 147 expectation records: 141 visible + 6 serialized-only — claim cases gained real gate expectations, trace gate stubs were replaced by the actual policy-not-applicable fallback expectation, trace cases gained the real fixed Overview support expectation, and the F2 connector expectation was added. Counts are derived from this file, not copied.",
+  "expectationRecords": {
+   "total": 147,
+   "visible": 141,
+   "serializedOnly": 6,
+   "prior033": {
+    "total": 129,
+    "visible": 123,
+    "serializedOnly": 6
+   }
+  },
+  "distinctComparedPairIds": 26,
+  "distinctConnectorEdgeKeys": 35,
+  "namespaces": "76 carried evidence IDs superset the 50 dated occurrence IDs; 26 compared-pair IDs (a subset of the 35 declared connector/comparison edge keys) are a separate pair-key namespace - not a decomposition"
+ },
+ "frozenPins": {
+  "fixtureSubsetPin": "26528b6ee6345c019f016e909d4d17490c3db7eb",
+  "acceptedAppPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5",
+  "acceptedAppNote": "e56 plus the accepted Back delta; all relevant result/backend bytes unchanged",
+  "productAuthority": "9d404cb2e9e4ee35ad3bf0c07ee8f77e739ea2d0",
+  "runnerOriginPin": "87b0f172be603e221f9b82b028ce0e49b3712a62",
+  "runnerRecipePin": "UNBOUND"
+ },
+ "corrections": {
+  "P1": {
+   "wasWrong": "the two-entry plan equated a real image + app POST with real-provider execution, and labelled controlled public upload as out of scope / provider-gated",
+   "correction": "three entry tiers; tier1 is the 17-state recipe entry with every provider request blocked; a public redirect is an interception mechanism, not necessarily browser navigation; the provider-access prerequisite is removed",
+   "evidence": [
+    "policy: tier1 executes production preprocessing, request creation, stream reader and result UI",
+    "the fixture earlier actual-orchestrator generation is separately attributed, not re-run"
+   ]
+  },
+  "P2": {
+   "wasWrong": "the status opposing recipe claimed that changing a cached terminal payload gates must make the UI render a different status",
+   "correction": "upstream generator/policy gate controls are carried DISTINCTLY as source proof; the browser binds the frozen expected human headline to the actual selected Overview heading, and Analysis gate changes fail gate-label/value/support-link assertions instead of promising a new policy decision",
+   "evidence": [
+    "page.tsx:125-131 restores the object",
+    "ResultView.tsx:271-281 renders serialized status/headline through fixed copy",
+    "evaluateClaimPolicy call count in ResultView.tsx and page.tsx is 0"
+   ]
+  },
+  "P3": {
+   "wasWrong": "the plan claimed the claim caveat was not distinguishable per status, and offered deleting the serialized boolean as the visible negative",
+   "correction": "serialized doesNotProveClaimTrue stays a serialized-only contract for all claim statuses; the UI note is NO_CONFLICT_FOUND only, and the exact visible sentence below the supporting copy is the rendered expectation, with remove/hide -> RED and restore -> GREEN on the SAME scoped visible predicate",
+   "evidence": [
+    "result-view.ts:18-39 STATUS_COPY note assigned only to NO_CONFLICT_FOUND (line 32)",
+    "ResultView.tsx:355-356 renders copy.note as a visible paragraph",
+    "policy.ts:428 sets the flag for every claim status",
+    "PRD lines 836, 1357, 2896 require the sentence for NO_CONFLICT_FOUND"
+   ],
+   "withdrawn": "the \"status-specific caveat is NOT DISTINGUISHABLE\" claim is withdrawn; no product bug and no requirement to add the caveat to other statuses is established"
+  },
+  "P4": {
+   "wasWrong": "the bound was selected<=eligible and compared<=selected-1, which rejects two valid INCLUDED cases (selected 0, compared 0), and the mutation control compared two projections of the same mutated value",
+   "correction": "0<=selected<=eligible and 0<=comparedPairs<=max(0,selected-1); expected values/IDs come from the independent fixture expectation and are observed in the actual Analysis panel; comparisons (including unexamined edges) stay distinct from the compared-pair count and from comparedPairIds",
+   "evidence": [
+    "controlled-insufficient and controlled-trace-no-dated are both selected 0 / compared 0",
+    "divergence.ts:225 fullCoverage = selected.length===eligible.length; :236 allDecisive = selected.length>0 && fullCoverage; :238-246 selected 0 returns contextSegmentCount null"
+   ]
+  },
+  "P5": {
+   "wasWrong": "the plan said only separate_origin_evidenced counts as a reporting group",
+   "correction": "groups are unique RESOLVED group IDs INCLUDING shared-origin groups; corroboration alone requires the stricter separate-origin rule; unresolved candidates are listed separately with actual groups/links/reasons; a claimed unresolved addition fails group membership/count without implying shared groups count zero",
+   "evidence": [
+    "reporting-origins.ts:84-93 counts unique groupId where status !== unresolved",
+    "reporting-origins.ts:10 documents that shared-origin copies count as one group",
+    "the accepted controlled-trace fixture directly disproves the old sentence: 10 shared_origin occurrences collapse to one dup:ev-muiw5ad6-3 group and reportingGroupCount 1"
+   ]
+  },
+  "P6": {
+   "wasWrong": "all 95 entries repeated generic negatives, some impossible in a given pristine case, and Inspect evidence was treated as a universal opener",
+   "correction": "negative FAMILIES are bound to feasible existing fixtures with an explicit reuse note; Inspect evidence is scoped to dated Timeline occurrences; empty/no-dated cases use their actual section/empty-state locators",
+   "evidence": [
+    "TimelineView.tsx:196 Inspect evidence belongs to dated Timeline occurrences",
+    "empty insufficient has no unknown/disputed item to move; strong conflict has no unresolved-origin item to relabel"
+   ]
+  },
+  "C1": {
+   "wasWrong": "all 6 claim headline/support expectations were null wildcards and all 11 trace cases expected backend enum strings where human copy was required",
+   "correction": "every Overview expectation now binds the exact pinned human headline/support from result-view.ts STATUS_COPY / TRACE_HEADLINE{,_WEAK} / the fixed trace paragraph; serialized status and backend headline enums live in expectedStatus / expectedSerializedHeadline; the ambiguous expectedHeadline field is removed"
+  },
+  "C2": {
+   "wasWrong": "all 11 trace cases carried a visible gates expectation although their terminal results have zero policyReasons, and no claim case carried the gate inspection",
+   "correction": "claim cases bind the actual policyReasons gates (humanized label, passed/not passed, detail, support IDs, resolvable support links) plus the rendered statusBasis line; trace cases assert the actual 'policy reasons were not included' fallback presentation explicitly marked policy-not-applicable"
+  },
+  "C3": {
+   "wasWrong": "three origins expectations omitted resolved undated core groups (trace-limited 2, trace-no-dated 1, placement-disputed 1)",
+   "correction": "every case's analysis-origins binds the FULL terminal reportingGroups list with members, raw + rendered reasons and the actual unresolvedCandidateIds"
+  },
+  "C4": {
+   "wasWrong": "expectLabels carried serialized status/precision pairs as if they were UI strings; the F2 connector promise was not executable; a rejected-null self-check gap existed",
+   "correction": "placement expectations bind the actual displayed strings (section aria-label, heading, item badge, no-usable-date line, disputed note bound to real item IDs) with serialized status/precision kept separately; controlled-trace-uncertain-transition declares its early unexamined connector + later verified divergence/inspection expectation; connectorEdges are serialized per case and kept distinct from comparedPairIds"
+  },
+  "errata": {
+   "counts": "expectation record totals are derived (see acceptedInventory.expectationRecords)",
+   "namespaces": "76 carried evidence IDs; the 50 dated occurrence ID values are a subset of those 76; 26 pair keys are a separate namespace - not a 50+26 decomposition",
+   "traceSharedGroup": "controlled-trace's shared group has two core members, not ten occurrences",
+   "sealRule": "manifest-final.json records the aggregate construction rule explicitly: sha256 over the path-sorted concatenation of '<path>\\0<sha256>\\0<bytes>\\n' lines"
+  }
+ },
+ "entryTiers": {
+  "tier1-controlled-public-stream": {
+   "use": "the 17-state render/stream recipes",
+   "definition": "actual file selection and optional claim through the real form; the actual app POST is intercepted/redirected to the approved local public NDJSON stream",
+   "executes": [
+    "production preprocessing",
+    "request creation",
+    "stream reader",
+    "result UI"
+   ],
+   "blocked": "every provider request",
+   "providerExecution": "NONE in this browser tier",
+   "attribution": "the fixture earlier actual-orchestrator generation is separately attributed and is not re-run here",
+   "note": "a public redirect is an interception mechanism, not necessarily browser navigation"
+  },
+  "tier2-controlled-cache-restoration": {
+   "use": "explicitly named restoration checks only",
+   "definition": "seed the serialized terminal result and activate View last result",
+   "does": "no upload, no POST; restoration banner and image-retention behaviour",
+   "not": "not the sole A8 entry"
+  },
+  "tier3-genuine-provider": {
+   "use": "separately approved calls, later",
+   "status": "NOT authorized and NOT needed for this local A8 preparation; not a prerequisite"
+  }
+ },
+ "bounds": {
+  "selected": "0 <= selected <= eligible",
+  "comparedPairs": "0 <= comparedPairs <= max(0, selected-1)",
+  "note": "the max() form is required because selected 0 / compared 0 is valid and included",
+  "independence": "expected values/IDs are the independent fixture expectation, observed in the actual Analysis output",
+  "separation": "comparisons (including unexamined edges) != successfully compared-pair count != comparedPairIds"
+ },
+ "originSemantics": {
+  "groupingRule": "unique RESOLVED group IDs, including shared-origin groups",
+  "corroborationRule": "corroborating-pair eligibility requires the stricter separate-origin rule (separate_origin_evidenced)",
+  "unresolved": "listed separately with actual group IDs, member links and reasons",
+  "disprovingFixture": "controlled-trace: TWO distinct core timeline members (ev-muiw5ad6-3, ev-muiw5ad6-4) share one resolved group dup:ev-muiw5ad6-3 with reportingGroupCount 1; the two unknown visual leads carry the same shared-origin annotation without being additional members. Repeated shared_origin mentions across stream events are not distinct occurrences."
+ },
+ "segmentCountContract": {
+  "requires": [
+   "nonempty selected set",
+   "complete eligible coverage",
+   "decisive ORDERABLE adjacent comparisons"
+  ],
+  "withheldWhen": "uncertainty (equal or unorderable dates)",
+  "equalDates": "equal dates can be dated timeline occurrences while their pair remains unexamined",
+  "evidence": [
+   "divergence.ts:218-244, 277-350",
+   "divergence.ts:73 overlapping/unorderable pairs cannot assert transitions"
+  ]
+ },
+ "caveatContract": {
+  "serialized": "doesNotProveClaimTrue = true for EVERY claim status (upstream, serialized-only)",
+  "rendered": "STATUS_COPY note is NO_CONFLICT_FOUND only; exact visible \"This does not prove the claim is true.\" directly below the supporting copy",
+  "negativePlan": "remove/hide that rendered paragraph via a declared harness-only fault -> RED; restore -> GREEN on the same scoped visible predicate",
+  "rejected": "deleting the serialized boolean is not a meaningful visible negative"
+ },
+ "statusContract": {
+  "upstream": "accepted generator/policy gate controls, carried distinctly as source proof",
+  "browser": "frozen expected human headline bound to the actual selected Overview heading; a controlled wrong serialized status/headline or a declared removal/replacement of that heading fails the SAME visible assertion",
+  "analysis": "gate changes fail gate-label/value/support-link assertions, not a new policy decision",
+  "noRecompute": "the render path does not call evaluateClaimPolicy"
+ },
+ "negativeFamilies": {
+  "F1": {
+   "owningFixture": "controlled-placement-disputed-vs-unknown"
+  },
+  "F2": {
+   "owningFixture": "controlled-trace-uncertain-transition"
+  },
+  "F3": {
+   "owningFixture": "controlled-trace-coverage-gap"
+  },
+  "F4a": {
+   "owningFixture": "controlled-trace"
+  },
+  "F4b": {
+   "owningFixture": "controlled-trace-unresolved-origin"
+  },
+  "F5": {
+   "owningFixture": "controlled-pair + controlled-trace-divergent + controlled-trace-uncertain-transition"
+  }
+ },
+ "negativeFamilyReuseNote": "Negative FAMILIES are bound to the fixture that can actually host them. Not every pristine case independently exercises every family: the empty insufficient case has no unknown/disputed item to move, and strong conflict has no unresolved-origin item to relabel. Each case declares its owning family or an explicit REUSE/read-only role; no impossible negative is claimed per case.",
+ "locators": {
+  "selectedTab": "[role=\"tab\"] with aria-selected and aria-controls; assert active selection and member scope",
+  "panels": {
+   "timeline": "#ct-panel-timeline",
+   "sources": "#ct-panel-sources",
+   "analysis": "#ct-panel-analysis"
+  },
+  "overview": "the selected Overview status/support/caveat region",
+  "occurrenceOpener": "Inspect evidence: <title> — DATED TIMELINE OCCURRENCES ONLY (TimelineView.tsx:196); not a universal opener for all 17 cases or all source sections",
+  "emptyState": "empty/no-dated cases use their actual section and empty-state locators, never an impossible generic viewer step. A fixture whose DATED TIMELINE is empty (controlled-insufficient, controlled-trace-no-dated) is a different state from one that merely has no undated-section items; the two are asserted separately and are not conflated.",
+  "originalSource": "a link named \"Open original source\" (target=_blank, rel containing noopener)",
+  "dialog": "[role=dialog]; counter at [role=group][aria-label=\"Browse evidence\"] p[aria-live=polite]",
+  "technicalDetails": "summary \"Technical details\" then dt/dd",
+  "noReactSetter": "state only through real controls and real requests"
+ },
+ "reachability": {
+  "over8": "CURRENT-CONFIGURATION reachability limit: lens-exact retained core is capped at 8 AFTER dedupe (limits.ts:40, candidates.ts:103-121, run.ts:760,862). Visible selection truncation above 8 is UNREACHABLE at this pin.",
+  "notTheGeneralDefinition": "core in general DOES allow verified NEAR_MATCH; near-match verification remains disabled in the accepted production configuration",
+  "mergedMetadata": "merged About/organic/news metadata can supply dates but does not create additional retained exact identities",
+  "actualFixtures": "the accepted merged fixture reaches 8; the exact-only ceiling fixture has 5 dated + 3 unknown",
+  "prohibitions": [
+   "do not fabricate a >8 result",
+   "do not alter a product limit",
+   "do not call eight-selected alone a proof that truncation occurred",
+   "broader selection-algorithm cases remain source/UNIT evidence",
+   "do not fake a 17-case imprecise-interval case"
+  ]
+ },
+ "all9MapLinks": {
+  "resultAreas": [
+   "Overview",
+   "Timeline",
+   "Sources",
+   "Analysis",
+   "viewer",
+   "session"
+  ],
+  "linkRule": "A8 assertions link to these existing all-9 map areas only",
+  "carriedUnchanged": "input, security and budget baselines are carried unchanged and NOT repeated"
+ },
+ "cases": [
+  {
+   "fixture": "controlled-conflict",
+   "streamBytes": 18320,
+   "streamSha256": "c1d26b2b5203541367827ba2efc342b3feb863f3ac6e5a2c024b39a561c1252b",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "A controlled claim used to drive a corroborated context conflict.",
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG selected through the real file input, digest pinned at integration (not pinned in the frozen streams)",
+   "plannedIdentity": "expectedOverviewHUMAN='Context conflict found' status=CONTEXT_CONFLICT",
+   "expectedStatus": "CONTEXT_CONFLICT",
+   "serializedCaveatFlag": true,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-conflict-overview-headline",
+     "visible": true,
+     "expect": "Context conflict found",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.status=CONTEXT_CONFLICT"
+    },
+    {
+     "id": "controlled-conflict-overview-support",
+     "visible": true,
+     "expect": "Matching occurrences from multiple source domains, with separately evidenced reporting origins, associate this image with a different context than the submitted claim.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-conflict-caveat-serialized",
+     "visible": false,
+     "expect": true,
+     "predicate": "UPSTREAM SERIALIZED-ONLY contract: doesNotProveClaimTrue is true for EVERY claim status (policy.ts:428). Not a rendered expectation.",
+     "tier": "source/serialized contract"
+    },
+    {
+     "id": "controlled-conflict-gates",
+     "visible": true,
+     "expect": {
+      "statusBasisRendered": "Status basis: Qualifying conflicts corroborated.",
+      "gates": [
+       {
+        "gate": "qualifying_conflicts",
+        "gateLabel": "Qualifying conflicts",
+        "passed": true,
+        "expectText": "Qualifying conflicts: passed",
+        "detail": "2 qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT",
+        "supportIds": [
+         "ev-muiw5agw-32",
+         "ev-muiw5agw-33"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5agw-32",
+         "ev-muiw5agw-33"
+        ]
+       },
+       {
+        "gate": "corroborating_pair",
+        "gateLabel": "Corroborating pair",
+        "passed": true,
+        "expectText": "Corroborating pair: passed",
+        "detail": "corroborating pair across distinct domains and separately evidenced reporting groups",
+        "supportIds": [
+         "ev-muiw5agw-32",
+         "ev-muiw5agw-33"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5agw-32",
+         "ev-muiw5agw-33"
+        ]
+       }
+      ]
+     },
+     "predicate": "each terminal policyReasons gate renders in the Analysis 'Why this result' list with its humanized gate label, exact passed/not passed value, detail text, and a 'View supporting evidence' link per support ID that resolves to a viewer item",
+     "negative": "changing a gate label/value/support link must fail THIS SAME assertion; it does NOT promise a new policy decision (evaluateClaimPolicy is never called in the render path; a gates-only mutation is a malformed payload, not a recompute instruction)"
+    },
+    {
+     "id": "controlled-conflict-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5agw-32",
+      "ev-muiw5agw-33"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-conflict-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 2 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-conflict-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 2,
+      "selected": 2,
+      "comparedPairs": 1,
+      "comparedPairIds": [
+       "ev-muiw5agw-32|ev-muiw5agw-33"
+      ],
+      "displayedDatedCore": 2
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-conflict-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-conflict-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 2,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:conflict-alpha.test",
+       "origin:conflict-beta.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:conflict-alpha.test",
+        "memberIds": [
+         "ev-muiw5agw-32"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:conflict-beta.test",
+        "memberIds": [
+         "ev-muiw5agw-33"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 2,
+    "undated": 0,
+    "eligible": 2,
+    "selected": 2,
+    "comparedPairs": 1,
+    "comparedPairIds": [
+     "ev-muiw5agw-32|ev-muiw5agw-33"
+    ],
+    "displayedDatedCore": 2,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 2,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5agw-32",
+     "ev-muiw5agw-33"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5agw-32|ev-muiw5agw-33"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5agw-32|ev-muiw5agw-33",
+      "fromOccurrenceId": "ev-muiw5agw-32",
+      "toOccurrenceId": "ev-muiw5agw-33",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-conflict/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": null,
+   "expectedOverviewHeadline": "Context conflict found",
+   "expectedOverviewSupport": "Matching occurrences from multiple source domains, with separately evidenced reporting origins, associate this image with a different context than the submitted claim.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "claim_check: deterministic policy gates present in the terminal result"
+  },
+  {
+   "fixture": "controlled-no-conflict",
+   "streamBytes": 25827,
+   "streamSha256": "298a866c1e27eb9b432de935e0184ed3e3a752ddfd2b9cfb1a7eb009d1634e75",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "A controlled claim used to drive a corroborated no-conflict result.",
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG selected through the real file input, digest pinned at integration (not pinned in the frozen streams)",
+   "plannedIdentity": "expectedOverviewHUMAN='No conflict found in retrieved evidence' status=NO_CONFLICT_FOUND",
+   "expectedStatus": "NO_CONFLICT_FOUND",
+   "serializedCaveatFlag": true,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-no-conflict-overview-headline",
+     "visible": true,
+     "expect": "No conflict found in retrieved evidence",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.status=NO_CONFLICT_FOUND"
+    },
+    {
+     "id": "controlled-no-conflict-overview-support",
+     "visible": true,
+     "expect": "The retrieved visual evidence did not reveal a strong contradiction to the submitted claim.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-no-conflict-caveat-visible",
+     "visible": true,
+     "expect": "This does not prove the claim is true.",
+     "predicate": "the exact caveat paragraph is visible directly below the supporting copy (ResultView.tsx:355-356 renders copy.note; PRD lines 836/1357/2896 require it for NO_CONFLICT_FOUND)",
+     "negative": "remove/hide THAT rendered paragraph with a declared harness-only fault, re-run the SAME scoped visible predicate -> must FAIL, then restore -> must PASS",
+     "rejectedNegative": "deleting the serialized doesNotProveClaimTrue boolean is NOT a meaningful visible negative: the UI does not consult that flag"
+    },
+    {
+     "id": "controlled-no-conflict-caveat-serialized",
+     "visible": false,
+     "expect": true,
+     "predicate": "UPSTREAM SERIALIZED-ONLY contract: doesNotProveClaimTrue is true for EVERY claim status (policy.ts:428). Not a rendered expectation.",
+     "tier": "source/serialized contract"
+    },
+    {
+     "id": "controlled-no-conflict-gates",
+     "visible": true,
+     "expect": {
+      "statusBasisRendered": "Status basis: Corroborated no conflict.",
+      "gates": [
+       {
+        "gate": "qualifying_conflicts",
+        "gateLabel": "Qualifying conflicts",
+        "passed": false,
+        "expectText": "Qualifying conflicts: not passed",
+        "detail": "0 qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       },
+       {
+        "gate": "relevant_core_coverage",
+        "gateLabel": "Relevant core coverage",
+        "passed": true,
+        "expectText": "Relevant core coverage: passed",
+        "detail": "3 relevant core occurrence(s); >=3 required",
+        "supportIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ]
+       },
+       {
+        "gate": "distinct_domains",
+        "gateLabel": "Distinct domains",
+        "passed": true,
+        "expectText": "Distinct domains: passed",
+        "detail": "3 registrable domain(s) among relevant core; >=2 required",
+        "supportIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ]
+       },
+       {
+        "gate": "distinct_reporting_groups",
+        "gateLabel": "Distinct reporting groups",
+        "passed": true,
+        "expectText": "Distinct reporting groups: passed",
+        "detail": "3 resolved reporting group(s) among relevant core; >=2 required",
+        "supportIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ]
+       },
+       {
+        "gate": "corroborating_pair",
+        "gateLabel": "Corroborating pair",
+        "passed": true,
+        "expectText": "Corroborating pair: passed",
+        "detail": "corroborating pair across distinct domains and separately evidenced groups",
+        "supportIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35"
+        ]
+       },
+       {
+        "gate": "strong_support",
+        "gateLabel": "Strong support",
+        "passed": true,
+        "expectText": "Strong support: passed",
+        "detail": "3 strong support judgment(s); >=1 required",
+        "supportIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5ah2-34",
+         "ev-muiw5ah2-35",
+         "ev-muiw5ah2-36"
+        ]
+       }
+      ]
+     },
+     "predicate": "each terminal policyReasons gate renders in the Analysis 'Why this result' list with its humanized gate label, exact passed/not passed value, detail text, and a 'View supporting evidence' link per support ID that resolves to a viewer item",
+     "negative": "changing a gate label/value/support link must fail THIS SAME assertion; it does NOT promise a new policy decision (evaluateClaimPolicy is never called in the render path; a gates-only mutation is a malformed payload, not a recompute instruction)"
+    },
+    {
+     "id": "controlled-no-conflict-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ah2-34",
+      "ev-muiw5ah2-35",
+      "ev-muiw5ah2-36"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-no-conflict-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 3 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-no-conflict-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 3,
+      "selected": 3,
+      "comparedPairs": 2,
+      "comparedPairIds": [
+       "ev-muiw5ah2-34|ev-muiw5ah2-35",
+       "ev-muiw5ah2-35|ev-muiw5ah2-36"
+      ],
+      "displayedDatedCore": 3
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-no-conflict-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-no-conflict-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 3,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:calm-alpha.test",
+       "origin:calm-beta.test",
+       "origin:calm-gamma.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:calm-alpha.test",
+        "memberIds": [
+         "ev-muiw5ah2-34"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:calm-beta.test",
+        "memberIds": [
+         "ev-muiw5ah2-35"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:calm-gamma.test",
+        "memberIds": [
+         "ev-muiw5ah2-36"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 3,
+    "undated": 0,
+    "eligible": 3,
+    "selected": 3,
+    "comparedPairs": 2,
+    "comparedPairIds": [
+     "ev-muiw5ah2-34|ev-muiw5ah2-35",
+     "ev-muiw5ah2-35|ev-muiw5ah2-36"
+    ],
+    "displayedDatedCore": 3,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 3,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ah2-34",
+     "ev-muiw5ah2-35",
+     "ev-muiw5ah2-36"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5ah2-34|ev-muiw5ah2-35",
+     "ev-muiw5ah2-35|ev-muiw5ah2-36"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ah2-34|ev-muiw5ah2-35",
+      "fromOccurrenceId": "ev-muiw5ah2-34",
+      "toOccurrenceId": "ev-muiw5ah2-35",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5ah2-35|ev-muiw5ah2-36",
+      "fromOccurrenceId": "ev-muiw5ah2-35",
+      "toOccurrenceId": "ev-muiw5ah2-36",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-no-conflict/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": null,
+   "expectedOverviewHeadline": "No conflict found in retrieved evidence",
+   "expectedOverviewSupport": "The retrieved visual evidence did not reveal a strong contradiction to the submitted claim.",
+   "expectedOverviewNote": "This does not prove the claim is true.",
+   "policyApplicability": "claim_check: deterministic policy gates present in the terminal result"
+  },
+  {
+   "fixture": "controlled-claim",
+   "streamBytes": 47938,
+   "streamSha256": "6252d62e4db466e08b50c99a2c0ecf66bf43c7a289fd46f0e109accaa4381c73",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG selected through the real file input, digest pinned at integration (not pinned in the frozen streams)",
+   "plannedIdentity": "expectedOverviewHUMAN='Possible context conflict' status=POSSIBLE_CONTEXT_CONFLICT",
+   "expectedStatus": "POSSIBLE_CONTEXT_CONFLICT",
+   "serializedCaveatFlag": true,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-claim-overview-headline",
+     "visible": true,
+     "expect": "Possible context conflict",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.status=POSSIBLE_CONTEXT_CONFLICT"
+    },
+    {
+     "id": "controlled-claim-overview-support",
+     "visible": true,
+     "expect": "Matching evidence associates this image with a different context, but corroboration is limited or its reporting origins are unresolved.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-claim-caveat-serialized",
+     "visible": false,
+     "expect": true,
+     "predicate": "UPSTREAM SERIALIZED-ONLY contract: doesNotProveClaimTrue is true for EVERY claim status (policy.ts:428). Not a rendered expectation.",
+     "tier": "source/serialized contract"
+    },
+    {
+     "id": "controlled-claim-gates",
+     "visible": true,
+     "expect": {
+      "statusBasisRendered": "Status basis: Conflicts without corroboration.",
+      "gates": [
+       {
+        "gate": "qualifying_conflicts",
+        "gateLabel": "Qualifying conflicts",
+        "passed": true,
+        "expectText": "Qualifying conflicts: passed",
+        "detail": "2 qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT",
+        "supportIds": [
+         "ev-muiw5afg-10",
+         "ev-muiw5afg-11"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5afg-10",
+         "ev-muiw5afg-11"
+        ]
+       },
+       {
+        "gate": "corroborating_pair",
+        "gateLabel": "Corroborating pair",
+        "passed": false,
+        "expectText": "Corroborating pair: not passed",
+        "detail": "no pair across distinct domains + separately evidenced reporting groups satisfying the identity gate",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       }
+      ]
+     },
+     "predicate": "each terminal policyReasons gate renders in the Analysis 'Why this result' list with its humanized gate label, exact passed/not passed value, detail text, and a 'View supporting evidence' link per support ID that resolves to a viewer item",
+     "negative": "changing a gate label/value/support link must fail THIS SAME assertion; it does NOT promise a new policy decision (evaluateClaimPolicy is never called in the render path; a gates-only mutation is a malformed payload, not a recompute instruction)"
+    },
+    {
+     "id": "controlled-claim-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5afg-10",
+      "ev-muiw5afg-11"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-claim-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5afg-8",
+      "ev-muiw5afg-9"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5afg-8": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5afg-9": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-claim-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 2,
+      "selected": 2,
+      "comparedPairs": 1,
+      "comparedPairIds": [
+       "ev-muiw5afg-10|ev-muiw5afg-11"
+      ],
+      "displayedDatedCore": 2
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-claim-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-claim-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 1,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "dup:ev-muiw5afg-10"
+      ],
+      "groups": [
+       {
+        "groupId": "dup:ev-muiw5afg-10",
+        "memberIds": [
+         "ev-muiw5afg-10",
+         "ev-muiw5afg-11"
+        ],
+        "reasons": [
+         "article_text_duplication"
+        ],
+        "renderedReasons": [
+         "Article text duplication"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 2,
+    "undated": 2,
+    "eligible": 2,
+    "selected": 2,
+    "comparedPairs": 1,
+    "comparedPairIds": [
+     "ev-muiw5afg-10|ev-muiw5afg-11"
+    ],
+    "displayedDatedCore": 2,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 1,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5afg-10",
+     "ev-muiw5afg-11"
+    ],
+    "undated": [
+     "ev-muiw5afg-8",
+     "ev-muiw5afg-9"
+    ],
+    "comparedPairIds": [
+     "ev-muiw5afg-10|ev-muiw5afg-11"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5afg-10|ev-muiw5afg-11",
+      "fromOccurrenceId": "ev-muiw5afg-10",
+      "toOccurrenceId": "ev-muiw5afg-11",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-claim/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": null,
+   "expectedOverviewHeadline": "Possible context conflict",
+   "expectedOverviewSupport": "Matching evidence associates this image with a different context, but corroboration is limited or its reporting origins are unresolved.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "claim_check: deterministic policy gates present in the terminal result"
+  },
+  {
+   "fixture": "controlled-insufficient",
+   "streamBytes": 4943,
+   "streamSha256": "31d9b756a67fe327ba79148b966f11ddae4a1d1e7f314f44cba8f5750637a752",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG selected through the real file input, digest pinned at integration (not pinned in the frozen streams)",
+   "plannedIdentity": "expectedOverviewHUMAN='Insufficient evidence' status=INSUFFICIENT_EVIDENCE",
+   "expectedStatus": "INSUFFICIENT_EVIDENCE",
+   "serializedCaveatFlag": true,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline-empty-state",
+    "Sources"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-insufficient-overview-headline",
+     "visible": true,
+     "expect": "Insufficient evidence",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.status=INSUFFICIENT_EVIDENCE"
+    },
+    {
+     "id": "controlled-insufficient-overview-support",
+     "visible": true,
+     "expect": "The live search did not return enough qualifying visual evidence and corroboration for a reliable context comparison.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-insufficient-caveat-serialized",
+     "visible": false,
+     "expect": true,
+     "predicate": "UPSTREAM SERIALIZED-ONLY contract: doesNotProveClaimTrue is true for EVERY claim status (policy.ts:428). Not a rendered expectation.",
+     "tier": "source/serialized contract"
+    },
+    {
+     "id": "controlled-insufficient-gates",
+     "visible": true,
+     "expect": {
+      "statusBasisRendered": "Status basis: Insufficient qualifying evidence.",
+      "gates": [
+       {
+        "gate": "qualifying_conflicts",
+        "gateLabel": "Qualifying conflicts",
+        "passed": false,
+        "expectText": "Qualifying conflicts: not passed",
+        "detail": "0 qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       },
+       {
+        "gate": "relevant_core_coverage",
+        "gateLabel": "Relevant core coverage",
+        "passed": false,
+        "expectText": "Relevant core coverage: not passed",
+        "detail": "0 relevant core occurrence(s); >=3 required",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       },
+       {
+        "gate": "distinct_domains",
+        "gateLabel": "Distinct domains",
+        "passed": false,
+        "expectText": "Distinct domains: not passed",
+        "detail": "0 registrable domain(s) among relevant core; >=2 required",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       },
+       {
+        "gate": "distinct_reporting_groups",
+        "gateLabel": "Distinct reporting groups",
+        "passed": false,
+        "expectText": "Distinct reporting groups: not passed",
+        "detail": "0 resolved reporting group(s) among relevant core; >=2 required",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       },
+       {
+        "gate": "corroborating_pair",
+        "gateLabel": "Corroborating pair",
+        "passed": false,
+        "expectText": "Corroborating pair: not passed",
+        "detail": "no corroborating pair across distinct domains + separately evidenced groups",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       },
+       {
+        "gate": "strong_support",
+        "gateLabel": "Strong support",
+        "passed": false,
+        "expectText": "Strong support: not passed",
+        "detail": "0 strong support judgment(s); >=1 required",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       }
+      ]
+     },
+     "predicate": "each terminal policyReasons gate renders in the Analysis 'Why this result' list with its humanized gate label, exact passed/not passed value, detail text, and a 'View supporting evidence' link per support ID that resolves to a viewer item",
+     "negative": "changing a gate label/value/support link must fail THIS SAME assertion; it does NOT promise a new policy decision (evaluateClaimPolicy is never called in the render path; a gates-only mutation is a malformed payload, not a recompute instruction)"
+    },
+    {
+     "id": "controlled-insufficient-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 0 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-insufficient-timeline-empty-state",
+     "visible": true,
+     "predicate": "the DATED TIMELINE section is empty; use its ACTUAL section/empty-state locator, never an impossible generic viewer step",
+     "actual": "dated timeline has 0 entries; undated section has 0 item(s)",
+     "note": "coexists with a placement expectation when the undated section still carries items"
+    },
+    {
+     "id": "controlled-insufficient-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 0,
+      "selected": 0,
+      "comparedPairs": 0,
+      "comparedPairIds": [],
+      "displayedDatedCore": 0
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-insufficient-analysis-segments",
+     "visible": true,
+     "expect": null,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-insufficient-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 0,
+      "unresolvedOriginCount": 0,
+      "groupIds": [],
+      "groups": [],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 0,
+    "undated": 0,
+    "eligible": 0,
+    "selected": 0,
+    "comparedPairs": 0,
+    "comparedPairIds": [],
+    "displayedDatedCore": 0,
+    "contextSegmentCount": null,
+    "reportingGroupCount": 0,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [],
+    "undated": [],
+    "comparedPairIds": [],
+    "divergenceEndpoints": [],
+    "connectorEdges": []
+   },
+   "negativeFamily": "F3",
+   "negativeRole": "REUSE-zero-selection-empty-state",
+   "outputPath": "PLANNED native/controlled-insufficient/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": null,
+   "expectedOverviewHeadline": "Insufficient evidence",
+   "expectedOverviewSupport": "The live search did not return enough qualifying visual evidence and corroboration for a reliable context comparison.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "claim_check: deterministic policy gates present in the terminal result"
+  },
+  {
+   "fixture": "controlled-pair",
+   "streamBytes": 59045,
+   "streamSha256": "0b3e6684712b58551ac0289d330b5e57bb810392507f3f7eb1aec3cdc59b66a0",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG selected through the real file input, digest pinned at integration (not pinned in the frozen streams)",
+   "plannedIdentity": "expectedOverviewHUMAN='Possible context conflict' status=POSSIBLE_CONTEXT_CONFLICT",
+   "expectedStatus": "POSSIBLE_CONTEXT_CONFLICT",
+   "serializedCaveatFlag": true,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-pair-overview-headline",
+     "visible": true,
+     "expect": "Possible context conflict",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.status=POSSIBLE_CONTEXT_CONFLICT"
+    },
+    {
+     "id": "controlled-pair-overview-support",
+     "visible": true,
+     "expect": "Matching evidence associates this image with a different context, but corroboration is limited or its reporting origins are unresolved.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-pair-caveat-serialized",
+     "visible": false,
+     "expect": true,
+     "predicate": "UPSTREAM SERIALIZED-ONLY contract: doesNotProveClaimTrue is true for EVERY claim status (policy.ts:428). Not a rendered expectation.",
+     "tier": "source/serialized contract"
+    },
+    {
+     "id": "controlled-pair-gates",
+     "visible": true,
+     "expect": {
+      "statusBasisRendered": "Status basis: Conflicts without corroboration.",
+      "gates": [
+       {
+        "gate": "qualifying_conflicts",
+        "gateLabel": "Qualifying conflicts",
+        "passed": true,
+        "expectText": "Qualifying conflicts: passed",
+        "detail": "4 qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT",
+        "supportIds": [
+         "ev-muiw5agf-26",
+         "ev-muiw5agf-27",
+         "ev-muiw5agf-28",
+         "ev-muiw5agf-29"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5agf-26",
+         "ev-muiw5agf-27",
+         "ev-muiw5agf-28",
+         "ev-muiw5agf-29"
+        ]
+       },
+       {
+        "gate": "corroborating_pair",
+        "gateLabel": "Corroborating pair",
+        "passed": false,
+        "expectText": "Corroborating pair: not passed",
+        "detail": "no pair across distinct domains + separately evidenced reporting groups satisfying the identity gate",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       }
+      ]
+     },
+     "predicate": "each terminal policyReasons gate renders in the Analysis 'Why this result' list with its humanized gate label, exact passed/not passed value, detail text, and a 'View supporting evidence' link per support ID that resolves to a viewer item",
+     "negative": "changing a gate label/value/support link must fail THIS SAME assertion; it does NOT promise a new policy decision (evaluateClaimPolicy is never called in the render path; a gates-only mutation is a malformed payload, not a recompute instruction)"
+    },
+    {
+     "id": "controlled-pair-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5agf-26",
+      "ev-muiw5agf-27",
+      "ev-muiw5agf-28",
+      "ev-muiw5agf-29"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-pair-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5agf-24",
+      "ev-muiw5agf-25"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5agf-24": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5agf-25": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-pair-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 4,
+      "selected": 4,
+      "comparedPairs": 2,
+      "comparedPairIds": [
+       "ev-muiw5agf-26|ev-muiw5agf-27",
+       "ev-muiw5agf-28|ev-muiw5agf-29"
+      ],
+      "displayedDatedCore": 4
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-pair-analysis-segments",
+     "visible": true,
+     "expect": null,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-pair-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 1,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "dup:ev-muiw5agf-26"
+      ],
+      "groups": [
+       {
+        "groupId": "dup:ev-muiw5agf-26",
+        "memberIds": [
+         "ev-muiw5agf-26",
+         "ev-muiw5agf-27",
+         "ev-muiw5agf-28",
+         "ev-muiw5agf-29"
+        ],
+        "reasons": [
+         "article_text_duplication"
+        ],
+        "renderedReasons": [
+         "Article text duplication"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-pair-divergence",
+     "visible": true,
+     "expect": {
+      "from": "ev-muiw5agf-26",
+      "to": "ev-muiw5agf-27"
+     },
+     "predicate": "the ACTUAL endpoint IDs/titles are asserted AND the pair can be inspected, not merely that the IDs exist somewhere in the shipped set",
+     "negative": "a wrong SHIPPED endpoint is the stronger control; a nonexistent ID alone is weaker"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 4,
+    "undated": 2,
+    "eligible": 4,
+    "selected": 4,
+    "comparedPairs": 2,
+    "comparedPairIds": [
+     "ev-muiw5agf-26|ev-muiw5agf-27",
+     "ev-muiw5agf-28|ev-muiw5agf-29"
+    ],
+    "displayedDatedCore": 4,
+    "contextSegmentCount": null,
+    "reportingGroupCount": 1,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5agf-26",
+     "ev-muiw5agf-27",
+     "ev-muiw5agf-28",
+     "ev-muiw5agf-29"
+    ],
+    "undated": [
+     "ev-muiw5agf-24",
+     "ev-muiw5agf-25"
+    ],
+    "comparedPairIds": [
+     "ev-muiw5agf-26|ev-muiw5agf-27",
+     "ev-muiw5agf-28|ev-muiw5agf-29"
+    ],
+    "divergenceEndpoints": [
+     "ev-muiw5agf-26",
+     "ev-muiw5agf-27"
+    ],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5agf-26|ev-muiw5agf-27",
+      "fromOccurrenceId": "ev-muiw5agf-26",
+      "toOccurrenceId": "ev-muiw5agf-27",
+      "connector": "different_context",
+      "expectConnectorLabel": "Different context from previous · compared"
+     },
+     {
+      "pair": "ev-muiw5agf-27|ev-muiw5agf-28",
+      "fromOccurrenceId": "ev-muiw5agf-27",
+      "toOccurrenceId": "ev-muiw5agf-28",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5agf-28|ev-muiw5agf-29",
+      "fromOccurrenceId": "ev-muiw5agf-28",
+      "toOccurrenceId": "ev-muiw5agf-29",
+      "connector": "uncertain",
+      "expectConnectorLabel": "Comparison inconclusive — performed but not established"
+     }
+    ]
+   },
+   "negativeFamily": "F5",
+   "negativeRole": "OWNER",
+   "outputPath": "PLANNED native/controlled-pair/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": null,
+   "expectedOverviewHeadline": "Possible context conflict",
+   "expectedOverviewSupport": "Matching evidence associates this image with a different context, but corroboration is limited or its reporting origins are unresolved.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "claim_check: deterministic policy gates present in the terminal result"
+  },
+  {
+   "fixture": "controlled-viewer",
+   "streamBytes": 47854,
+   "streamSha256": "44fef83aceef0112d00a262942f84d3bd255d300f129146a4e71c3ddadd47b43",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG selected through the real file input, digest pinned at integration (not pinned in the frozen streams)",
+   "plannedIdentity": "expectedOverviewHUMAN='Possible context conflict' status=POSSIBLE_CONTEXT_CONFLICT",
+   "expectedStatus": "POSSIBLE_CONTEXT_CONFLICT",
+   "serializedCaveatFlag": true,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-viewer-overview-headline",
+     "visible": true,
+     "expect": "Possible context conflict",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.status=POSSIBLE_CONTEXT_CONFLICT"
+    },
+    {
+     "id": "controlled-viewer-overview-support",
+     "visible": true,
+     "expect": "Matching evidence associates this image with a different context, but corroboration is limited or its reporting origins are unresolved.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-viewer-caveat-serialized",
+     "visible": false,
+     "expect": true,
+     "predicate": "UPSTREAM SERIALIZED-ONLY contract: doesNotProveClaimTrue is true for EVERY claim status (policy.ts:428). Not a rendered expectation.",
+     "tier": "source/serialized contract"
+    },
+    {
+     "id": "controlled-viewer-gates",
+     "visible": true,
+     "expect": {
+      "statusBasisRendered": "Status basis: Conflicts without corroboration.",
+      "gates": [
+       {
+        "gate": "qualifying_conflicts",
+        "gateLabel": "Qualifying conflicts",
+        "passed": true,
+        "expectText": "Qualifying conflicts: passed",
+        "detail": "2 qualifying conflict candidate(s); >=2 required for CONTEXT_CONFLICT",
+        "supportIds": [
+         "ev-muiw5afx-18",
+         "ev-muiw5afx-19"
+        ],
+        "expectSupportLinkIds": [
+         "ev-muiw5afx-18",
+         "ev-muiw5afx-19"
+        ]
+       },
+       {
+        "gate": "corroborating_pair",
+        "gateLabel": "Corroborating pair",
+        "passed": false,
+        "expectText": "Corroborating pair: not passed",
+        "detail": "no pair across distinct domains + separately evidenced reporting groups satisfying the identity gate",
+        "supportIds": [],
+        "expectSupportLinkIds": []
+       }
+      ]
+     },
+     "predicate": "each terminal policyReasons gate renders in the Analysis 'Why this result' list with its humanized gate label, exact passed/not passed value, detail text, and a 'View supporting evidence' link per support ID that resolves to a viewer item",
+     "negative": "changing a gate label/value/support link must fail THIS SAME assertion; it does NOT promise a new policy decision (evaluateClaimPolicy is never called in the render path; a gates-only mutation is a malformed payload, not a recompute instruction)"
+    },
+    {
+     "id": "controlled-viewer-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5afx-18"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-viewer-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5afx-19",
+      "ev-muiw5afx-16",
+      "ev-muiw5afx-17"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5afx-19": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5afx-16": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5afx-17": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-viewer-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 1,
+      "selected": 1,
+      "comparedPairs": 0,
+      "comparedPairIds": [],
+      "displayedDatedCore": 1
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-viewer-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-viewer-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 1,
+      "unresolvedOriginCount": 1,
+      "groupIds": [
+       "dup:ev-muiw5afx-18"
+      ],
+      "groups": [
+       {
+        "groupId": "dup:ev-muiw5afx-18",
+        "memberIds": [
+         "ev-muiw5afx-18"
+        ],
+        "reasons": [
+         "article_text_duplication"
+        ],
+        "renderedReasons": [
+         "Article text duplication"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": [
+       "ev-muiw5afx-19"
+      ]
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 1,
+    "undated": 3,
+    "eligible": 1,
+    "selected": 1,
+    "comparedPairs": 0,
+    "comparedPairIds": [],
+    "displayedDatedCore": 1,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 1,
+    "unresolvedOriginCount": 1
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5afx-18"
+    ],
+    "undated": [
+     "ev-muiw5afx-19",
+     "ev-muiw5afx-16",
+     "ev-muiw5afx-17"
+    ],
+    "comparedPairIds": [],
+    "divergenceEndpoints": [],
+    "connectorEdges": []
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-viewer/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": null,
+   "expectedOverviewHeadline": "Possible context conflict",
+   "expectedOverviewSupport": "Matching evidence associates this image with a different context, but corroboration is limited or its reporting origins are unresolved.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "claim_check: deterministic policy gates present in the terminal result"
+  },
+  {
+   "fixture": "controlled-trace-strong",
+   "streamBytes": 26129,
+   "streamSha256": "83b8b024961721b932e3a6b69ff4e015e07857b11f7818d7a1b24a0dafaabffe",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-strong-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-strong-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-strong-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ahe-37",
+      "ev-muiw5ahe-38",
+      "ev-muiw5ahe-39",
+      "ev-muiw5ahe-40"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-strong-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 4 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-trace-strong-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 4,
+      "selected": 4,
+      "comparedPairs": 3,
+      "comparedPairIds": [
+       "ev-muiw5ahe-37|ev-muiw5ahe-38",
+       "ev-muiw5ahe-38|ev-muiw5ahe-39",
+       "ev-muiw5ahe-39|ev-muiw5ahe-40"
+      ],
+      "displayedDatedCore": 4
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-strong-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-strong-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 4,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:strong-one.test",
+       "origin:strong-two.test",
+       "origin:strong-three.test",
+       "origin:strong-four.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:strong-one.test",
+        "memberIds": [
+         "ev-muiw5ahe-37"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:strong-two.test",
+        "memberIds": [
+         "ev-muiw5ahe-38"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:strong-three.test",
+        "memberIds": [
+         "ev-muiw5ahe-39"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:strong-four.test",
+        "memberIds": [
+         "ev-muiw5ahe-40"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-strong-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 4,
+    "undated": 0,
+    "eligible": 4,
+    "selected": 4,
+    "comparedPairs": 3,
+    "comparedPairIds": [
+     "ev-muiw5ahe-37|ev-muiw5ahe-38",
+     "ev-muiw5ahe-38|ev-muiw5ahe-39",
+     "ev-muiw5ahe-39|ev-muiw5ahe-40"
+    ],
+    "displayedDatedCore": 4,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 4,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ahe-37",
+     "ev-muiw5ahe-38",
+     "ev-muiw5ahe-39",
+     "ev-muiw5ahe-40"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5ahe-37|ev-muiw5ahe-38",
+     "ev-muiw5ahe-38|ev-muiw5ahe-39",
+     "ev-muiw5ahe-39|ev-muiw5ahe-40"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ahe-37|ev-muiw5ahe-38",
+      "fromOccurrenceId": "ev-muiw5ahe-37",
+      "toOccurrenceId": "ev-muiw5ahe-38",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5ahe-38|ev-muiw5ahe-39",
+      "fromOccurrenceId": "ev-muiw5ahe-38",
+      "toOccurrenceId": "ev-muiw5ahe-39",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5ahe-39|ev-muiw5ahe-40",
+      "fromOccurrenceId": "ev-muiw5ahe-39",
+      "toOccurrenceId": "ev-muiw5ahe-40",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-trace-strong/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-limited",
+   "streamBytes": 19672,
+   "streamSha256": "5268ee04305b2c03a8f32671c11a78844c27231e9baac34bbff0a2574f8976ae",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Limited media history found' serializedHeadline=LIMITED_MEDIA_HISTORY_FOUND",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-limited-overview-headline",
+     "visible": true,
+     "expect": "Limited media history found",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=LIMITED_MEDIA_HISTORY_FOUND"
+    },
+    {
+     "id": "controlled-trace-limited-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-limited-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ai1-44"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-limited-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ai1-45",
+      "ev-muiw5ai1-46"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5ai1-45": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5ai1-46": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-trace-limited-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 1,
+      "selected": 1,
+      "comparedPairs": 0,
+      "comparedPairIds": [],
+      "displayedDatedCore": 1
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-limited-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-limited-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 3,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:limited-one-dated.test",
+       "origin:limited-two-undated.test",
+       "origin:limited-three-undated.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:limited-one-dated.test",
+        "memberIds": [
+         "ev-muiw5ai1-44"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:limited-two-undated.test",
+        "memberIds": [
+         "ev-muiw5ai1-45"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:limited-three-undated.test",
+        "memberIds": [
+         "ev-muiw5ai1-46"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-limited-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 1,
+    "undated": 2,
+    "eligible": 1,
+    "selected": 1,
+    "comparedPairs": 0,
+    "comparedPairIds": [],
+    "displayedDatedCore": 1,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 3,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ai1-44"
+    ],
+    "undated": [
+     "ev-muiw5ai1-45",
+     "ev-muiw5ai1-46"
+    ],
+    "comparedPairIds": [],
+    "divergenceEndpoints": [],
+    "connectorEdges": []
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-trace-limited/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "LIMITED_MEDIA_HISTORY_FOUND",
+   "expectedOverviewHeadline": "Limited media history found",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-no-dated",
+   "streamBytes": 17683,
+   "streamSha256": "7be32b34e3d8f720b54fb4b9016cfaa8359ee8a304f35af527b38dfc9a1fc92d",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Limited media history found' serializedHeadline=LIMITED_MEDIA_HISTORY_FOUND",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline-empty-state",
+    "Sources"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-no-dated-overview-headline",
+     "visible": true,
+     "expect": "Limited media history found",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=LIMITED_MEDIA_HISTORY_FOUND"
+    },
+    {
+     "id": "controlled-trace-no-dated-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-no-dated-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ai8-47",
+      "ev-muiw5ai8-48",
+      "ev-muiw5ai8-49"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5ai8-47": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5ai8-48": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5ai8-49": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-trace-no-dated-timeline-empty-state",
+     "visible": true,
+     "predicate": "the DATED TIMELINE section is empty; use its ACTUAL section/empty-state locator, never an impossible generic viewer step",
+     "actual": "dated timeline has 0 entries; undated section has 3 item(s)",
+     "note": "coexists with a placement expectation when the undated section still carries items"
+    },
+    {
+     "id": "controlled-trace-no-dated-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 0,
+      "selected": 0,
+      "comparedPairs": 0,
+      "comparedPairIds": [],
+      "displayedDatedCore": 0
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-no-dated-analysis-segments",
+     "visible": true,
+     "expect": null,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-no-dated-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 1,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "dup:ev-muiw5ai8-47"
+      ],
+      "groups": [
+       {
+        "groupId": "dup:ev-muiw5ai8-47",
+        "memberIds": [
+         "ev-muiw5ai8-47",
+         "ev-muiw5ai8-48",
+         "ev-muiw5ai8-49"
+        ],
+        "reasons": [
+         "article_text_duplication"
+        ],
+        "renderedReasons": [
+         "Article text duplication"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-no-dated-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 0,
+    "undated": 3,
+    "eligible": 0,
+    "selected": 0,
+    "comparedPairs": 0,
+    "comparedPairIds": [],
+    "displayedDatedCore": 0,
+    "contextSegmentCount": null,
+    "reportingGroupCount": 1,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [],
+    "undated": [
+     "ev-muiw5ai8-47",
+     "ev-muiw5ai8-48",
+     "ev-muiw5ai8-49"
+    ],
+    "comparedPairIds": [],
+    "divergenceEndpoints": [],
+    "connectorEdges": []
+   },
+   "negativeFamily": "F3",
+   "negativeRole": "REUSE-zero-selection-empty-state",
+   "outputPath": "PLANNED native/controlled-trace-no-dated/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "LIMITED_MEDIA_HISTORY_FOUND",
+   "expectedOverviewHeadline": "Limited media history found",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-divergent",
+   "streamBytes": 20949,
+   "streamSha256": "737790850d83cf886b93139c68fbe5c05f820813a15d26aa070498b1ce4a47d3",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-divergent-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-divergent-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-divergent-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ail-50",
+      "ev-muiw5ail-51",
+      "ev-muiw5ail-52"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-divergent-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 3 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-trace-divergent-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 3,
+      "selected": 3,
+      "comparedPairs": 2,
+      "comparedPairIds": [
+       "ev-muiw5ail-50|ev-muiw5ail-51",
+       "ev-muiw5ail-51|ev-muiw5ail-52"
+      ],
+      "displayedDatedCore": 3
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-divergent-analysis-segments",
+     "visible": true,
+     "expect": 2,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-divergent-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 3,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:diverge-one.test",
+       "origin:diverge-two.test",
+       "origin:diverge-three.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:diverge-one.test",
+        "memberIds": [
+         "ev-muiw5ail-50"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:diverge-two.test",
+        "memberIds": [
+         "ev-muiw5ail-51"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:diverge-three.test",
+        "memberIds": [
+         "ev-muiw5ail-52"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-divergent-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-divergent-divergence",
+     "visible": true,
+     "expect": {
+      "from": "ev-muiw5ail-51",
+      "to": "ev-muiw5ail-52"
+     },
+     "predicate": "the ACTUAL endpoint IDs/titles are asserted AND the pair can be inspected, not merely that the IDs exist somewhere in the shipped set",
+     "negative": "a wrong SHIPPED endpoint is the stronger control; a nonexistent ID alone is weaker"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 3,
+    "undated": 0,
+    "eligible": 3,
+    "selected": 3,
+    "comparedPairs": 2,
+    "comparedPairIds": [
+     "ev-muiw5ail-50|ev-muiw5ail-51",
+     "ev-muiw5ail-51|ev-muiw5ail-52"
+    ],
+    "displayedDatedCore": 3,
+    "contextSegmentCount": 2,
+    "reportingGroupCount": 3,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ail-50",
+     "ev-muiw5ail-51",
+     "ev-muiw5ail-52"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5ail-50|ev-muiw5ail-51",
+     "ev-muiw5ail-51|ev-muiw5ail-52"
+    ],
+    "divergenceEndpoints": [
+     "ev-muiw5ail-51",
+     "ev-muiw5ail-52"
+    ],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ail-50|ev-muiw5ail-51",
+      "fromOccurrenceId": "ev-muiw5ail-50",
+      "toOccurrenceId": "ev-muiw5ail-51",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5ail-51|ev-muiw5ail-52",
+      "fromOccurrenceId": "ev-muiw5ail-51",
+      "toOccurrenceId": "ev-muiw5ail-52",
+      "connector": "different_context",
+      "expectConnectorLabel": "Different context from previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "F5",
+   "negativeRole": "OWNER",
+   "outputPath": "PLANNED native/controlled-trace-divergent/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-uncertain-transition",
+   "streamBytes": 20967,
+   "streamSha256": "14a6b3ddb87b9632932c297b3d46bbb6fdfe4f35f6025037c8e6071fb50662e0",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-uncertain-transition-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ak5-111",
+      "ev-muiw5ak5-112",
+      "ev-muiw5ak5-113"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 3 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 3,
+      "selected": 3,
+      "comparedPairs": 1,
+      "comparedPairIds": [
+       "ev-muiw5ak5-112|ev-muiw5ak5-113"
+      ],
+      "displayedDatedCore": 3
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-analysis-segments",
+     "visible": true,
+     "expect": null,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 3,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:uncertain-early.test",
+       "origin:later-verified.test",
+       "origin:final-verified.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:uncertain-early.test",
+        "memberIds": [
+         "ev-muiw5ak5-111"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:later-verified.test",
+        "memberIds": [
+         "ev-muiw5ak5-112"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:final-verified.test",
+        "memberIds": [
+         "ev-muiw5ak5-113"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-divergence",
+     "visible": true,
+     "expect": {
+      "from": "ev-muiw5ak5-112",
+      "to": "ev-muiw5ak5-113"
+     },
+     "predicate": "the ACTUAL endpoint IDs/titles are asserted AND the pair can be inspected, not merely that the IDs exist somewhere in the shipped set",
+     "negative": "a wrong SHIPPED endpoint is the stronger control; a nonexistent ID alone is weaker"
+    },
+    {
+     "id": "controlled-trace-uncertain-transition-connectors",
+     "visible": true,
+     "expect": {
+      "earlyUnexaminedPair": {
+       "pair": "ev-muiw5ak5-111|ev-muiw5ak5-112",
+       "expectConnectorLabel": "Not compared in this investigation"
+      },
+      "laterDivergencePair": {
+       "pair": "ev-muiw5ak5-112|ev-muiw5ak5-113",
+       "expectConnectorLabel": "Different context from previous · compared",
+       "isFirstObservedDivergence": true,
+       "earlierTransitionsUnresolved": true,
+       "expectDivergenceNote": "Earlier transitions are unresolved — this is the earliest strongly different compared pair, not the first change on the internet.",
+       "expectInspection": {
+        "earlierId": "ev-muiw5ak5-112",
+        "laterId": "ev-muiw5ak5-113",
+        "laterBadge": "First observed divergence"
+       }
+      },
+      "comparedPairIdsExcludeUnexamined": [
+       "ev-muiw5ak5-112|ev-muiw5ak5-113"
+      ]
+     },
+     "predicate": "the early equal-date pair renders its connector as 'Not compared in this investigation' and is NOT among the successful comparedPairIds; the later pair renders 'Different context from previous · compared', is the first observed divergence with its actual endpoint IDs inspectable via the Earlier:/Later: controls, and carries the earlier-transitions-unresolved note",
+     "separation": "connector edges (all non-start incomingConnector pairs) != comparedPairIds (successful comparisons); an unexamined edge is a connector, not a comparison"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 3,
+    "undated": 0,
+    "eligible": 3,
+    "selected": 3,
+    "comparedPairs": 1,
+    "comparedPairIds": [
+     "ev-muiw5ak5-112|ev-muiw5ak5-113"
+    ],
+    "displayedDatedCore": 3,
+    "contextSegmentCount": null,
+    "reportingGroupCount": 3,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ak5-111",
+     "ev-muiw5ak5-112",
+     "ev-muiw5ak5-113"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5ak5-112|ev-muiw5ak5-113"
+    ],
+    "divergenceEndpoints": [
+     "ev-muiw5ak5-112",
+     "ev-muiw5ak5-113"
+    ],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ak5-111|ev-muiw5ak5-112",
+      "fromOccurrenceId": "ev-muiw5ak5-111",
+      "toOccurrenceId": "ev-muiw5ak5-112",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ak5-112|ev-muiw5ak5-113",
+      "fromOccurrenceId": "ev-muiw5ak5-112",
+      "toOccurrenceId": "ev-muiw5ak5-113",
+      "connector": "different_context",
+      "expectConnectorLabel": "Different context from previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "F2",
+   "negativeRole": "OWNER",
+   "outputPath": "PLANNED native/controlled-trace-uncertain-transition/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-dated-core-merged",
+   "streamBytes": 73669,
+   "streamSha256": "40eba8124a849cc5a9646daa50acdb6fc7fc45ea8761d659de0386a539ffb62c",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-dated-core-merged-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5aje-67",
+      "ev-muiw5aje-68",
+      "ev-muiw5aje-69",
+      "ev-muiw5aje-70",
+      "ev-muiw5aje-71",
+      "ev-muiw5aje-72",
+      "ev-muiw5aje-73",
+      "ev-muiw5aje-74"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 8 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 8,
+      "selected": 8,
+      "comparedPairs": 7,
+      "comparedPairIds": [
+       "ev-muiw5aje-67|ev-muiw5aje-68",
+       "ev-muiw5aje-68|ev-muiw5aje-69",
+       "ev-muiw5aje-69|ev-muiw5aje-70",
+       "ev-muiw5aje-70|ev-muiw5aje-71",
+       "ev-muiw5aje-71|ev-muiw5aje-72",
+       "ev-muiw5aje-72|ev-muiw5aje-73",
+       "ev-muiw5aje-73|ev-muiw5aje-74"
+      ],
+      "displayedDatedCore": 8
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 5,
+      "unresolvedOriginCount": 3,
+      "groupIds": [
+       "origin:many-one.test",
+       "origin:many-two.test",
+       "origin:many-three.test",
+       "origin:many-four.test",
+       "origin:many-five.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:many-one.test",
+        "memberIds": [
+         "ev-muiw5aje-67"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-two.test",
+        "memberIds": [
+         "ev-muiw5aje-68"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-three.test",
+        "memberIds": [
+         "ev-muiw5aje-69"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-four.test",
+        "memberIds": [
+         "ev-muiw5aje-70"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-five.test",
+        "memberIds": [
+         "ev-muiw5aje-71"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": [
+       "ev-muiw5aje-72",
+       "ev-muiw5aje-73",
+       "ev-muiw5aje-74"
+      ]
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-dated-core-merged-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 8,
+    "undated": 0,
+    "eligible": 8,
+    "selected": 8,
+    "comparedPairs": 7,
+    "comparedPairIds": [
+     "ev-muiw5aje-67|ev-muiw5aje-68",
+     "ev-muiw5aje-68|ev-muiw5aje-69",
+     "ev-muiw5aje-69|ev-muiw5aje-70",
+     "ev-muiw5aje-70|ev-muiw5aje-71",
+     "ev-muiw5aje-71|ev-muiw5aje-72",
+     "ev-muiw5aje-72|ev-muiw5aje-73",
+     "ev-muiw5aje-73|ev-muiw5aje-74"
+    ],
+    "displayedDatedCore": 8,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 5,
+    "unresolvedOriginCount": 3
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5aje-67",
+     "ev-muiw5aje-68",
+     "ev-muiw5aje-69",
+     "ev-muiw5aje-70",
+     "ev-muiw5aje-71",
+     "ev-muiw5aje-72",
+     "ev-muiw5aje-73",
+     "ev-muiw5aje-74"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5aje-67|ev-muiw5aje-68",
+     "ev-muiw5aje-68|ev-muiw5aje-69",
+     "ev-muiw5aje-69|ev-muiw5aje-70",
+     "ev-muiw5aje-70|ev-muiw5aje-71",
+     "ev-muiw5aje-71|ev-muiw5aje-72",
+     "ev-muiw5aje-72|ev-muiw5aje-73",
+     "ev-muiw5aje-73|ev-muiw5aje-74"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5aje-67|ev-muiw5aje-68",
+      "fromOccurrenceId": "ev-muiw5aje-67",
+      "toOccurrenceId": "ev-muiw5aje-68",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aje-68|ev-muiw5aje-69",
+      "fromOccurrenceId": "ev-muiw5aje-68",
+      "toOccurrenceId": "ev-muiw5aje-69",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aje-69|ev-muiw5aje-70",
+      "fromOccurrenceId": "ev-muiw5aje-69",
+      "toOccurrenceId": "ev-muiw5aje-70",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aje-70|ev-muiw5aje-71",
+      "fromOccurrenceId": "ev-muiw5aje-70",
+      "toOccurrenceId": "ev-muiw5aje-71",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aje-71|ev-muiw5aje-72",
+      "fromOccurrenceId": "ev-muiw5aje-71",
+      "toOccurrenceId": "ev-muiw5aje-72",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aje-72|ev-muiw5aje-73",
+      "fromOccurrenceId": "ev-muiw5aje-72",
+      "toOccurrenceId": "ev-muiw5aje-73",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aje-73|ev-muiw5aje-74",
+      "fromOccurrenceId": "ev-muiw5aje-73",
+      "toOccurrenceId": "ev-muiw5aje-74",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-trace-dated-core-merged/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-dated-core-ceiling",
+   "streamBytes": 45354,
+   "streamSha256": "3683df29d41268099d5d23feba315734437cfe178d7c67e04578b831a49588d0",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-dated-core-ceiling-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5aj3-56",
+      "ev-muiw5aj3-57",
+      "ev-muiw5aj3-58",
+      "ev-muiw5aj3-59",
+      "ev-muiw5aj3-60"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5aj3-61",
+      "ev-muiw5aj3-62",
+      "ev-muiw5aj3-63"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5aj3-61": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5aj3-62": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5aj3-63": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 5,
+      "selected": 5,
+      "comparedPairs": 4,
+      "comparedPairIds": [
+       "ev-muiw5aj3-56|ev-muiw5aj3-57",
+       "ev-muiw5aj3-57|ev-muiw5aj3-58",
+       "ev-muiw5aj3-58|ev-muiw5aj3-59",
+       "ev-muiw5aj3-59|ev-muiw5aj3-60"
+      ],
+      "displayedDatedCore": 5
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 5,
+      "unresolvedOriginCount": 3,
+      "groupIds": [
+       "origin:many-one.test",
+       "origin:many-two.test",
+       "origin:many-three.test",
+       "origin:many-four.test",
+       "origin:many-five.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:many-one.test",
+        "memberIds": [
+         "ev-muiw5aj3-56"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-two.test",
+        "memberIds": [
+         "ev-muiw5aj3-57"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-three.test",
+        "memberIds": [
+         "ev-muiw5aj3-58"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-four.test",
+        "memberIds": [
+         "ev-muiw5aj3-59"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-five.test",
+        "memberIds": [
+         "ev-muiw5aj3-60"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": [
+       "ev-muiw5aj3-61",
+       "ev-muiw5aj3-62",
+       "ev-muiw5aj3-63"
+      ]
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-dated-core-ceiling-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 5,
+    "undated": 3,
+    "eligible": 5,
+    "selected": 5,
+    "comparedPairs": 4,
+    "comparedPairIds": [
+     "ev-muiw5aj3-56|ev-muiw5aj3-57",
+     "ev-muiw5aj3-57|ev-muiw5aj3-58",
+     "ev-muiw5aj3-58|ev-muiw5aj3-59",
+     "ev-muiw5aj3-59|ev-muiw5aj3-60"
+    ],
+    "displayedDatedCore": 5,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 5,
+    "unresolvedOriginCount": 3
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5aj3-56",
+     "ev-muiw5aj3-57",
+     "ev-muiw5aj3-58",
+     "ev-muiw5aj3-59",
+     "ev-muiw5aj3-60"
+    ],
+    "undated": [
+     "ev-muiw5aj3-61",
+     "ev-muiw5aj3-62",
+     "ev-muiw5aj3-63"
+    ],
+    "comparedPairIds": [
+     "ev-muiw5aj3-56|ev-muiw5aj3-57",
+     "ev-muiw5aj3-57|ev-muiw5aj3-58",
+     "ev-muiw5aj3-58|ev-muiw5aj3-59",
+     "ev-muiw5aj3-59|ev-muiw5aj3-60"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5aj3-56|ev-muiw5aj3-57",
+      "fromOccurrenceId": "ev-muiw5aj3-56",
+      "toOccurrenceId": "ev-muiw5aj3-57",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aj3-57|ev-muiw5aj3-58",
+      "fromOccurrenceId": "ev-muiw5aj3-57",
+      "toOccurrenceId": "ev-muiw5aj3-58",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aj3-58|ev-muiw5aj3-59",
+      "fromOccurrenceId": "ev-muiw5aj3-58",
+      "toOccurrenceId": "ev-muiw5aj3-59",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5aj3-59|ev-muiw5aj3-60",
+      "fromOccurrenceId": "ev-muiw5aj3-59",
+      "toOccurrenceId": "ev-muiw5aj3-60",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "outputPath": "PLANNED native/controlled-trace-dated-core-ceiling/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-coverage-gap",
+   "streamBytes": 72301,
+   "streamSha256": "370291d61ee0944f578c16f0dab3ca79a1cd7b034e7cfdd7f2b878f1ea5155fd",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-coverage-gap-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ajt-89",
+      "ev-muiw5ajt-90",
+      "ev-muiw5ajt-91",
+      "ev-muiw5ajt-92",
+      "ev-muiw5ajt-93",
+      "ev-muiw5ajt-94",
+      "ev-muiw5ajt-95",
+      "ev-muiw5ajt-96"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 8 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 8,
+      "selected": 8,
+      "comparedPairs": 0,
+      "comparedPairIds": [],
+      "displayedDatedCore": 8
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-analysis-segments",
+     "visible": true,
+     "expect": null,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 5,
+      "unresolvedOriginCount": 3,
+      "groupIds": [
+       "origin:many-one.test",
+       "origin:many-two.test",
+       "origin:many-three.test",
+       "origin:many-four.test",
+       "origin:many-five.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:many-one.test",
+        "memberIds": [
+         "ev-muiw5ajt-89"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-two.test",
+        "memberIds": [
+         "ev-muiw5ajt-90"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-three.test",
+        "memberIds": [
+         "ev-muiw5ajt-91"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-four.test",
+        "memberIds": [
+         "ev-muiw5ajt-92"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:many-five.test",
+        "memberIds": [
+         "ev-muiw5ajt-93"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": [
+       "ev-muiw5ajt-94",
+       "ev-muiw5ajt-95",
+       "ev-muiw5ajt-96"
+      ]
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-coverage-gap-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 8,
+    "undated": 0,
+    "eligible": 8,
+    "selected": 8,
+    "comparedPairs": 0,
+    "comparedPairIds": [],
+    "displayedDatedCore": 8,
+    "contextSegmentCount": null,
+    "reportingGroupCount": 5,
+    "unresolvedOriginCount": 3
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ajt-89",
+     "ev-muiw5ajt-90",
+     "ev-muiw5ajt-91",
+     "ev-muiw5ajt-92",
+     "ev-muiw5ajt-93",
+     "ev-muiw5ajt-94",
+     "ev-muiw5ajt-95",
+     "ev-muiw5ajt-96"
+    ],
+    "undated": [],
+    "comparedPairIds": [],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ajt-89|ev-muiw5ajt-90",
+      "fromOccurrenceId": "ev-muiw5ajt-89",
+      "toOccurrenceId": "ev-muiw5ajt-90",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ajt-90|ev-muiw5ajt-91",
+      "fromOccurrenceId": "ev-muiw5ajt-90",
+      "toOccurrenceId": "ev-muiw5ajt-91",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ajt-91|ev-muiw5ajt-92",
+      "fromOccurrenceId": "ev-muiw5ajt-91",
+      "toOccurrenceId": "ev-muiw5ajt-92",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ajt-92|ev-muiw5ajt-93",
+      "fromOccurrenceId": "ev-muiw5ajt-92",
+      "toOccurrenceId": "ev-muiw5ajt-93",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ajt-93|ev-muiw5ajt-94",
+      "fromOccurrenceId": "ev-muiw5ajt-93",
+      "toOccurrenceId": "ev-muiw5ajt-94",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ajt-94|ev-muiw5ajt-95",
+      "fromOccurrenceId": "ev-muiw5ajt-94",
+      "toOccurrenceId": "ev-muiw5ajt-95",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     },
+     {
+      "pair": "ev-muiw5ajt-95|ev-muiw5ajt-96",
+      "fromOccurrenceId": "ev-muiw5ajt-95",
+      "toOccurrenceId": "ev-muiw5ajt-96",
+      "connector": "unexamined",
+      "expectConnectorLabel": "Not compared in this investigation"
+     }
+    ]
+   },
+   "negativeFamily": "F3",
+   "negativeRole": "OWNER",
+   "outputPath": "PLANNED native/controlled-trace-coverage-gap/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace-unresolved-origin",
+   "streamBytes": 20053,
+   "streamSha256": "3914b0ab9e47f579c2bcceece982697215d8fab51df2d824a97597a95426dd8e",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-unresolved-origin-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ahn-41",
+      "ev-muiw5ahn-42",
+      "ev-muiw5ahn-43"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-undated-section-absent",
+     "visible": true,
+     "predicate": "the separate undated/disputed section has NO items in this fixture; this is an ABSENCE assertion",
+     "actual": "dated timeline has 3 entries; undated section has 0 items",
+     "note": "distinct from a fixture whose DATED TIMELINE is itself empty"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 3,
+      "selected": 3,
+      "comparedPairs": 2,
+      "comparedPairIds": [
+       "ev-muiw5ahn-41|ev-muiw5ahn-42",
+       "ev-muiw5ahn-42|ev-muiw5ahn-43"
+      ],
+      "displayedDatedCore": 3
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 2,
+      "unresolvedOriginCount": 1,
+      "groupIds": [
+       "origin:limited-kept.test",
+       "origin:limited-kept-two.test"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:limited-kept.test",
+        "memberIds": [
+         "ev-muiw5ahn-41"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "origin:limited-kept-two.test",
+        "memberIds": [
+         "ev-muiw5ahn-42"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": [
+       "ev-muiw5ahn-43"
+      ]
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-unresolved-origin-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 3,
+    "undated": 0,
+    "eligible": 3,
+    "selected": 3,
+    "comparedPairs": 2,
+    "comparedPairIds": [
+     "ev-muiw5ahn-41|ev-muiw5ahn-42",
+     "ev-muiw5ahn-42|ev-muiw5ahn-43"
+    ],
+    "displayedDatedCore": 3,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 2,
+    "unresolvedOriginCount": 1
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ahn-41",
+     "ev-muiw5ahn-42",
+     "ev-muiw5ahn-43"
+    ],
+    "undated": [],
+    "comparedPairIds": [
+     "ev-muiw5ahn-41|ev-muiw5ahn-42",
+     "ev-muiw5ahn-42|ev-muiw5ahn-43"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ahn-41|ev-muiw5ahn-42",
+      "fromOccurrenceId": "ev-muiw5ahn-41",
+      "toOccurrenceId": "ev-muiw5ahn-42",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     },
+     {
+      "pair": "ev-muiw5ahn-42|ev-muiw5ahn-43",
+      "fromOccurrenceId": "ev-muiw5ahn-42",
+      "toOccurrenceId": "ev-muiw5ahn-43",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "F4b",
+   "negativeRole": "OWNER-unresolved-list",
+   "outputPath": "PLANNED native/controlled-trace-unresolved-origin/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-placement-disputed-vs-unknown",
+   "streamBytes": 18847,
+   "streamSha256": "6fefb484a78510ab432dd7e792e64c0db222fe946ddc5015a2d686ff2adfcd78",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Limited media history found' serializedHeadline=LIMITED_MEDIA_HISTORY_FOUND",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-placement-disputed-vs-unknown-overview-headline",
+     "visible": true,
+     "expect": "Limited media history found",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=LIMITED_MEDIA_HISTORY_FOUND"
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5aiv-53"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5aiv-54",
+      "ev-muiw5aiv-55"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5aiv-54": {
+       "dateStatus": "disputed",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5aiv-55": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {
+      "ev-muiw5aiv-54": "The retrieved dates for this occurrence disagree."
+     }
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 1,
+      "selected": 1,
+      "comparedPairs": 0,
+      "comparedPairIds": [],
+      "displayedDatedCore": 1
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 2,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "origin:placed-dated.test",
+       "dup:ev-muiw5aiv-54"
+      ],
+      "groups": [
+       {
+        "groupId": "origin:placed-dated.test",
+        "memberIds": [
+         "ev-muiw5aiv-53"
+        ],
+        "reasons": [
+         "separate_reporting_evidence"
+        ],
+        "renderedReasons": [
+         "Separate reporting evidence"
+        ]
+       },
+       {
+        "groupId": "dup:ev-muiw5aiv-54",
+        "memberIds": [
+         "ev-muiw5aiv-54",
+         "ev-muiw5aiv-55"
+        ],
+        "reasons": [
+         "article_text_duplication"
+        ],
+        "renderedReasons": [
+         "Article text duplication"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-placement-disputed-vs-unknown-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 1,
+    "undated": 2,
+    "eligible": 1,
+    "selected": 1,
+    "comparedPairs": 0,
+    "comparedPairIds": [],
+    "displayedDatedCore": 1,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 2,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5aiv-53"
+    ],
+    "undated": [
+     "ev-muiw5aiv-54",
+     "ev-muiw5aiv-55"
+    ],
+    "comparedPairIds": [],
+    "divergenceEndpoints": [],
+    "connectorEdges": []
+   },
+   "negativeFamily": "F1",
+   "negativeRole": "OWNER",
+   "outputPath": "PLANNED native/controlled-placement-disputed-vs-unknown/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "LIMITED_MEDIA_HISTORY_FOUND",
+   "expectedOverviewHeadline": "Limited media history found",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  },
+  {
+   "fixture": "controlled-trace",
+   "streamBytes": 33825,
+   "streamSha256": "4525793a0ec0697efdc877a947e0be182a3f36c05fd33466b5ea930b9f0c6186",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "imagePlannedIdentity": "PLANNED: a distinct controlled solid-colour PNG, digest pinned at integration",
+   "plannedIdentity": "expectedOverviewHUMAN='Media history reconstructed' serializedHeadline=MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedStatus": null,
+   "serializedCaveatFlag": null,
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "visibleExpectations": [
+    {
+     "id": "controlled-trace-overview-headline",
+     "visible": true,
+     "expect": "Media history reconstructed",
+     "predicate": "the selected Overview status heading text equals the frozen expected human headline",
+     "negative": "a controlled wrong serialized status/headline, or a declared harness-only removal/replacement of that rendered heading, must fail THIS SAME visible predicate",
+     "upstream": "expectedOverviewHUMAN comes from the frozen accepted status; the render path does NOT recompute policy (evaluateClaimPolicy is not called in ResultView.tsx or page.tsx)",
+     "serializedSource": "result.headline=MEDIA_HISTORY_RECONSTRUCTED"
+    },
+    {
+     "id": "controlled-trace-overview-support",
+     "visible": true,
+     "expect": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+     "predicate": "the Overview supporting text is rendered below the status heading",
+     "negative": "declared harness-only removal of the support paragraph must fail the same visible predicate"
+    },
+    {
+     "id": "controlled-trace-timeline-ids",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ad6-3",
+      "ev-muiw5ad6-4"
+     ],
+     "predicate": "each expected dated occurrence ID is present as a Timeline entry; occurrence openers are scoped to dated Timeline occurrences (TimelineView.tsx:196), NOT a universal opener"
+    },
+    {
+     "id": "controlled-trace-placement",
+     "visible": true,
+     "expectIds": [
+      "ev-muiw5ad5-1",
+      "ev-muiw5ad5-2"
+     ],
+     "predicate": "disputed/unknown items stay in the separate section labelled 'Evidence with unknown dates' headed 'Additional evidence · date unknown', each badged 'Date unknown' with the 'No usable date was retrieved for this occurrence.' line; a disputed item additionally shows 'The retrieved dates for this occurrence disagree.' bound to its actual item ID; none enters the dated timeline",
+     "negative": "an opposing mutation that moves an item into the dated timeline, or breaks these same ID/role expectations, must fail the same predicate",
+     "serializedDateStatusPrecision": {
+      "ev-muiw5ad5-1": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      },
+      "ev-muiw5ad5-2": {
+       "dateStatus": "unknown",
+       "datePrecision": "unknown"
+      }
+     },
+     "expectSectionAriaLabel": "Evidence with unknown dates",
+     "expectSectionHeading": "Additional evidence · date unknown",
+     "expectItemBadge": "Date unknown",
+     "expectNoUsableDateText": "No usable date was retrieved for this occurrence.",
+     "expectDateNoteById": {}
+    },
+    {
+     "id": "controlled-trace-analysis-coverage",
+     "visible": true,
+     "expect": {
+      "eligible": 2,
+      "selected": 2,
+      "comparedPairs": 1,
+      "comparedPairIds": [
+       "ev-muiw5ad6-3|ev-muiw5ad6-4"
+      ],
+      "displayedDatedCore": 2
+     },
+     "predicate": "the exact fixture expected values/IDs are read from the ACTUAL Analysis panel output and compared against the independent fixture expectation — never against a second projection of the same mutated value",
+     "separation": "comparisons (including unexamined edges) stay distinct from the successfully compared-pair count and from comparedPairIds"
+    },
+    {
+     "id": "controlled-trace-analysis-segments",
+     "visible": true,
+     "expect": 1,
+     "predicate": "the exact context-segment count appears only under nonempty selected + complete eligible coverage + decisive ORDERABLE adjacent comparisons; uncertainty withholds it (null)"
+    },
+    {
+     "id": "controlled-trace-analysis-origins",
+     "visible": true,
+     "expect": {
+      "reportingGroupCount": 1,
+      "unresolvedOriginCount": 0,
+      "groupIds": [
+       "dup:ev-muiw5ad6-3"
+      ],
+      "groups": [
+       {
+        "groupId": "dup:ev-muiw5ad6-3",
+        "memberIds": [
+         "ev-muiw5ad6-3",
+         "ev-muiw5ad6-4"
+        ],
+        "reasons": [
+         "article_text_duplication"
+        ],
+        "renderedReasons": [
+         "Article text duplication"
+        ]
+       }
+      ],
+      "unresolvedCandidateIds": []
+     },
+     "predicate": "the Analysis 'Reporting groups' list carries EVERY terminal reportingGroups entry (resolved undated core groups included) with its headline, humanized reasons and member links; the resolved/unresolved counts line matches the terminal counts and unresolvedCandidateIds are listed as unresolved candidates",
+     "negative": "a claimed unresolved ADDITION must fail expected group membership/count, without implying existing shared groups count zero"
+    },
+    {
+     "id": "controlled-trace-analysis-policy-not-applicable",
+     "visible": true,
+     "expect": "Deterministic policy reasons were not included in this result.",
+     "serializedBasis": {
+      "policyReasons": null,
+      "statusBasis": null
+     },
+     "predicate": "trace mode submits no claim: the terminal result carries no policyReasons and no statusBasis, so the Analysis 'Why this result' section renders the actual not-included fallback text; no gate rows are expected",
+     "negative": "a fabricated policyReasons array injected into the cached payload is a MALFORMED payload, not a policy decision; the meaningful negative is a declared harness-only removal/replacement of this rendered fallback failing the same visible predicate"
+    }
+   ],
+   "semanticSurface": {
+    "timeline": 2,
+    "undated": 2,
+    "eligible": 2,
+    "selected": 2,
+    "comparedPairs": 1,
+    "comparedPairIds": [
+     "ev-muiw5ad6-3|ev-muiw5ad6-4"
+    ],
+    "displayedDatedCore": 2,
+    "contextSegmentCount": 1,
+    "reportingGroupCount": 1,
+    "unresolvedOriginCount": 0
+   },
+   "expectedIds": {
+    "timeline": [
+     "ev-muiw5ad6-3",
+     "ev-muiw5ad6-4"
+    ],
+    "undated": [
+     "ev-muiw5ad5-1",
+     "ev-muiw5ad5-2"
+    ],
+    "comparedPairIds": [
+     "ev-muiw5ad6-3|ev-muiw5ad6-4"
+    ],
+    "divergenceEndpoints": [],
+    "connectorEdges": [
+     {
+      "pair": "ev-muiw5ad6-3|ev-muiw5ad6-4",
+      "fromOccurrenceId": "ev-muiw5ad6-3",
+      "toOccurrenceId": "ev-muiw5ad6-4",
+      "connector": "same_context",
+      "expectConnectorLabel": "Same context as previous · compared"
+     }
+    ]
+   },
+   "negativeFamily": "F4a",
+   "negativeRole": "OWNER-shared-group",
+   "outputPath": "PLANNED native/controlled-trace/{observations.json,seal.json}",
+   "recipe": {
+    "appPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5 (accepted)",
+    "runnerPin": "UNBOUND",
+    "acceptedCommandArgs": "UNBOUND — not fabricated",
+    "caseId": "UNBOUND",
+    "caseImport": "UNBOUND — 17 cases are NOT already imported",
+    "status": "TEMPLATE ONLY, pending formal owner receipt and validation against the then-accepted command schema"
+   },
+   "expectedSerializedHeadline": "MEDIA_HISTORY_RECONSTRUCTED",
+   "expectedOverviewHeadline": "Media history reconstructed",
+   "expectedOverviewSupport": "The retrieved appearances of this image are arranged below. No claim was submitted, so no context verdict is shown.",
+   "expectedOverviewNote": null,
+   "policyApplicability": "trace: not applicable - no claim submitted; terminal result carries no policyReasons or statusBasis"
+  }
+ ],
+ "unbound": {
+  "runnerPin": true,
+  "acceptedCommandArgs": true,
+  "caseId": true,
+  "caseImport": true,
+  "statement": "no accepted CLI args and no case import are invented before the maintainer receipt; every recipe field above is an explicit UNBOUND template"
+ },
+ "notClaimed": [
+  "no executable recipe",
+  "no native result",
+  "no rendered assertion executed",
+  "no maintained-CLI acceptance",
+  "no 17 new cases imported",
+  "no final all-9 recording",
+  "no full-film pacing",
+  "no genuine utility",
+  "no public/release gate"
+ ],
+ "noExecutableOrNativeResult": true,
+ "noTouched": [
+  "app",
+  "CLI",
+  "maps",
+  "features",
+  "SKILL",
+  "generator",
+  "fixtures",
+  "top-19 subset",
+  "ACK",
+  "main",
+  "public"
+ ],
+ "noBuildNoProviderNoModelNoImageGenNoFixtureGen": true,
+ "noNewPolicy": true,
+ "model": "BunnyFree only",
+ "paidFallback": false,
+ "globalPipeline": false,
+ "sharedPort3100Untouched": true,
+ "verificationAck": "PENDING (not forged)",
+ "idSetDiscipline": "evidenceIds and occurrenceIds are distinct identifier spaces and are never pooled into one total. In these 17 streams the 50 distinct dated occurrence ID values are a SUBSET of the 76 distinct carried evidence IDs, and the 26 distinct compared-pair IDs are a separate pair-key namespace; the coincidental 50+26=76 is NOT a decomposition of carried evidence.",
+ "selfCheck": {
+  "validator": "correction-final/selfcheck-map.py — offline, stdlib-only",
+  "covers": [
+   "fixture sha256+bytes for all 17 streams",
+   "every headline/support/note equals the pinned copy extracted from the app pin at runtime (null never passes)",
+   "claim gates equal terminal policyReasons; trace asserts the actual not-applicable fallback and carries no invented gates",
+   "origins groupIds/groups/unresolvedCandidateIds equal the FULL terminal reportingGroups contract",
+   "placement labels are the exact visible strings; the disputed note binds only the actual disputed IDs",
+   "the F2 connector expectation declares the actual unexamined + divergent pairs and keeps comparedPairIds a subset of connector edges",
+   "namespace counts recomputed from the streams (76 carried / 50 occurrence subset / 26 pair keys)",
+   "032 and 033 file immutability against recorded hashes",
+   "bounds 0<=selected<=eligible and 0<=comparedPairs<=max(0,selected-1)"
+  ],
+  "mutantControls": [
+   "M1 null headline -> FAIL",
+   "M2 invented trace gates -> FAIL",
+   "M3 omitted undated group -> FAIL",
+   "M4 wrong visible label -> FAIL",
+   "M5 removed declared F2 connector -> FAIL"
+  ],
+  "results": "correction-final/selfcheck-results.json and selfcheck.stdout"
+ },
+ "planSha256": "2ceb7a1cdbf2792740c497526842af0dfdaf0597cdf563ab5f6b01fe15d121ef",
+ "generator": "correction-final/build-final-map.py — deterministic rebuild from the preserved 033 map + the 17 frozen terminal results + pinned copy extracted from the app pin via git show; no value is hand-typed"
+}

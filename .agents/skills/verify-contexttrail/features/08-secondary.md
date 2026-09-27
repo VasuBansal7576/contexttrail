@@ -20,6 +20,15 @@ bin/control-contexttrail drive result --run-id <id> --view analysis [--case <fix
 bin/control-contexttrail drive result --run-id <id> --view sources --viewport mobile
 ```
 
+On `--view analysis` with an A8 fixture, each map record becomes its own
+`a8.expect.<record-id>` assertion: coverage values parsed from the rendered
+text, performed-comparison "Earlier"/"Later" buttons clicked to prove the
+opened `Occurrence ID:`, gate labels/values/support links, group members, and
+unresolved-candidate links — all scoped under
+`section[aria-label="Analysis"]` via the first `ul` after each `h3`, with
+empty sections gated off so a neighbouring list is never attributed to the
+wrong heading.
+
 ## Assertions (executable contract)
 
 Sources:
@@ -45,11 +54,33 @@ Analysis:
 | `result.analysis-reporting-group-<i>-member-link` | each declared member is listed inside its group |
 | `result.analysis-reporting-group-count-matches` | the number of rendered group headlines equals the fixture's `reportingGroups.length` and `reportingGroupCount` |
 | `result.analysis-policy-gate-<gate>` | each declared `policyReasons` gate renders with its real pass/fail |
+| `result.analysis-performed-list-count` | the "Comparisons performed" list holds one row per entry in the result's `comparisons` field — **direct rows only**, never a comparison's nested probability rows |
+| `result.analysis-performed-probability-rows` / `-probabilities-normalized` | every returned distribution renders one option row per label and sums to 1 |
+| `result.analysis-performed-probabilities-not-comparison-rows` | a probability row is never counted as a comparison |
+| `result.analysis-performed-pairs-are-displayed` / `-list-identity` | every performed pair names two occurrences the result actually displayed, and each row names those same two in order — validated **whether or not** a coverage summary exists |
+| `result.analysis-performed-list-not-invented` | with no `comparisons` field the view must say none was performed; an absent field is never read as zero |
+| `result.analysis-coverage-count-matches-performed-list` | a **known** `comparedPairs` is cross-checked against the separately supplied list even when the summary used the empty-state sentence |
+| `result.analysis-coverage-not-contradictory` | a summary may claim at most `max(0, selected − 1)` adjacent pairs — fewer is valid for imprecise/equal-date gaps — and never a pair with nothing eligible |
 | `result.analysis-no-placeholder` | panel text contains no placeholder token |
 | `result.reporting-group-not-mislabeled` | no `Shared group of N occurrence(s)` label anywhere (R4 residual — checked first so a regression is the failure that gets named) |
 | `result.reporting-group-headline` | a resolved group renders the neutral `Reporting group of N occurrence(s)` |
 | `result.reporting-group-empty-state` | when the fixture reports no groups, `No resolved reporting groups were reported` renders instead |
 | `result.tab-analysis-present` / `result.tab-analysis-selected` | tab exists and reports `aria-selected=true` |
+
+Selected-panel contrast and host clipping — every measured node is resolved
+strictly INSIDE the selected tab's own `aria-controls` panel (asserted via
+`result.selected-panel-aria-controls-resolved`), membership is re-checked per
+node, and the effective-contrast helper marks every group-forming ancestor
+with `opacity < 1` as `UNSUPPORTED` — a non-pass whose diagnostic ratio is
+never an accepted number:
+
+|| ID | What it proves |
+|| --- | --- |
+| `result.sources-contrast-sources-item-title-inside-selected-panel` / `-metadata` | the real Sources item title and metadata nodes were measured inside this panel — never the shared `ContextTrail` header or an `Open source` action link; when the fixture ships no occurrences the `No sources were retrieved.` explanation is the measured node instead (`-populated-absent` + `-empty-explanation-rendered`) |
+| `result.sources-contrast-<node>-meets-AA` | effective contrast ≥ 4.5 (3.0 for large text); `UNSUPPORTED` is a non-pass, and an unrendered node never reaches the ratio at all |
+| `result.analysis-contrast-<node>-inside-selected-panel` / `-meets-AA` | the real intro paragraph plus the **Retrieval accounting** contract nodes, resolved per the consumed state: a `requestLog` array (even one mapping to zero rows) owes the per-operation note while its row list is required-ABSENT (`-populated-absent`); absent `requestLog` + known-empty `search.batch` counts owes the `No retrieval counts were preserved…` explanation; non-empty counts owe the legacy rows; a live/unknowable contract measures whichever legitimate branch rendered (`accountingRows` may honestly render nothing) |
+| `result.analysis-retrieval-accounting-branch` | the rendered branch matches the consumed state — `requestLog` rows equal the mapped count, the legacy count list equals the folded `search.batch` counts, or the explanation paragraph — and a section that rendered nothing is red under every contract |
+| `result.sources-long-title-wraps-not-clipped` / `-empty-explanation-not-clipped` (mobile) | the longest Sources item title — or the rendered empty-state explanation when the contract is empty — lays out its FULL text on the node's own measured range: text clipped by the node itself or any clipping ancestor in either axis, and document horizontal overflow, are all red; a range that merely outruns a NON-clipping (`overflow:visible`) box is visible overflow and stays green, not just "multiple lines" |
 
 Shared with every result drive:
 
