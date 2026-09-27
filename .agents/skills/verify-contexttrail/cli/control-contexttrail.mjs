@@ -4053,34 +4053,53 @@ function technicalDetailsDisclosureReader(details) {
       const row = kids[i];
       if (row.tagName === "DT") {
         const nxt = kids[i + 1];
-        const dd = nxt && nxt.tagName === "DD" ? nxt : null;
-        rows.push({ row, dt: row, dd });
-        if (dd) i++;
+        const dds = nxt && nxt.tagName === "DD" ? [nxt] : [];
+        rows.push({ row, dts: [row], dds });
+        if (dds.length) i++;
       } else if (row.tagName === "DD") {
-        rows.push({ row, dt: null, dd: row });
+        rows.push({ row, dts: [], dds: [row] });
       } else {
+        // A wrapper row must carry exactly ONE own direct dt and ONE own
+        // direct dd — a second leaf is never silently chosen, and a nested
+        // list's pairs are never reached.
         rows.push({
           row,
-          dt: row.querySelector(":scope > dt"),
-          dd: row.querySelector(":scope > dd"),
+          dts: [...row.children].filter((c) => c.tagName === "DT"),
+          dds: [...row.children].filter((c) => c.tagName === "DD"),
         });
       }
     }
   }
+  // A field is well-formed only when its row owns exactly one dt and one dd,
+  // and effective visibility applies to the row AND BOTH actual leaves — a
+  // hidden, opacity-0 or zero-box dt/dd can never satisfy a rendered-value
+  // assertion just because its wrapper is visible.
   const fields = rows
-    .filter((r) => r.dt)
+    .filter((r) => r.dts.length > 0)
     .map((r) => ({
-      label: (r.dt.textContent ?? "").replace(/:\s*$/, ""),
-      value: r.dd ? (r.dd.textContent ?? "") : "",
-      visible: effVis(r.row),
+      label: (r.dts[0].textContent ?? "").replace(/:\s*$/, ""),
+      value: r.dds[0] ? (r.dds[0].textContent ?? "") : "",
+      unambiguous: r.dts.length === 1 && r.dds.length === 1,
+      visible:
+        effVis(r.row) &&
+        effVis(r.dts[0]) &&
+        r.dds[0] !== undefined &&
+        effVis(r.dds[0]),
     }));
   // The classification block is a direct div child of THIS disclosure whose
-  // FIRST paragraph is the heading — nested disclosures and page-metadata
-  // blocks are structurally incapable of lending a candidate.
+  // FIRST paragraph is the classification heading. Within such a block every
+  // own direct heading paragraph is a candidate — a second matching
+  // paragraph inside the same block is a second candidate, never discarded.
+  // Blocks whose first paragraph is anything else (page metadata, context
+  // comparison, prose) are not classification blocks; nested disclosures,
+  // nested lists and arbitrary body text remain structurally excluded.
+  const isHeadingPara = (p) =>
+    p && p.tagName === "P" &&
+    (p.textContent ?? "").trimStart().startsWith("Classification question answers");
   const modelParas = [...details.children]
     .filter((c) => c.tagName === "DIV")
-    .map((block) => [...block.children].find((c) => c.tagName === "P"))
-    .filter((p) => p && (p.textContent ?? "").trimStart().startsWith("Classification question answers"))
+    .filter((block) => isHeadingPara([...block.children].find((c) => c.tagName === "P")))
+    .flatMap((block) => [...block.children].filter(isHeadingPara))
     .map((p) => ({ text: (p.textContent ?? "").trimStart(), visible: effVis(p) }));
   return {
     open,
@@ -4116,16 +4135,21 @@ function technicalDetailsModelVerdict(modelParas, expectedModel) {
 }
 
 /** Scoped field-value verdict over a disclosure's own field rows: exactly one
- *  effectively-visible row carrying `label` must exist and its value must
- *  equal `expected` verbatim. Zero, hidden or duplicate candidates fail. */
+ *  row carrying `label` must exist, own exactly one direct dt/dd pair, and be
+ *  effectively visible down to both leaves — and its value must equal
+ *  `expected` verbatim. Zero, hidden-leaf, ambiguous-pair or duplicate
+ *  candidates all fail. */
 function technicalDetailsFieldVerdict(fields, labelRe, expected) {
   const cands = fields.filter((f) => labelRe.test(f.label));
-  const rendered = cands.length === 1 && cands[0].visible ? cands[0].value : null;
+  const sole = cands.length === 1 ? cands[0] : null;
+  const rendered =
+    sole && sole.unambiguous === true && sole.visible === true ? sole.value : null;
   return {
     ok: rendered !== null && rendered === expected,
     rendered,
     candidates: cands.length,
-    visible: cands.length === 1 ? cands[0].visible === true : null,
+    unambiguous: sole ? sole.unambiguous === true : null,
+    visible: sole ? sole.visible === true : null,
   };
 }
 
@@ -9186,7 +9210,7 @@ const DRIVE_CASES = {
       rec.check(
         "viewer.technical-details-retrieved-at-value",
         tsRow.ok,
-        `rendered=${tsRow.rendered ?? `absent (${tsRow.candidates} candidate(s))`} visible=${tsRow.visible} fixture=${occurrenceRow.retrievedAt}`,
+        `rendered=${tsRow.rendered ?? `absent (${tsRow.candidates} candidate(s))`} unambiguous=${tsRow.unambiguous} visible=${tsRow.visible} fixture=${occurrenceRow.retrievedAt}`,
       );
     }
     // Every rendered value must be non-empty: a label with a blank value is a
@@ -9196,21 +9220,31 @@ const DRIVE_CASES = {
       pairs.length > 0 && pairs.every(([, v]) => v.trim().length > 0),
       pairs.map(([l, v]) => `${l}=${v.slice(0, 28)}`).join(" | ").slice(0, 300),
     );
-    // The remaining identity fields must equal the fixture's own values too.
+    // The remaining identity fields must equal the fixture's own values too —
+    // same own-field validity as the timestamp: exactly one unambiguous,
+    // leaf-visible row carrying the label.
     if (occurrenceRow && typeof occurrenceRow.canonicalUrl === "string") {
-      const urlRow = pairs.find(([label]) => /canonical url/i.test(label));
+      const urlRow = technicalDetailsFieldVerdict(
+        td.fields,
+        /^canonical url$/i,
+        occurrenceRow.canonicalUrl,
+      );
       rec.check(
         "viewer.technical-details-canonical-url-value",
-        urlRow !== undefined && urlRow[1] === occurrenceRow.canonicalUrl,
-        `rendered=${urlRow ? urlRow[1] : "absent"} fixture=${occurrenceRow.canonicalUrl}`,
+        urlRow.ok,
+        `rendered=${urlRow.rendered ?? `absent (${urlRow.candidates} candidate(s))`} unambiguous=${urlRow.unambiguous} visible=${urlRow.visible} fixture=${occurrenceRow.canonicalUrl}`,
       );
     }
     if (occurrenceRow && occurrenceRow.serpPosition !== undefined) {
-      const posRow = pairs.find(([label]) => /result position/i.test(label));
+      const posRow = technicalDetailsFieldVerdict(
+        td.fields,
+        /^result position$/i,
+        String(occurrenceRow.serpPosition),
+      );
       rec.check(
         "viewer.technical-details-result-position-value",
-        posRow !== undefined && posRow[1].trim() === String(occurrenceRow.serpPosition),
-        `rendered=${posRow ? posRow[1] : "absent"} fixture=${String(occurrenceRow.serpPosition)}`,
+        posRow.ok,
+        `rendered=${posRow.rendered ?? `absent (${posRow.candidates} candidate(s))`} unambiguous=${posRow.unambiguous} visible=${posRow.visible} fixture=${occurrenceRow.serpPosition}`,
       );
     }
     // The disclosure may name engines and result types — that is its purpose —

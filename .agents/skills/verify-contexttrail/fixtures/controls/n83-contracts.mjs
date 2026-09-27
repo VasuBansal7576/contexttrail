@@ -647,7 +647,7 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
   // carries REAL toggle semantics on <details> (msg 074: never a no-op that
   // hides caller behavior). clickToggles=false injects the fault "the click
   // could not open the disclosure" for the forced-closed-at-observation case.
-  const callerPage = async (detailsHtml, { clickToggles = true } = {}) => {
+  const callerPage = async (detailsHtml, { clickToggles = true, mutate = null } = {}) => {
     const dom = new JSDOM(
       `<div role="dialog"><h3>controlled pair alpha vs beta</h3><ul></ul>${detailsHtml}</div>`,
     );
@@ -678,6 +678,7 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
       evaluate: async (fn) => fn(root),
       __opts: opts,
     });
+    if (typeof mutate === "function") mutate(doc);
     return {
       doc,
       dialog: {
@@ -712,8 +713,8 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
 
   const EXPECTED_VIEWER_ID = expectedCaseFor(fixtureName).expectedIds.timeline[0];
 
-  const runCaller = async (detailsHtml, { clickToggles = true, orderOverride = null } = {}) => {
-    const { dialog, page } = await callerPage(detailsHtml, { clickToggles });
+  const runCaller = async (detailsHtml, { clickToggles = true, orderOverride = null, mutate = null } = {}) => {
+    const { dialog, page } = await callerPage(detailsHtml, { clickToggles, mutate });
     const orderFn = orderOverride ?? fixtureViewerOrder;
     const checks = [];
     const rec = {
@@ -962,6 +963,63 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
     expect(
       "tech-details: real caller — ambiguous duplicate occurrence ID rejects",
       r.ok === false && r.failed.startsWith("viewer.technical-details-occurrence-resolved"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+
+  // R1 residuals: effective visibility must reach the actual dt/dd leaves,
+  // and a wrapper row must own exactly ONE of each — these were the six false
+  // greens in the 98e independent matrix.
+  const tsRowHtml = FIELD_ROW("Retrieved at", RENDERED_AT);
+  for (const [label, html] of [
+    ["timestamp dd [hidden]",
+      TD_DETAILS("").replace(tsRowHtml,
+        tsRowHtml.replace('<dd style="margin:0;">', '<dd hidden style="margin:0;">'))],
+    ["timestamp dt [hidden]",
+      TD_DETAILS("").replace(tsRowHtml,
+        tsRowHtml.replace('<dt style="color:#555;">', '<dt hidden style="color:#555;">'))],
+    ["timestamp dd opacity:0",
+      TD_DETAILS("").replace(tsRowHtml,
+        tsRowHtml.replace('<dd style="margin:0;">', '<dd style="margin:0;opacity:0;">'))],
+    ["timestamp row duplicate dd",
+      TD_DETAILS("").replace(tsRowHtml,
+        tsRowHtml.replace("</dd></div>", `</dd><dd style="margin:0;">${RENDERED_AT}</dd></div>`))],
+  ]) {
+    const r = await runCaller(html);
+    expect(
+      `tech-details: real caller — ${label} rejects`,
+      r.ok === false && r.failed.startsWith("viewer.technical-details-retrieved-at-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    // Zero-box dd: geometry is scripted in jsdom — mark the leaf with
+    // __zeroBox so the real effVis reads a zero rendered box on the value.
+    const r = await runCaller(TD_DETAILS(""), {
+      mutate: (doc) => {
+        const dd = [...doc.querySelectorAll("dd")].find((d) =>
+          (d.textContent ?? "") === RENDERED_AT);
+        dd.__zeroBox = true;
+      },
+    });
+    expect(
+      "tech-details: real caller — zero-box timestamp dd rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-retrieved-at-value"),
+      `ok=${r.ok} failed=${r.failed}`,
+    );
+  }
+  {
+    // R2: a SECOND matching heading paragraph inside the SAME classification
+    // block — first-p selection must not discard it.
+    const sameBlockDup = TD_DETAILS("").replace(
+      `<p style="margin-top:2px;">Evidence item produced by the context pruning pass.</p>`,
+      `<p>Classification question answers · ${MODEL}</p>` +
+        `<p style="margin-top:2px;">Evidence item produced by the context pruning pass.</p>`,
+    );
+    const r = await runCaller(sameBlockDup);
+    expect(
+      "tech-details: real caller — same-block duplicate classification heading rejects",
+      r.ok === false && r.failed.startsWith("viewer.technical-details-model-value"),
       `ok=${r.ok} failed=${r.failed}`,
     );
   }
