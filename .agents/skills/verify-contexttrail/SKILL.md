@@ -102,17 +102,30 @@ Implemented drives (seven):
   fixture's own counts (takeaways, timeline occurrences, source rows) and
   fails on any placeholder token (`undefined`/`null`/`NaN`/`Invalid Date`).
 - `viewer --entry timeline|sources|takeaway --case
-  image-load|image-fail|no-excerpt|pair` — opens the evidence dialog from each
-  entry point and asserts media load or honest fallback, position
-  counter/next/previous, source-link safety (`rel` containing `noopener`),
-  technical-details **values** against the fixture's own row, viewport-correct
-  visibility of the image-mode group, and focus restoration after Escape —
-  including after the `Technical details` disclosure was used.
+  image-load|image-fail|no-excerpt|pair
+  [--focus-fallback hidden|disabled|disconnected|tabindex-negative]` — opens
+  the evidence dialog from each entry point and asserts media load or honest
+  fallback, position counter/next/previous, source-link safety (`rel`
+  containing `noopener`), fixture-row attribution (the rendered Evidence ID
+  resolves to a real fixture row, the source link and title are that row's
+  own, the excerpt is a strict prefix of its own excerpt), technical-details
+  **values** against the fixture's own row, viewport-correct visibility of the
+  image-mode group, and keyed focus restoration after Escape — including after
+  the `Technical details` disclosure was used.
+  - Focus is proven from a per-frame `document.activeElement` sample log
+    installed before navigation: every element that takes focus carries a
+    recorded `data-ctfk` key, the dialog-close marker is the frame the log
+    actually recorded the dialog leaving the DOM, and the settle requires the
+    final consecutive run of ≥3 frames to carry the expected element's key in
+    every sample. `--focus-fallback <kind>` mutates the keyed opener into the
+    named un-restorable state while the dialog is open and expects focus on the
+    selected tab's key; it cannot combine with `--fault` (exit 2).
   - `--case image-load` additionally attributes the rendered pixels: the
-    `src` must equal the image the **fixture** shipped for that occurrence and
-    must differ from the submitted image's `src`, so non-substitution is proved
-    rather than assumed. Media state is read with a bounded, non-waiting DOM
-    read.
+    `src` must equal the image the **fixture** shipped for that occurrence,
+    must differ from the submitted image's `src`, and the image must pass the
+    visible-image predicate — complete, decoded, non-transparent, rendered, in
+    viewport, hidden by no ancestor, with no running animation at rest. Media
+    state is read with a bounded, non-waiting DOM read.
   - `--case pair` replays `controlled-pair` and asserts a real paired
     divergence: both endpoints exist and are adjacent, the rendered navigation
     order equals the fixture's flat viewer order, each side shows its own id
@@ -123,9 +136,13 @@ Implemented drives (seven):
   ancestors, 4.5:1 normal / 3:1 large — no stored constants), keyboard-visible
   focus compared with the same element unfocused, the full result-tablist
   keyboard pattern (ArrowRight ×2, Home, End, ArrowLeft) including the roving
-  tabindex and the matching visible panel, and reduced motion emulated with
-  settled content and a 44px primary target. `result` runs the tablist pattern
-  and its contrast pass on the result surface.
+  tabindex and the matching visible panel, a zero running-animation count on
+  the settled screen, and a real interactive-control sweep where enabled
+  controls under the 44px floor are recorded as secondary inconsistencies —
+  and reduced motion emulated with settled content and a 44px primary target.
+  `result` runs the tablist pattern, its contrast pass, the selected-panel
+  contrast pass and (on mobile) the long-title wrap/clip check on the result
+  surface.
 - `session --case refresh|back|new|cancel|fatal-retry` — refresh restore
   offer / restore / discard, browser Back, New investigation, cancellation and
   fatal-interruption surfaces, including that the claim and image survive and
@@ -251,6 +268,11 @@ Provenance is per drive, not per run:
   stream the plan declared — sourced from the plan, not the end ledger — and a
   missing plan, missing ledger, divergence between them, or a lost/corrupted
   retained file fails the seal non-zero.
+- The drive record itself is fail-closed (`driveOutcomeOk`): PASS requires a
+  complete record with integer pass/fail/info totals, zero failed assertions
+  and a positive assertion count. `evidence` records a `recordVerdict` per
+  drive, and a drive that CLAIMS `outcome: "PASS"` on a malformed record
+  (`malformedPassRecords`) fails the seal non-zero.
 
 ## Live input contract
 
@@ -358,6 +380,27 @@ are never wired into production, and are labeled in evidence as
     which re-runs the real orchestrator with controlled provider mocks and
     rewrites the streams. Regenerate after any contract change, then re-run
     the contract suite without the flag.
+- `fixtures/controls/*.mjs` are the offline predicate controls. Each imports
+  the REAL exported predicates from `cli/control-contexttrail.mjs` — never a
+  copy that can drift — and runs positive plus opposing isolated negatives with
+  no browser, server or provider: `focus-settle.mjs` (keyed settle, close
+  marker, dwell, descriptor-only weakness, the four invalid-opener fallbacks,
+  fail-closed drive records), `contrast-panel.mjs` (aria-controls panel scope,
+  AA thresholds, UNSUPPORTED as a non-pass despite diagnostic ratios),
+  `media-predicates.mjs` (visible image, wrap/clipping, interactive targets,
+  at-rest motion), `stream-buffer-provenance.mjs`, `request-projection.mjs`,
+  `retained-integrity.mjs`, `reading-order-target.mjs` and
+  `assertions-durable.mjs`. Run them after any predicate change; they exit
+  non-zero on the first unexpected verdict.
+- The selected-panel contrast pass (`result.<view>-contrast-*`) measures named
+  content nodes strictly inside the selected tab's own `aria-controls` panel:
+  membership is asserted per node, canvas resolves whatever color format the
+  browser reports (including `oklab`/`oklch`), own opacity and the ancestor
+  opacity product enter the effective foreground alpha, and every
+  group-forming ancestor with `opacity < 1` is verdict `UNSUPPORTED` — a
+  non-pass whose diagnostic `contrastRatio` is never an accepted number.
+  These predicates prove behavior on the controlled fixtures; they do not
+  establish global accessibility coverage or release acceptance.
 - `.verify/` is gitignored scratch; evidence inside it survives cleanup by
   design.
 - `evidence --run-id <id>` seals the run: after sealing, further `drive`

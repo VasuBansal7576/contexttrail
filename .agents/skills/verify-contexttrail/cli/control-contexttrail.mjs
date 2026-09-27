@@ -2535,9 +2535,10 @@ const FEATURE_SPECS = {
     anyFixtureCase: true,
   },
   viewer: {
-    options: ["entry", "case", "delay-ms", "image", "claim-text"],
+    options: ["entry", "case", "delay-ms", "image", "claim-text", "focus-fallback"],
     entries: ["timeline", "sources", "takeaway"],
     cases: ["image-load", "image-fail", "no-excerpt", "pair"],
+    focusFallbacks: ["hidden", "disabled", "disconnected", "tabindex-negative"],
     defaultEntry: "timeline",
     defaultCase: "image-load",
   },
@@ -2738,6 +2739,26 @@ function parseDriveOptions(opts = {}) {
       fail(
         `--fault ${flags.fault} cannot be applied to this ${feature} drive — ${violation}. ` +
           "An inert fault is a false green, so it is refused instead of accepted.",
+      );
+    }
+  }
+
+  // The viewer's invalid-opener scenario: mutate the recorded trigger into one
+  // of the four states the product's restorable-target check rejects, and the
+  // settle must land on the selected tab. It is a scenario flag, not a fault —
+  // the expected outcome is a PASS proving the fallback, and combining it with
+  // a sabotage fault would make the intended result ambiguous.
+  if (flags["focus-fallback"] !== undefined) {
+    if (!spec.focusFallbacks) fail(`unsupported option(s) for ${feature}: --focus-fallback`);
+    if (!spec.focusFallbacks.includes(flags["focus-fallback"])) {
+      fail(
+        `unsupported --focus-fallback ${flags["focus-fallback"]} (supported: ${spec.focusFallbacks.join("|")})`,
+      );
+    }
+    if (flags.fault !== undefined) {
+      fail(
+        `--focus-fallback cannot be combined with --fault ${flags.fault}: the fallback is an asserted ` +
+          "positive contract and a second sabotage would make the outcome ambiguous",
       );
     }
   }
@@ -3758,6 +3779,680 @@ async function settleFocusFault(page) {
     .catch(() => {});
 }
 
+/* --------------- focus restore acquisition and settle ------------------- *
+ * Maintained integration of the accepted focus-fallback correction (FD1/FD2).
+ * The recorded per-DOM-element key is the primary stability identity — two
+ * elements that share a label are still two elements. The settle window starts
+ * at the ACTUAL recorded dialog close (derived from the same sampled log), the
+ * expected key must hold across every sample of the claimed stable run, and a
+ * descriptor-only run is marked weaker and rejected when key basis is required.
+ * The predicates below are pure; the drives call them and the offline controls
+ * in fixtures/controls/ import them, so both exercise one implementation. */
+
+/** Installed with page.addInitScript before the drive navigates. Samples
+ *  document.activeElement once per animation frame into __ctFocusLog, assigns a
+ *  durable data-ctfk key to every element that holds focus, records whether a
+ *  [role=dialog] is open on that frame, and exposes __ctFocusKey/__ctFocusDescribe
+ *  so the drive can key and describe the opener and the fallback tab. */
+const FOCUS_SAMPLER_FN = `(() => {
+  if (window.__ctFocusLog) return true;
+  window.__ctFocusKeySeq = window.__ctFocusKeySeq || 0;
+  window.__ctFocusLog = [];
+  const keyOf = (el) => {
+    if (!el || !el.setAttribute) return null;
+    let k = el.getAttribute('data-ctfk');
+    if (!k) { window.__ctFocusKeySeq += 1; k = 'ctfk-' + window.__ctFocusKeySeq; el.setAttribute('data-ctfk', k); }
+    return k;
+  };
+  window.__ctFocusKey = keyOf;
+  const describe = (el) => {
+    if (!el || el === document.body) return { tag: el ? 'BODY' : 'null', label: null, role: null, selected: null, key: null };
+    return {
+      tag: el.tagName,
+      label: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 60) || null,
+      role: el.getAttribute('role') || null,
+      selected: el.getAttribute('aria-selected'),
+      key: keyOf(el),
+    };
+  };
+  window.__ctFocusDescribe = (el) => {
+    if (!el) return null;
+    const cs = el.ownerDocument && el.ownerDocument.defaultView ? el.ownerDocument.defaultView.getComputedStyle(el) : null;
+    return {
+      ...describe(el),
+      connected: el.isConnected === true,
+      rendered: !!cs && cs.display !== 'none' && cs.visibility !== 'hidden' && el.getClientRects().length > 0,
+      disabled: el.disabled === true,
+      tabIndex: typeof el.tabIndex === 'number' ? el.tabIndex : null,
+    };
+  };
+  const tick = () => {
+    window.__ctFocusLog.push({
+      frame: window.__ctFocusLog.length,
+      dialogOpen: !!document.querySelector('[role="dialog"]'),
+      active: describe(document.activeElement),
+    });
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  return true;
+})()`;
+
+/** Full element descriptor read in-page; returns null when the sampler was
+ *  never installed, so a missing sampler can never be read as a valid target. */
+const FOCUS_DESCRIPTOR_FN = `(el) => (window.__ctFocusDescribe ? window.__ctFocusDescribe(el) : null)`;
+
+/**
+ * Primary stability identity: the recorded per-element key when one exists.
+ * A descriptor (role|selected|label) is the fallback ONLY when no key was
+ * recorded, and is marked basis 'descriptor-only' — weaker proof that cannot
+ * distinguish two elements sharing a label.
+ */
+function focusIdentityOf(active) {
+  if (!active || active.tag === "BODY" || active.tag === "null") {
+    return { id: "BODY", basis: "descriptor-only" };
+  }
+  if (active.key !== undefined && active.key !== null && active.key !== "") {
+    return { id: `key:${active.key}`, basis: "recorded-key" };
+  }
+  return {
+    id: `desc:${[active.role ?? "", active.selected ?? "", active.label ?? ""].join("|")}`,
+    basis: "descriptor-only",
+  };
+}
+
+/**
+ * The ACTUAL recorded close: the first sampled frame after the last frame on
+ * which a [role=dialog] was observed open. null when the log never recorded an
+ * open dialog — callers must fail closed on null rather than guessing a frame.
+ */
+function deriveDialogCloseMarker(samples) {
+  if (!Array.isArray(samples) || samples.length === 0) return null;
+  let lastOpen = -1;
+  for (const s of samples) {
+    if (s && s.dialogOpen === true && typeof s.frame === "number") lastOpen = s.frame;
+  }
+  if (lastOpen < 0) return null;
+  return lastOpen + 1;
+}
+
+/**
+ * The product's isRestorableFocusTarget contract, applied to the descriptor the
+ * drive recorded for the trigger: BODY/null, disconnected, not rendered
+ * (display:none / visibility:hidden / zero rects), disabled, or tabIndex < 0
+ * are all invalid and force the selected-tab fallback.
+ */
+function restorableFocusTargetOk(d) {
+  if (!d || typeof d !== "object") return { ok: false, reason: "no-recorded-trigger" };
+  if (d.tag === "BODY" || d.tag === "null") return { ok: false, reason: "body-or-null" };
+  if (d.connected === false) return { ok: false, reason: "disconnected" };
+  if (d.rendered === false) return { ok: false, reason: "not-rendered" };
+  if (d.disabled === true) return { ok: false, reason: "disabled" };
+  if (typeof d.tabIndex === "number" && d.tabIndex < 0) return { ok: false, reason: "tabindex-negative" };
+  return { ok: true, reason: "restorable" };
+}
+
+/**
+ * What focus must settle on after the dialog closes: the recorded opener's key
+ * when the opener is still restorable, otherwise the selected tab's key. A run
+ * with neither a key-able opener nor a key-able tab has no usable expectation
+ * and cannot pass.
+ */
+function focusRestoreExpectation({ opener, selectedTab }) {
+  const rest = restorableFocusTargetOk(opener);
+  if (rest.ok && typeof opener?.key === "string" && opener.key !== "") {
+    return { key: opener.key, basis: "recorded-opener", openerRestorable: true, openerReason: rest.reason };
+  }
+  if (typeof selectedTab?.key === "string" && selectedTab.key !== "") {
+    return {
+      key: selectedTab.key,
+      basis: "selected-tab-fallback",
+      openerRestorable: false,
+      openerReason: rest.reason,
+    };
+  }
+  return { key: null, basis: "no-usable-target", openerRestorable: rest.ok, openerReason: rest.reason };
+}
+
+/**
+ * Did focus settle on the expected element after the recorded close? Samples
+ * before the supplied close marker are excluded; only the FINAL consecutive
+ * identity run can satisfy the dwell, and the expected key must hold across
+ * EVERY sample of that run — an A/B/A same-label sequence is not stability.
+ * Malformed input (non-array samples, no samples at/after the marker, a run
+ * shorter than the dwell) is a failure, never a pass.
+ */
+function settleFocusRun(samples, closeMarker, expected, opts = {}) {
+  const dwell = opts.dwell ?? 3;
+  const maxFrames = opts.maxFrames ?? 90;
+
+  if (!Array.isArray(samples)) {
+    return { ok: false, reason: "samples-not-an-array", problems: ["samples must be an array"], closeMarker, observed: 0, final: null, finalRunLength: 0 };
+  }
+  if (typeof closeMarker !== "number" || !Number.isFinite(closeMarker)) {
+    return { ok: false, reason: "no-recorded-close-marker", problems: ["no recorded dialog-close marker was supplied"], closeMarker: closeMarker ?? null, observed: 0, final: null, finalRunLength: 0 };
+  }
+
+  const from = samples.filter((s) => s && typeof s.frame === "number" && s.frame >= closeMarker);
+  const window = from.slice(0, maxFrames);
+  if (window.length === 0) {
+    return { ok: false, reason: "no-samples-at-or-after-close-marker", problems: ["no samples at or after the recorded close marker"], closeMarker, observed: 0, final: null, finalRunLength: 0 };
+  }
+
+  // Walk forward, CLEARING the candidate on every identity change so only the
+  // final consecutive run can be reported.
+  let candidate = focusIdentityOf(window[0].active);
+  let runStart = window[0].frame;
+  let runLength = 1;
+  for (let i = 1; i < window.length; i++) {
+    const id = focusIdentityOf(window[i].active);
+    if (id.id === candidate.id) {
+      runLength++;
+    } else {
+      candidate = id;
+      runStart = window[i].frame;
+      runLength = 1;
+    }
+  }
+
+  const run = window.filter((s) => s.frame >= runStart);
+  const bases = new Set(run.map((s) => focusIdentityOf(s.active).basis));
+
+  const problems = [];
+  // The expected key must hold across EVERY sample of the claimed run, not
+  // just the final one.
+  if (expected?.key) {
+    for (const s of run) {
+      const k = s.active?.key ?? null;
+      if (k !== expected.key) problems.push(`expected key ${expected.key} but frame ${s.frame} has ${k}`);
+    }
+  }
+  if (expected?.requireKeyBasis && !bases.has("recorded-key")) {
+    problems.push("expected a recorded-key identity but the stable run is descriptor-only (weaker proof)");
+  }
+  if (run.length > 0) {
+    const last = run[run.length - 1].active;
+    if (expected?.tag && last?.tag !== expected.tag) problems.push(`tag mismatch: expected ${expected.tag}, got ${last?.tag}`);
+    if (expected?.role != null && (last?.role ?? null) !== expected.role) problems.push(`role mismatch: expected ${expected.role}, got ${last?.role ?? null}`);
+    if (expected?.selected != null && (last?.selected ?? null) !== expected.selected) problems.push(`selected mismatch: expected ${expected.selected}, got ${last?.selected ?? null}`);
+    if (expected?.labelIncludes && !String(last?.label ?? "").toLowerCase().includes(expected.labelIncludes.toLowerCase())) {
+      problems.push(`label mismatch: expected to include ${expected.labelIncludes}, got ${last?.label}`);
+    }
+  }
+
+  if (runLength < dwell) {
+    problems.push(`never stabilized: final consecutive run is ${runLength}, required dwell is ${dwell}`);
+    return {
+      ok: false,
+      reason: "never-stabilized-within-bounded-wait",
+      problems,
+      closeMarker,
+      settledAtFrame: null,
+      finalRunLength: runLength,
+      stabilityBasis: [...bases],
+      final: window[window.length - 1].active,
+      bodyFrames: window.filter((s) => focusIdentityOf(s.active).id === "BODY").length,
+      observed: window.length,
+    };
+  }
+
+  return {
+    ok: problems.length === 0,
+    reason: problems.length === 0 ? "settled-on-expected-target" : "settled-on-unexpected-target",
+    problems,
+    closeMarker,
+    settledAtFrame: runStart,
+    finalRunLength: runLength,
+    stabilityBasis: [...bases],
+    proofStrength: bases.has("recorded-key") ? "recorded-element-identity" : "descriptor-only (weaker: cannot distinguish same-label elements)",
+    final: window[window.length - 1].active,
+    bodyFrames: window.filter((s) => focusIdentityOf(s.active).id === "BODY").length,
+    observed: window.length,
+  };
+}
+
+/** The kinds of invalid opener state a --focus-fallback drive can apply while
+ *  the dialog is open — the four prerequisites the product checks before
+ *  restoring the recorded trigger. */
+const FOCUS_FALLBACK_KINDS = ["hidden", "disabled", "disconnected", "tabindex-negative"];
+
+/** Applies one invalid-opener mutation in-page, addressed by the recorded key
+ *  so exactly the element the product captured is mutated. Returns the post-
+ *  mutation descriptor as after, or {mutated:false} when the keyed element is
+ *  gone. */
+const FOCUS_OPENER_MUTATE_FN = `([key, kind]) => {
+  const el = document.querySelector('[data-ctfk="' + key + '"]');
+  if (!el) return { mutated: false, reason: 'recorded opener not found by key', key, kind };
+  const before = window.__ctFocusDescribe ? window.__ctFocusDescribe(el) : null;
+  if (kind === 'hidden') el.style.display = 'none';
+  else if (kind === 'disabled') el.disabled = true;
+  else if (kind === 'disconnected') el.remove();
+  else if (kind === 'tabindex-negative') el.setAttribute('tabindex', '-1');
+  else return { mutated: false, reason: 'unknown kind ' + kind };
+  return {
+    mutated: true,
+    kind,
+    key,
+    before,
+    after: window.__ctFocusDescribe ? window.__ctFocusDescribe(el) : null,
+  };
+}`;
+
+/**
+ * The post-close read: pull the sampled log, derive the ACTUAL recorded close
+ * marker from it, re-describe the currently selected tab (a re-rendered tab is
+ * a new element and keys itself fresh), and evaluate the settle against the
+ * recorded-key expectation. Callers turn the pieces into named assertions.
+ */
+async function readFocusSettle(page, { opener }) {
+  const log = await page.evaluate(() => window.__ctFocusLog ?? []).catch(() => []);
+  const closeMarker = deriveDialogCloseMarker(log);
+  const selectedTab = await page
+    .evaluate(
+      `(${FOCUS_DESCRIPTOR_FN})([...document.querySelectorAll('[role="tab"]')].find((t) => t.getAttribute('aria-selected') === 'true') ?? null)`,
+    )
+    .catch(() => null);
+  const expectation = focusRestoreExpectation({ opener, selectedTab });
+  const settle = settleFocusRun(
+    log,
+    closeMarker,
+    { key: expectation.key ?? "ct-no-usable-target", requireKeyBasis: true },
+  );
+  return { log, closeMarker, selectedTab, expectation, settle };
+}
+
+/* ------------- effective contrast (accepted A10 correction 2) ------------- *
+ * The canvas-resolved, own-and-ancestor-opacity aware single-node contrast
+ * function. EVERY group break (a group-forming ancestor with opacity < 1) is a
+ * verdict of UNSUPPORTED — this helper is not a general CSS compositor and must
+ * never silently emit a number for a layer shape it cannot model. UNSUPPORTED
+ * is a non-pass; the diagnostic contrastRatio it still carries is not a result. */
+const EFFECTIVE_CONTRAST_FN = `
+(() => {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 1;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const cache = new Map();
+  const toRGBA = (c) => {
+    if (c === 'transparent') return { r: 0, g: 0, b: 0, a: 0 };
+    if (cache.has(c)) return cache.get(c);
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = '#000000'; ctx.fillStyle = c;
+    ctx.clearRect(0, 0, 1, 1); ctx.fillRect(0, 0, 1, 1);
+    const d = ctx.getImageData(0, 0, 1, 1).data;
+    const o = { r: d[0], g: d[1], b: d[2], a: d[3] / 255 };
+    cache.set(c, o); return o;
+  };
+  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+  const over = (fg, bg) => ({ r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 });
+  const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b); const [hi, lo] = l1 > l2 ? [l1, l2] : [l2, l1]; return (hi + 0.05) / (lo + 0.05); };
+  const op = (el) => { const o = parseFloat(getComputedStyle(el).opacity); return Number.isFinite(o) ? o : 1; };
+
+  window.__ctEffectiveContrast = (el) => {
+    const cs = getComputedStyle(el);
+    const ownOpacity = op(el);
+    const fgRaw = toRGBA(cs.color);
+    const unsupported = [];
+    const chain = [];
+    for (let p = el; p; p = p.parentElement) chain.push(p);
+    let acc = null;
+    let groupOpacity = 1;
+    const groupBreaks = [];
+    for (const p of chain) {
+      const pcs = getComputedStyle(p);
+      const pbg = toRGBA(pcs.backgroundColor);
+      const po = op(p);
+      if (pbg.a > 0) {
+        const under = { ...pbg, a: pbg.a * (p === el ? 1 : po) };
+        acc = acc === null ? under : over(acc, under);
+        if (acc.a >= 0.999) acc = { ...acc, a: 1 };
+      }
+      if (po < 1) {
+        groupBreaks.push({ tag: p.tagName, opacity: po, ownBackgroundAlpha: pbg.a, backgroundShape: pbg.a >= 0.999 ? 'opaque' : (pbg.a > 0 ? 'translucent' : 'none') });
+        unsupported.push({ tag: p.tagName, opacity: po, backgroundShape: pbg.a >= 0.999 ? 'opaque' : (pbg.a > 0 ? 'translucent' : 'none'),
+          reason: 'a group-forming ancestor (opacity < 1) is not modelled correctly by this helper; measured composition is not attempted' });
+        acc = { r: acc ? acc.r : 0, g: acc ? acc.g : 0, b: acc ? acc.b : 0, a: (acc ? acc.a : 0) * po };
+        groupOpacity *= po;
+      }
+    }
+    let backdrop = { r: 255, g: 255, b: 255, a: 1 };
+    if (acc && acc.a > 0) backdrop = over(acc, backdrop);
+    const ancestorGroupOpacity = groupOpacity / (ownOpacity || 1);
+    const effectiveAlpha = fgRaw.a * ownOpacity * ancestorGroupOpacity;
+    const fgEff = { r: fgRaw.r, g: fgRaw.g, b: fgRaw.b, a: effectiveAlpha };
+    const fgOnBg = over(fgEff, backdrop);
+    const r = ratio(fgOnBg, backdrop);
+    return {
+      text: (el.textContent || '').trim().slice(0, 70),
+      tag: el.tagName,
+      role: el.getAttribute('role'),
+      className: (el.className && el.className.baseVal !== undefined ? el.className.baseVal : String(el.className || '')).slice(0, 90),
+      fontSizePx: parseFloat(cs.fontSize),
+      fontWeight: cs.fontWeight,
+      computedColor: cs.color,
+      computedBackground: cs.backgroundColor,
+      ownOpacity,
+      ownColorAlpha: fgRaw.a,
+      effectiveAlpha: Number(effectiveAlpha.toFixed(4)),
+      ancestorOpacityProduct: Number((groupOpacity / (ownOpacity || 1)).toFixed(4)),
+      groupBreaks,
+      unsupportedLayerConfigurations: unsupported,
+      effectiveBackground: { r: Math.round(backdrop.r), g: Math.round(backdrop.g), b: Math.round(backdrop.b) },
+      effectiveForeground: { r: Math.round(fgOnBg.r), g: Math.round(fgOnBg.g), b: Math.round(fgOnBg.b) },
+      contrastRatio: Number(r.toFixed(3)),
+      verdict: unsupported.length > 0 ? 'UNSUPPORTED' : 'COMPUTED',
+    };
+  };
+  return true;
+})()
+`;
+
+/** AA threshold: 4.5 normal text, 3.0 large (>=24px, or >=18.66px bold). */
+function aaThreshold(fontSizePx, fontWeight) {
+  const large = fontSizePx >= 24 || (fontSizePx >= 18.66 && Number(fontWeight) >= 700);
+  return { threshold: large ? 3.0 : 4.5, large };
+}
+
+/** The single pass predicate. An UNSUPPORTED configuration is a non-pass: the
+ *  helper still returns a diagnostic contrastRatio for an unmodelled group, and
+ *  that number is never an accepted computed ratio. */
+function contrastVerdictFor(node, threshold) {
+  if (!node || typeof node !== "object") return { pass: false, why: "no contrast record" };
+  if (node.verdict === "UNSUPPORTED") return { pass: false, why: "unsupported layer configuration" };
+  if (node.verdict !== "COMPUTED") return { pass: false, why: `unknown verdict ${JSON.stringify(node.verdict)}` };
+  if (!Number.isFinite(node.contrastRatio)) return { pass: false, why: "no computed ratio" };
+  return { pass: node.contrastRatio >= threshold, why: `${node.contrastRatio} vs ${threshold}` };
+}
+
+/**
+ * The accepted selected-panel contrast node set: for each result view, the
+ * representative content nodes the correction measured INSIDE the selected
+ * tab's aria-controls panel (real source title/metadata and panel copy — never
+ * the shared ContextTrail header or an action link). Representative nodes, not
+ * every row.
+ */
+const PANEL_NODE_TARGETS = {
+  sources: [
+    { key: "sources-li-title", selector: "li p.font-medium", note: "the real Sources LI title, not the source action link" },
+    { key: "sources-li-metadata", selector: "li p.text-sm", note: "the adjacent Sources LI metadata line (domain · date · date source)" },
+  ],
+  analysis: [
+    { key: "analysis-intro-paragraph", selector: "p.mt-2.max-w-3xl", note: "the real Analysis panel intro paragraph" },
+    { key: "analysis-coverage-entry", selector: "li.text-ink\\/75, li > span", note: "a real Analysis coverage entry line" },
+    { key: "analysis-coverage-note", selector: "p.mt-2.text-xs", note: "a real Analysis coverage trailing note" },
+  ],
+  timeline: [
+    { key: "timeline-panel-heading", selector: "h2", note: "the real Timeline panel heading" },
+    { key: "timeline-panel-body", selector: "p", note: "the real Timeline panel body paragraph" },
+    { key: "timeline-panel-note", selector: "p:last-of-type", note: "the real Timeline panel trailing note" },
+  ],
+};
+
+/**
+ * Did the selected tab's aria-controls resolve to a real panel? The record must
+ * carry the tab's own aria-controls attribute, a matching panel id and the
+ * tabpanel role — anything else means the measurement would have no scope.
+ */
+function panelScopeOk(info) {
+  return (
+    !!info &&
+    typeof info.tabAriaControls === "string" &&
+    info.tabAriaControls.length > 0 &&
+    info.panelExists === true &&
+    info.panelId === info.tabAriaControls &&
+    info.panelRole === "tabpanel"
+  );
+}
+
+/** Measures one node strictly INSIDE the resolved panel and reports whether it
+ *  actually belongs there — a selector that escapes the panel fails the
+ *  membership check instead of measuring a shared header. */
+const PANEL_MEASURE_FN = `({ panelId, selector }) => {
+  const panel = document.getElementById(panelId);
+  if (!panel) return { found: false, reason: 'no panel', panelId, selector };
+  const el = panel.querySelector(selector);
+  if (!el) return { found: false, reason: 'selector matched nothing inside the panel', panelId, selector };
+  const owner = el.closest('[id^="ct-panel-"]');
+  const membership = owner ? owner.id : null;
+  const node = window.__ctEffectiveContrast ? window.__ctEffectiveContrast(el) : null;
+  return {
+    found: true,
+    membership,
+    isInsidePanel: panel.contains(el),
+    node,
+    tag: el.tagName,
+    selector,
+    text: (el.textContent || '').trim().slice(0, 70),
+  };
+}`;
+
+async function measurePanelContrast(page, panelId, selector) {
+  return page.evaluate(
+    `(${PANEL_MEASURE_FN})(${JSON.stringify({ panelId, selector })})`,
+  );
+}
+
+/* -------- media visibility, wrap/clipping, targets, at-rest motion -------- *
+ * The accepted A10 source-scoped predicates. A decoded image that is hidden,
+ * truncated or still animating is not a visible render; a wrapped title that is
+ * line-clamped or ellipsised is clipped, not wrapped; and a 44px claim is
+ * measured on real interactive controls, not paragraphs. */
+
+/**
+ * Visible-image probe: scope + alt prefix select the image, then the record
+ * covers completeness, decode, a non-transparent pixel, ancestor-effective
+ * hiding (display, visibility, hidden, aria-hidden, opacity, content-visibility
+ * on EVERY ancestor), rendered geometry, viewport presence and running
+ * animations. A hidden image is RED under exactly this predicate.
+ */
+const VISIBLE_IMAGE_FN = `([scopeSel, altPrefix]) => {
+  const scope = scopeSel ? document.querySelector(scopeSel) : document;
+  const img = scope ? scope.querySelector('img[alt^="' + altPrefix + '"]') : null;
+  if (!img) return { present: false, reason: 'no image matching ' + altPrefix + ' inside ' + (scopeSel || 'document') };
+  const cs = getComputedStyle(img);
+  const rect = img.getBoundingClientRect();
+  const hiddenBy = [];
+  for (let p = img; p; p = p.parentElement) {
+    const pcs = getComputedStyle(p);
+    if (pcs.display === 'none') hiddenBy.push({ tag: p.tagName, reason: 'display:none' });
+    if (pcs.visibility === 'hidden' || pcs.visibility === 'collapse') hiddenBy.push({ tag: p.tagName, reason: 'visibility:' + pcs.visibility });
+    if (p.hasAttribute && p.hasAttribute('hidden')) hiddenBy.push({ tag: p.tagName, reason: 'hidden attribute' });
+    if (p.getAttribute && p.getAttribute('aria-hidden') === 'true') hiddenBy.push({ tag: p.tagName, reason: 'aria-hidden=true' });
+    const o = parseFloat(pcs.opacity);
+    if (Number.isFinite(o) && o === 0) hiddenBy.push({ tag: p.tagName, reason: 'opacity:0' });
+    if (pcs.contentVisibility === 'hidden') hiddenBy.push({ tag: p.tagName, reason: 'content-visibility:hidden' });
+  }
+  let ownOpacity = parseFloat(cs.opacity);
+  ownOpacity = Number.isFinite(ownOpacity) ? ownOpacity : 1;
+  const inViewport = rect.width > 0 && rect.height > 0
+    && rect.bottom > 0 && rect.right > 0
+    && rect.top < (window.innerHeight || 0) && rect.left < (window.innerWidth || 0);
+  const renderedGeometry = rect.width > 0 && rect.height > 0;
+  let visiblePixels = null, decodeOk = false, decodeError = null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+    visiblePixels = n; decodeOk = true;
+  } catch (e) { decodeError = String(e).slice(0, 120); }
+  const anims = img.getAnimations ? img.getAnimations().map((a) => ({ type: a.constructor ? a.constructor.name : 'unknown', playState: a.playState })) : [];
+  return {
+    present: true,
+    alt: img.getAttribute('alt'),
+    src: (img.getAttribute('src') || '').slice(0, 400),
+    complete: img.complete,
+    naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight,
+    visiblePixels, decodeOk, decodeError,
+    ownOpacity,
+    renderedGeometry, inViewport,
+    rect: { width: Math.round(rect.width), height: Math.round(rect.height), top: Math.round(rect.top) },
+    hiddenBy,
+    runningAnimations: anims, runningAnimationCount: anims.filter((a) => a.playState === 'running').length,
+  };
+}`;
+
+/** The single visible-image predicate. */
+function visibleImageVerdict(s) {
+  if (!s?.present) return { pass: false, why: s?.reason ?? "no image" };
+  if (s.hiddenBy.length > 0) return { pass: false, why: `hidden by ${s.hiddenBy.map((h) => h.tag + ":" + h.reason).join(", ")}` };
+  if (s.ownOpacity === 0) return { pass: false, why: "own opacity 0" };
+  if (!s.renderedGeometry) return { pass: false, why: "zero rendered geometry" };
+  if (!s.inViewport) return { pass: false, why: "not in the viewport" };
+  if (s.complete !== true || s.naturalWidth <= 0 || !s.decodeOk) return { pass: false, why: `not decoded (complete=${s.complete} naturalWidth=${s.naturalWidth} decodeError=${s.decodeError ?? "none"})` };
+  if ((s.visiblePixels ?? 0) <= 0) return { pass: false, why: "no non-transparent pixel" };
+  return { pass: true, why: `visible, ${s.visiblePixels} pixels, ${s.rect.width}x${s.rect.height}` };
+}
+
+/** At-rest motion on a media record: no running Web/CSS animations. A record
+ *  that never counted its animations cannot pass. */
+function motionAtRestOk(record) {
+  return Number.isInteger(record?.runningAnimationCount) && record.runningAnimationCount === 0;
+}
+
+/**
+ * No-clipping probe for a wrapped text node: finds the host element whose
+ * trimmed text equals the needle, measures the FULL text range's laid-out
+ * bounds, and reports every explicit clipping shape — line-clamp, ellipsis,
+ * hidden/clipped overflow, line rects outside the host box, document-level
+ * horizontal overflow. "Multiple lines, no page overflow" alone is not proof:
+ * a clamped title can satisfy that while showing half its text.
+ */
+const CLIP_FN = `(needle) => {
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node, host = null;
+  while ((node = walk.nextNode())) {
+    if ((node.nodeValue || '').trim() === needle) { host = node.parentElement; break; }
+  }
+  if (!host) return { found: false, needle: needle.slice(0, 60) };
+  const range = document.createRange();
+  let full = null, clippedChars = 0;
+  try {
+    range.selectNodeContents(host);
+    const rects = Array.from(range.getClientRects());
+    full = rects.length
+      ? { width: Math.round(Math.max(...rects.map((r) => r.right)) - Math.min(...rects.map((r) => r.left))),
+          height: Math.round(rects.reduce((a, r) => a + (r.bottom - r.top), 0)),
+          lineCount: rects.length }
+      : null;
+    if (full) {
+      const hr = host.getBoundingClientRect();
+      clippedChars = Array.from(range.getClientRects()).filter((r) => r.bottom > hr.bottom + 1 || r.top < hr.top - 1).length;
+    }
+  } catch (e) { /* reported below */ }
+  const cs = getComputedStyle(host);
+  const doc = document.documentElement;
+  return {
+    found: true,
+    tag: host.tagName,
+    className: String(host.className || '').slice(0, 100),
+    textLength: needle.length,
+    fullContentBounds: full,
+    lineClampApplied: cs.webkitLineClamp && cs.webkitLineClamp !== 'none',
+    textOverflowEllipsis: cs.textOverflow === 'ellipsis',
+    verticalOverflowHidden: cs.overflowY === 'hidden' || cs.overflowY === 'clip',
+    overflowHidden: cs.overflow === 'hidden' || cs.overflow === 'clip',
+    clippedLineRects: clippedChars,
+    overflowWrap: cs.overflowWrap, wordBreak: cs.wordBreak, whiteSpace: cs.whiteSpace,
+    textOverflow: cs.textOverflow,
+    fullTextRendered: (host.textContent || '').trim() === needle,
+    documentScrollWidth: doc.scrollWidth, documentClientWidth: doc.clientWidth,
+    horizontalOverflow: doc.scrollWidth > doc.clientWidth + 1,
+  };
+}`;
+
+/** The wrap verdict: every clipping shape is a red, and the full string must
+ *  actually be laid out. */
+function wrapVerdict(r) {
+  if (!r || r.found !== true) return { pass: false, why: "the text node was not found" };
+  const problems = [];
+  if (r.lineClampApplied) problems.push("line-clamp applied");
+  if (r.textOverflowEllipsis) problems.push("text-overflow:ellipsis");
+  if (r.verticalOverflowHidden) problems.push("vertical overflow hidden/clip");
+  if (r.overflowHidden) problems.push("overflow hidden/clip");
+  if ((r.clippedLineRects ?? 0) > 0) problems.push(`${r.clippedLineRects} line rect(s) outside the host box`);
+  if (r.fullTextRendered !== true) problems.push("the full string is not rendered");
+  if (r.horizontalOverflow) problems.push("document horizontal overflow");
+  return problems.length
+    ? { pass: false, why: problems.join("; ") }
+    : { pass: true, why: `${r.fullContentBounds?.lineCount ?? "?"} line(s), ${r.fullContentBounds?.width ?? "?"}px wide, wraps without clipping` };
+}
+
+/** A real interactive control measurement: geometry of an actual control. */
+const TARGET_FN = `(el) => {
+  if (!el) return { found: false };
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return {
+    found: true,
+    tag: el.tagName, role: el.getAttribute('role'),
+    accessibleName: (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 60),
+    width: Math.round(r.width), height: Math.round(r.height),
+    minHeight44: r.height >= 44, minWidth44: r.width >= 44,
+    interactive: el.tagName === 'BUTTON' || el.tagName === 'A' || ['button','link','menuitem','tab','checkbox'].includes(el.getAttribute('role') || ''),
+    disabled: el.disabled === true, ariaDisabled: el.getAttribute('aria-disabled'),
+    display: cs.display, visibility: cs.visibility,
+  };
+}`;
+
+/** The target verdict. PRIMARY controls owe the 44px floor. A secondary
+ *  control under 44px is a recorded inconsistency, not a mandatory violation —
+ *  pass:true with belowPrimaryFloor flagged so the record carries it. */
+function targetVerdict(t, { primary = true } = {}) {
+  if (!t || t.found !== true) return { pass: false, why: "control not found" };
+  if (t.interactive !== true) return { pass: false, why: "not an interactive control" };
+  if (t.disabled === true || t.ariaDisabled === "true") return { pass: false, why: "control disabled" };
+  if (!(t.width > 0) || !(t.height > 0)) return { pass: false, why: "no rendered box" };
+  if (primary && t.height < 44) return { pass: false, why: `primary control ${t.height}px tall < 44px` };
+  return { pass: true, why: `${t.width}x${t.height}`, belowPrimaryFloor: t.height < 44 };
+}
+
+/**
+ * Fail-closed verdict for a maintained drive record: a verdict is computed only
+ * from a complete, internally consistent record. A missing/malformed assertions
+ * block, a missing complete flag, an unknown outcome, a PASS with failed
+ * assertions or zero assertions, or a FAIL with nothing recorded are all
+ * non-pass — an empty or truncated drive.json is never acceptance.
+ */
+function driveOutcomeOk(record) {
+  const problems = [];
+  if (!record || typeof record !== "object" || Array.isArray(record)) {
+    return { ok: false, problems: ["drive record is not an object"] };
+  }
+  const a = record.assertions;
+  if (!a || typeof a !== "object" || Array.isArray(a)) {
+    problems.push("assertions block missing or not an object");
+  } else {
+    for (const k of ["pass", "fail", "info"]) {
+      if (!Number.isInteger(a[k]) || a[k] < 0) problems.push(`assertions.${k} missing or not a non-negative integer (got ${JSON.stringify(a[k])})`);
+    }
+  }
+  if (typeof record.complete !== "boolean") problems.push("complete flag missing or not boolean");
+  if (!["PASS", "FAIL", "INCOMPLETE"].includes(record.outcome)) {
+    problems.push(`outcome ${JSON.stringify(record.outcome)} is not a known verdict`);
+  }
+  if (problems.length === 0) {
+    if (record.outcome === "PASS") {
+      if (record.complete !== true) problems.push("PASS recorded on an incomplete drive");
+      if (a.fail > 0) problems.push(`PASS with ${a.fail} failed assertion(s)`);
+      if (a.pass + a.fail === 0) problems.push("PASS with zero assertions — an empty run is never acceptance");
+    }
+    if (record.outcome === "FAIL" && a.fail === 0 && !record.failure) {
+      problems.push("FAIL with no failed assertion and no failure record");
+    }
+    if (record.complete !== true && record.outcome !== "INCOMPLETE") {
+      problems.push(`incomplete drive must record INCOMPLETE, not ${record.outcome}`);
+    }
+    if (record.complete === true && record.outcome === "INCOMPLETE") {
+      problems.push("a complete drive cannot record INCOMPLETE");
+    }
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 /** Divergence endpoints a fixture actually ships, or null. */
 function fixtureDivergence(name) {
   const r = fixtureResult(name);
@@ -3848,6 +4543,18 @@ function fixtureViewerImages(name) {
   return [...(r.timeline ?? []), ...(r.supportingEvidence ?? []), ...(r.contextualEvidence ?? []), ...(
     r.undatedEvidence ?? []
   )].map((o) => o.imageUrl ?? o.thumbnailUrl ?? null);
+}
+
+/** The fixture's own occurrence row for an evidence id, for excerpt and
+ *  attribution identity checks — never a locator's self-report. */
+function fixtureOccurrence(name, id) {
+  const r = fixtureResult(name);
+  if (!r || typeof id !== "string" || id === "") return null;
+  return (
+    [...(r.timeline ?? []), ...(r.supportingEvidence ?? []), ...(r.contextualEvidence ?? []), ...(
+      r.undatedEvidence ?? []
+    )].find((o) => (o.evidenceId ?? o.occurrenceId) === id) ?? null
+  );
 }
 
 /**
@@ -4913,11 +5620,15 @@ const DRIVE_CASES = {
       );
       const id = selected?.getAttribute("aria-controls") ?? null;
       const panel = id ? document.getElementById(id) : null;
-      if (!panel) return { observedTab: null, panelId: null, settled: false, rowsInPanel: 0 };
+      if (!panel) return { observedTab: (selected?.textContent || "").trim(), tabAriaControls: id, panelId: id, panelExists: false, panelRole: null, settled: false, rowsInPanel: 0 };
       const r = panel.getBoundingClientRect();
       return {
         observedTab: (selected?.textContent || "").trim(),
+        tabAriaControls: id,
         panelId: id,
+        panelExists: true,
+        panelRole: panel.getAttribute("role"),
+        panelAriaLabelledby: panel.getAttribute("aria-labelledby"),
         settled: r.height > 1,
         rowsInPanel: panel.querySelectorAll("li,dd,p,span,a,td,div").length,
       };
@@ -4927,6 +5638,16 @@ const DRIVE_CASES = {
       measurementSurfaceOk(requestedView, panelInfo),
       `requested "${requestedView}", observed tab "${panelInfo.observedTab}", panel ${panelInfo.panelId} ` +
         `settled=${panelInfo.settled} (${panelInfo.rowsInPanel} candidate nodes inside that panel)`,
+    );
+    // The scope itself is asserted: the selected tab's own aria-controls must
+    // resolve to a real [role=tabpanel] whose id matches. The A10 defect was a
+    // broad selector union that measured shared headers — every contrast node
+    // below is resolved strictly inside this resolved panel.
+    rec.check(
+      "result.selected-panel-aria-controls-resolved",
+      panelScopeOk(panelInfo),
+      `tab aria-controls=${panelInfo.tabAriaControls} panel=${panelInfo.panelId} ` +
+        `exists=${panelInfo.panelExists} role=${panelInfo.panelRole}`,
     );
     // RO2: settle on a CONFIRMED state, not a fixed delay. For the restoration
     // variant that means waiting until the injected stylesheet is actually gone
@@ -4997,6 +5718,92 @@ const DRIVE_CASES = {
         `visual domIndex order ${JSON.stringify(layout.visualDomSequence.slice(0, 8))}` +
         (layout.outOfOrder ? ` — first divergence ${JSON.stringify(layout.outOfOrder)}` : ""),
     );
+
+    // Selected-panel effective contrast (accepted A10 correction 2): each
+    // accepted node is resolved strictly INSIDE the selected tab's own
+    // aria-controls panel, membership is asserted per node, own opacity and
+    // ancestor opacity enter the effective foreground alpha, and ANY
+    // group-forming ancestor with opacity < 1 is verdict UNSUPPORTED — a
+    // non-pass whose diagnostic ratio is never an accepted number.
+    const panelTargets = PANEL_NODE_TARGETS[view] ?? [];
+    if (panelTargets.length > 0 && panelScopeOk(panelInfo)) {
+      await page.evaluate(EFFECTIVE_CONTRAST_FN).catch(() => {});
+      const measured = [];
+      for (const t of panelTargets) {
+        const m = await measurePanelContrast(page, panelInfo.panelId, t.selector).catch((e) => ({
+          found: false,
+          reason: String(e),
+        }));
+        rec.check(
+          `result.${view}-contrast-${t.key}-inside-selected-panel`,
+          m.found === true && m.isInsidePanel === true && m.membership === panelInfo.panelId,
+          JSON.stringify({ key: t.key, note: t.note, found: m.found, membership: m.membership ?? null, reason: m.reason ?? null }),
+        );
+        if (m.found !== true || !m.node) continue;
+        const th = aaThreshold(m.node.fontSizePx, m.node.fontWeight);
+        const v = contrastVerdictFor(m.node, th.threshold);
+        measured.push({
+          key: t.key,
+          selector: t.selector,
+          membership: m.membership,
+          text: m.text,
+          threshold: th.threshold,
+          pass: v.pass,
+          ...m.node,
+        });
+        rec.check(
+          `result.${view}-contrast-${t.key}-meets-AA`,
+          v.pass,
+          `${m.node.verdict} ${v.why} — "${(m.text ?? "").slice(0, 50)}"` +
+            (m.node.unsupportedLayerConfigurations?.length
+              ? ` (unmodelled group(s): ${m.node.unsupportedLayerConfigurations.map((u) => `${u.tag}@${u.opacity}`).join(", ")})`
+              : ""),
+        );
+      }
+      rec.check(
+        `result.${view}-contrast-surface-measured`,
+        measured.length > 0 || panelInfo.rowsInPanel === 0,
+        `${measured.length} node(s) measured inside ${panelInfo.panelId}; panel rows=${panelInfo.rowsInPanel}`,
+      );
+      writeJson(path.join(driveDir, `panel-contrast-${view}.json`), {
+        view,
+        panelId: panelInfo.panelId,
+        scope: {
+          tabAriaControls: panelInfo.tabAriaControls,
+          panelRole: panelInfo.panelRole,
+          panelAriaLabelledby: panelInfo.panelAriaLabelledby,
+        },
+        measured,
+      });
+    }
+
+    // Host clipping on mobile: the longest rendered Sources title must lay out
+    // its FULL text — line-clamp, ellipsis, overflow-clipped lines and document
+    // horizontal overflow are all red, not just "multiple lines observed".
+    if (viewport === "mobile" && view === "sources" && panelScopeOk(panelInfo)) {
+      const longest = await page.evaluate((pid) => {
+        const panel = document.getElementById(pid);
+        if (!panel) return null;
+        const texts = [...panel.querySelectorAll("li p")]
+          .map((p) => (p.textContent || "").trim())
+          .filter((t) => t.length > 0);
+        return texts.sort((a, b) => b.length - a.length)[0] ?? null;
+      }, panelInfo.panelId);
+      const clip = longest
+        ? await page.evaluate(`(${CLIP_FN})(${JSON.stringify(longest)})`).catch((e) => ({ found: false, reason: String(e) }))
+        : { found: false, reason: "no Sources title text" };
+      const wv = wrapVerdict(clip);
+      rec.check(
+        "result.sources-long-title-wraps-not-clipped",
+        wv.pass,
+        `${wv.why}${clip.found === true ? ` — ${clip.textLength} chars, bounds=${JSON.stringify(clip.fullContentBounds)}` : ` — ${clip.reason ?? "not found"}`}`,
+      );
+      writeJson(path.join(driveDir, "mobile-title-clip.json"), {
+        panelId: panelInfo.panelId,
+        longest: longest === null ? null : longest.slice(0, 80),
+        clip,
+      });
+    }
 
     await shot(page, driveDir, `01-result-${view}`);
     await aria(page, driveDir, `result-${view}`);
@@ -5451,6 +6258,10 @@ const DRIVE_CASES = {
     // and the asserted surface are the same fixture. A LIVE run has no fixture:
     // it asserts the dialog contract and records what the real response showed.
     const fixture = live ? null : driveFixture("viewer", vcase);
+    // The focus sampler must be installed before the first navigation so the
+    // per-frame log covers the dialog's open and its ACTUAL recorded close —
+    // the settle below derives the close marker from this log, never a guess.
+    await page.addInitScript(FOCUS_SAMPLER_FN);
     if (stream && !live) stream.planFast(fixture, delayMs);
     await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
     await submitButton(page).click();
@@ -5500,6 +6311,36 @@ const DRIVE_CASES = {
       await aria(page, driveDir, `viewer-no-evidence-${entry}`);
       return;
     }
+
+    // Record the focus contract BEFORE the dialog opens: the opener the product
+    // will capture as its trigger (document.activeElement at click time) and
+    // the currently selected tab it falls back to. Both carry durable
+    // per-element keys assigned by the sampler, so "focus returned" compares
+    // element identity, not a label two different elements could share.
+    const openerDesc = await entryBtn.evaluate(FOCUS_DESCRIPTOR_FN).catch(() => null);
+    const selectedTabDesc = await page
+      .evaluate(
+        `(${FOCUS_DESCRIPTOR_FN})([...document.querySelectorAll('[role="tab"]')].find((t) => t.getAttribute('aria-selected') === 'true') ?? null)`,
+      )
+      .catch(() => null);
+    rec.check(
+      "viewer.focus-targets-recorded",
+      typeof openerDesc?.key === "string" && openerDesc.key !== "" &&
+        typeof selectedTabDesc?.key === "string" && selectedTabDesc.key !== "",
+      JSON.stringify({ opener: openerDesc, selectedTab: selectedTabDesc }),
+    );
+    writeJson(path.join(driveDir, "focus-targets.json"), { entry, opener: openerDesc, selectedTab: selectedTabDesc });
+    // The product captures document.activeElement synchronously in the click
+    // handler, so the opener must hold focus at that instant — a click that
+    // never focused it would record the tab instead and quietly exercise the
+    // "click that never focused it" branch rather than the valid one.
+    await entryBtn.focus();
+    const focusAtTrigger = await entryBtn.evaluate((el) => document.activeElement === el).catch(() => false);
+    rec.check(
+      "viewer.opener-holds-focus-at-trigger",
+      focusAtTrigger === true,
+      "the recorded trigger is document.activeElement captured synchronously on open; the opener must hold focus at that instant",
+    );
 
     await entryBtn.click();
 
@@ -5600,6 +6441,24 @@ const DRIVE_CASES = {
         `retrieved=${state.src === null ? "none" : "present"} submitted=${state.submittedSrc === null ? "none" : "present"} same=${state.src === state.submittedSrc}`,
       );
       rec.note("viewer.image-state-observed", JSON.stringify(state));
+      // Decode, ancestor-effective visibility and at-rest motion through the
+      // accepted media predicate — a decoded image that is display:none,
+      // aria-hidden, zero-geometry or still animating is not a visible render.
+      const media = await page
+        .evaluate(`(${VISIBLE_IMAGE_FN})(${JSON.stringify(['[role="dialog"]', "Retrieved image"])})`)
+        .catch((e) => ({ present: false, reason: String(e) }));
+      const vis = visibleImageVerdict(media);
+      rec.check(
+        "viewer.image-decoded-and-rendered",
+        vis.pass,
+        `${vis.why} (hiddenBy=${media.hiddenBy?.length ?? "?"} rect=${JSON.stringify(media.rect ?? null)})`,
+      );
+      rec.check(
+        "viewer.image-no-running-animation-at-rest",
+        motionAtRestOk(media),
+        `runningAnimationCount=${media.runningAnimationCount ?? "unmeasured"}`,
+      );
+      writeJson(path.join(driveDir, "viewer-media.json"), media);
     } else if (vcase === "image-fail") {
       await fallback.waitFor({ timeout: 15_000 });
       const stillRendered = (await dialog.locator('img[alt^="Retrieved image"]').count()) > 0;
@@ -5791,6 +6650,64 @@ const DRIVE_CASES = {
     rec.check("viewer.source-link-url", /^https?:\/\//.test(href ?? ""), String(href));
     rec.check("viewer.source-link-noopener", target === "_blank" && rel.includes("noopener"), `target=${target} rel=${rel}`);
 
+    // The open occurrence is attributed to the FIXTURE row it came from: the
+    // source link must point at that row's own URL, the dialog must render its
+    // title, and the excerpt must be that row's own excerpt — a truncated
+    // rendering is still a strict prefix of it. None of this is read from the
+    // locator's own claim.
+    const openIdNow = live ? null : await viewerEvidenceId(dialog);
+    const openRow = live ? null : fixtureOccurrence(fixture, openIdNow);
+    if (!live) {
+      rec.check(
+        "viewer.occurrence-attributed-to-fixture",
+        openRow !== null,
+        `rendered Evidence ID ${openIdNow ?? "none"} resolves to a fixture row`,
+      );
+    }
+    if (openRow) {
+      const urls = [openRow.canonicalUrl, openRow.sourceUrl].filter((u) => typeof u === "string" && u !== "");
+      rec.check(
+        "viewer.source-link-targets-occurrence",
+        urls.length > 0 && urls.includes(href),
+        `href=${href} fixture=${urls.join(" | ")}`,
+      );
+      const dialogText = (await dialog.innerText()).replace(/\s+/g, " ");
+      const wantTitle = String(openRow.title ?? "").replace(/\s+/g, " ").trim();
+      rec.check(
+        "viewer.attribution-matches-occurrence",
+        wantTitle !== "" && dialogText.includes(wantTitle),
+        `occurrence title "${wantTitle.slice(0, 60)}" must render in the dialog`,
+      );
+      const quote = await dialog.locator("blockquote").first().innerText().catch(() => null);
+      if (typeof openRow.excerpt === "string" && openRow.excerpt.trim().length > 0) {
+        // Excerpt identity is read against the FIXTURE row's own excerpt: the
+        // rendered quote (when a quote element exists) must be a strict prefix
+        // of it — typographic wrapping and an ellipsis suffix are allowed — or
+        // the excerpt's own leading text must appear verbatim in the dialog.
+        // A merely plausible-looking quote is not identity.
+        const core = (quote ?? "")
+          .replace(/^[“”"'\s]+|[“”"'\s]+$/g, "")
+          .replace(/…\s*$/, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        const want = openRow.excerpt.replace(/\s+/g, " ").trim();
+        const leading = want.slice(0, Math.min(48, want.length));
+        const identified =
+          (core.length > 0 && want.startsWith(core)) || (leading.length >= 8 && dialogText.includes(leading));
+        rec.check(
+          "viewer.excerpt-matches-occurrence",
+          identified,
+          `rendered "${(core || dialogText.slice(0, 50)).slice(0, 50)}" vs fixture excerpt (${want.length} chars) for ${openIdNow}`,
+        );
+      } else {
+        rec.check(
+          "viewer.excerpt-absent-when-fixture-has-none",
+          /no excerpt available/i.test(dialogText) && quote === null,
+          `fixture has no excerpt for ${openIdNow}; rendered quote=${quote === null ? "none" : "present"}`,
+        );
+      }
+    }
+
     // A plain close, with no in-dialog interaction, must hand focus back out
     // of the dialog — focus landing on <body> is lost focus.
     //
@@ -5813,17 +6730,48 @@ const DRIVE_CASES = {
     await dialog.waitFor({ state: "hidden", timeout: 10_000 });
     rec.check("viewer.escape-closes", true, "dialog hidden");
     await settleFocusFault(page);
-    const focusAfter = await settledActiveElement(page);
-    const backOnEntry = await entryBtn.evaluate((el) => document.activeElement === el).catch(() => false);
+    // Focus can pass through <body> between the unmount and the passive
+    // restore, so the settle is read from the per-frame SAMPLED LOG once the
+    // active element stops changing — never a single immediate read. The close
+    // marker is the frame the log actually recorded the dialog leaving the
+    // DOM, and the expected element is identified by its recorded key: two
+    // same-label controls cannot satisfy each other's run.
+    const first = await readFocusSettle(page, { opener: openerDesc });
+    writeJson(path.join(driveDir, "focus-settle-close.json"), {
+      closeMarker: first.closeMarker,
+      expectation: first.expectation,
+      selectedTab: first.selectedTab,
+      settle: { ...first.settle },
+      framesObserved: first.log.length,
+    });
+    rec.check(
+      "viewer.focus-close-marker-recorded",
+      first.closeMarker !== null,
+      first.closeMarker === null
+        ? "the sampler never observed an open dialog — there is no recorded close to settle from"
+        : `the dialog's recorded close is frame ${first.closeMarker} of the sampled log`,
+    );
+    rec.check(
+      "viewer.focus-expectation-computed",
+      first.expectation.key !== null,
+      `expectation=${first.expectation.basis} key=${first.expectation.key} openerRestorable=${first.expectation.openerRestorable}`,
+    );
     rec.check(
       "viewer.focus-not-left-in-hidden-dialog",
-      focusAfter?.inDialog !== true,
-      JSON.stringify({ trigger, focusAfter }),
+      first.settle.final !== null && first.settle.final?.tag !== "BODY" && first.settle.final?.tag !== "null",
+      JSON.stringify({ trigger, final: first.settle.final, bodyFrames: first.settle.bodyFrames }),
     );
     rec.check(
       "viewer.focus-restored-after-close",
-      focusAfter !== null && backOnEntry,
-      JSON.stringify({ trigger, focusAfter, backOnEntry }),
+      first.settle.ok && first.expectation.basis === "recorded-opener",
+      `settled on ${first.expectation.basis} (key ${first.expectation.key}) ` +
+        `run=${first.settle.finalRunLength} at frame ${first.settle.settledAtFrame} — ${first.settle.reason}` +
+        (first.settle.problems.length ? ` problems=${JSON.stringify(first.settle.problems)}` : ""),
+    );
+    rec.check(
+      "viewer.focus-settle-basis-is-recorded-key",
+      first.settle.stabilityBasis?.includes("recorded-key") === true,
+      `stability basis ${JSON.stringify(first.settle.stabilityBasis)} — a descriptor-only settle is weaker proof and does not satisfy this assertion`,
     );
 
     // Reopen for the technical-details assertions: they only exist once the
@@ -5926,18 +6874,76 @@ const DRIVE_CASES = {
     // does to a plain close: a focus left on <body> is lost focus, and it is
     // asserted rather than observed.
     const triggerAfterDetails = await activeElement(page);
+
+    // --focus-fallback <kind>: the recorded opener is made un-restorable while
+    // the drawer is open — hidden, disabled, disconnected or tabindex="-1",
+    // the four prerequisites the product's restore check rejects — and the
+    // settle below must land on the SELECTED TAB's key instead.
+    let fallbackMutation = null;
+    if (flags["focus-fallback"] !== undefined) {
+      fallbackMutation = await page
+        .evaluate(
+          `(${FOCUS_OPENER_MUTATE_FN})(${JSON.stringify([openerDesc?.key ?? "", flags["focus-fallback"]])})`,
+        )
+        .catch((e) => ({ mutated: false, reason: String(e) }));
+      const stillOk = fallbackMutation?.mutated === true
+        ? restorableFocusTargetOk(fallbackMutation.after)
+        : { ok: true, reason: "mutation never landed" };
+      rec.check(
+        "viewer.focus-fallback-opener-made-invalid",
+        fallbackMutation?.mutated === true && stillOk.ok === false,
+        JSON.stringify({
+          kind: flags["focus-fallback"],
+          mutated: fallbackMutation?.mutated,
+          restorableReason: stillOk.reason,
+          after: fallbackMutation?.after ?? null,
+        }),
+      );
+    }
+
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "hidden", timeout: 10_000 });
     await delay(200);
     await settleFocusFault(page);
-    const focusAfterDetails = await settledActiveElement(page);
-    const backOnEntryAfterDetails = await entryBtn
-      .evaluate((el) => document.activeElement === el)
-      .catch(() => false);
+    const second = await readFocusSettle(page, {
+      opener: fallbackMutation?.mutated === true ? fallbackMutation.after : openerDesc,
+    });
+    writeJson(path.join(driveDir, "focus-settle-disclosure-close.json"), {
+      fallbackMutation,
+      closeMarker: second.closeMarker,
+      expectation: second.expectation,
+      selectedTab: second.selectedTab,
+      settle: { ...second.settle },
+      framesObserved: second.log.length,
+    });
+    rec.check(
+      "viewer.focus-close-marker-recorded-after-disclosure",
+      second.closeMarker !== null,
+      second.closeMarker === null
+        ? "the sampler never observed the dialog's second open/close — no recorded close to settle from"
+        : `the dialog's recorded close is frame ${second.closeMarker} of the sampled log`,
+    );
+    if (fallbackMutation !== null) {
+      rec.check(
+        "viewer.focus-fallback-lands-on-selected-tab",
+        second.settle.ok &&
+          second.expectation.basis === "selected-tab-fallback" &&
+          second.expectation.key === second.selectedTab?.key,
+        `expectation=${second.expectation.basis} key=${second.expectation.key} ` +
+          `settled=${second.settle.reason} run=${second.settle.finalRunLength}` +
+          (second.settle.problems.length ? ` problems=${JSON.stringify(second.settle.problems)}` : ""),
+      );
+    }
     rec.check(
       "viewer.focus-return-after-disclosure-close",
-      focusAfterDetails !== null && backOnEntryAfterDetails,
-      JSON.stringify({ triggerAfterDetails, focusAfterDetails, backOnEntryAfterDetails }),
+      second.settle.ok,
+      JSON.stringify({
+        triggerAfterDetails,
+        basis: second.expectation.basis,
+        final: second.settle.final,
+        reason: second.settle.reason,
+        problems: second.settle.problems,
+      }),
     );
 
     await shot(page, driveDir, `01-viewer-${entry}-${vcase}`);
@@ -6858,6 +7864,57 @@ const DRIVE_CASES = {
     const h = box?.height ?? 0;
     rec.check("a11y.submit-target-44px", h >= 44, `${h}px`);
 
+    // At-rest motion is measured on the settled screen itself: a recorded
+    // running-animation count of zero is required — no observation, no pass.
+    await page
+      .evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+      .catch(() => {});
+    const motion = await page.evaluate(() => {
+      const anims = (document.getAnimations ? document.getAnimations() : []).map((a) => ({
+        type: a.constructor ? a.constructor.name : "unknown",
+        playState: a.playState,
+      }));
+      return {
+        total: anims.length,
+        runningAnimationCount: anims.filter((a) => a.playState === "running").length,
+        animations: anims.slice(0, 12),
+      };
+    });
+    rec.check(
+      "a11y.no-running-animation-at-rest",
+      motionAtRestOk(motion),
+      `${motion.runningAnimationCount ?? "unmeasured"} running animation(s) of ${motion.total} on the settled screen`,
+    );
+
+    // The 44px floor is measured on real interactive controls — a paragraph's
+    // height is not a hit target. Every visible interactive element is
+    // measured; enabled controls below the floor are RECORDED as secondary
+    // inconsistencies (the accepted Back-link finding is exactly that shape),
+    // not falsely failed against the primary requirement.
+    const targets = await page
+      .evaluate(`(() => {
+        const fn = ${TARGET_FN};
+        return [...document.querySelectorAll('a[href], button, [role="button"], [role="tab"], [role="link"]')]
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => fn(el));
+      })()`)
+      .catch(() => []);
+    rec.check(
+      "a11y.interactive-targets-measured",
+      targets.length > 0 && targets.every((t) => t.found === true && t.interactive === true && t.width > 0 && t.height > 0),
+      `${targets.length} interactive control(s) measured on real geometry`,
+    );
+    const targetsBelowFloor = targets.filter(
+      (t) => t.found === true && t.interactive === true && t.disabled !== true && t.ariaDisabled !== "true" && t.height > 0 && t.height < 44,
+    );
+    rec.note(
+      "a11y.secondary-targets-below-44px",
+      targetsBelowFloor.length === 0
+        ? "none"
+        : targetsBelowFloor.map((t) => `"${(t.accessibleName ?? "").slice(0, 40)}" ${t.width}x${t.height}`).join(" | "),
+    );
+    writeJson(path.join(driveDir, "interactive-targets.json"), { viewport, targets, belowFloor: targetsBelowFloor });
+
     // Contrast of the primary heading against its painted background.
     const contrast = await page.evaluate(() => {
       const parse = (c) => {
@@ -7090,6 +8147,11 @@ async function evidence() {
           info: assertions.filter((a) => a.status === "INFO").length,
         },
         recordedAssertions: d.complete === true ? (d.assertions ?? null) : null,
+        // FD2 for the maintained record itself: a verdict is computed only
+        // from a complete, internally consistent drive.json — a missing or
+        // malformed assertions block, an unknown outcome or a PASS with
+        // failed/zero assertions is never read as acceptance.
+        recordVerdict: driveOutcomeOk(d),
         assertionsMatchRecord:
           d.complete !== true || d.assertions == null
             ? null
@@ -7194,6 +8256,14 @@ async function evidence() {
       recorded: d.recordedAssertions,
     }));
 
+  // A drive record that CLAIMS pass while being malformed (missing/incomplete
+  // assertion totals, unknown outcome, or pass asserted alongside failures or
+  // zero assertions) is never accepted — the seal names every such drive and
+  // fails, the same way it fails assertion-record divergence.
+  const malformedPassRecords = drives
+    .filter((d) => d.outcome === "PASS" && d.recordVerdict?.ok === false)
+    .map((d) => ({ driveId: d.driveId, problems: d.recordVerdict.problems }));
+
   const summary = {
     runId,
     generation: generation(runId),
@@ -7218,6 +8288,7 @@ async function evidence() {
     },
     retainedIntegrityOk: retainedOk,
     assertionDivergence,
+    malformedPassRecords,
     appRevision: m.revision,
     buildId: m.buildId,
     live: m.live === true,
@@ -7269,6 +8340,7 @@ async function evidence() {
       retainedStreams: summary.retainedStreams,
       retainedIntegrityOk: summary.retainedIntegrityOk,
       assertionDivergence: summary.assertionDivergence,
+      malformedPassRecords: summary.malformedPassRecords,
     }),
   );
   // The seal is written either way, so the failure is inspectable, but a run whose
@@ -7298,6 +8370,14 @@ async function evidence() {
               `${x.driveId} records ${x.recorded.pass}P/${x.recorded.fail}F/${x.recorded.info}I ` +
               `but the durable file holds ${x.durable.pass}P/${x.durable.fail}F/${x.durable.info}I`,
           )
+          .join("; "),
+    );
+  }
+  if (malformedPassRecords.length > 0) {
+    failures.push(
+      `FAILED malformed PASS record(s): ` +
+        malformedPassRecords
+          .map((x) => `${x.driveId} claims PASS but ${x.problems.join(", ")}`)
           .join("; "),
     );
   }
@@ -7414,6 +8494,34 @@ export {
   measurementSurfaceOk,
   startStreamServer,
   Recorder,
+  // Focus-settle predicates (accepted focus-fallback correction semantics).
+  focusIdentityOf,
+  deriveDialogCloseMarker,
+  restorableFocusTargetOk,
+  focusRestoreExpectation,
+  settleFocusRun,
+  // Selected-panel effective contrast (accepted A10 correction 2 semantics).
+  aaThreshold,
+  contrastVerdictFor,
+  PANEL_NODE_TARGETS,
+  panelScopeOk,
+  // Media/wrap/target/motion predicates (accepted A10 residual predicates).
+  visibleImageVerdict,
+  wrapVerdict,
+  targetVerdict,
+  motionAtRestOk,
+  // Fail-closed maintained-record verdict (accepted FD2 semantics).
+  driveOutcomeOk,
+  // The in-page function sources, exported so offline controls can assert they
+  // at least parse — a broken in-page function is otherwise invisible offline.
+  FOCUS_SAMPLER_FN,
+  FOCUS_DESCRIPTOR_FN,
+  FOCUS_OPENER_MUTATE_FN,
+  EFFECTIVE_CONTRAST_FN,
+  PANEL_MEASURE_FN,
+  VISIBLE_IMAGE_FN,
+  CLIP_FN,
+  TARGET_FN,
 };
 if (IS_MAIN) {
   if (!command || !handlers[command]) {

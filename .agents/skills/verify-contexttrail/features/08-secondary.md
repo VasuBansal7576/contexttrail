@@ -58,6 +58,20 @@ Analysis:
 | `result.reporting-group-empty-state` | when the fixture reports no groups, `No resolved reporting groups were reported` renders instead |
 | `result.tab-analysis-present` / `result.tab-analysis-selected` | tab exists and reports `aria-selected=true` |
 
+Selected-panel contrast and host clipping — every measured node is resolved
+strictly INSIDE the selected tab's own `aria-controls` panel (asserted via
+`result.selected-panel-aria-controls-resolved`), membership is re-checked per
+node, and the effective-contrast helper marks every group-forming ancestor
+with `opacity < 1` as `UNSUPPORTED` — a non-pass whose diagnostic ratio is
+never an accepted number:
+
+|| ID | What it proves |
+|| --- | --- |
+| `result.sources-contrast-sources-li-title-inside-selected-panel` / `-metadata` | the real Sources title and metadata nodes were measured inside this panel — never the shared `ContextTrail` header or an `Open source` action link |
+| `result.sources-contrast-<node>-meets-AA` | effective contrast ≥ 4.5 (3.0 for large text); `UNSUPPORTED` is a non-pass |
+| `result.analysis-contrast-<node>-inside-selected-panel` / `-meets-AA` | the real intro paragraph, a coverage entry and a coverage note, measured inside the Analysis panel |
+| `result.sources-long-title-wraps-not-clipped` (mobile) | the longest Sources title lays out its FULL text — line-clamp, ellipsis, overflow-clipped lines and document horizontal overflow are all red, not just "multiple lines" |
+
 Shared with every result drive:
 
 | ID | What it proves |

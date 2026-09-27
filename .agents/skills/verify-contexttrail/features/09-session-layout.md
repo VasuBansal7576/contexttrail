@@ -70,6 +70,9 @@ bin/control-contexttrail drive accessibility --run-id <id> --viewport mobile
 | `a11y.focus-visible-on-controls` | every tab stop reports a visible focus ring |
 | `a11y.no-horizontal-overflow` | `scrollWidth - clientWidth <= 1px` |
 | `a11y.submit-target-44px` | submit button height ≥ 44px |
+| `a11y.no-running-animation-at-rest` | the settled screen's recorded `runningAnimationCount` is 0 — an unmeasured count is a non-pass |
+| `a11y.interactive-targets-measured` | every rendered interactive control (links, buttons, tabs, `role=button`/`link`) was measured on real geometry |
+| `a11y.secondary-targets-below-44px` (INFO) | enabled interactive controls under the 44px floor, recorded as a routed inconsistency — not a failure of the primary floor |
 | `a11y.h1-contrast-measured` | a foreground/background pair could be resolved for `h1` |
 | `a11y.h1-contrast-wcag-aa` | contrast ratio ≥ 4.5 (or ≥ 3 for large text) |
 | `a11y.storage-keys-only` | sessionStorage holds only `contexttrail.latest-result` |
@@ -128,6 +131,12 @@ These are measured in the browser on every `drive accessibility` /
 | `result.reading-order-mutation-target-is-the-requested-list` | conditioned on the fault **actually requested**: with a reading fault, the target must be the selected tab's exact `aria-controls` panel's `section[aria-label="Sources"] > ul` with ≥2 direct visible `li`, applied before latching; with no fault the only requirement is that **no** sabotage target exists — the requested panel is already established by `result.measurement-surface-is-the-requested-panel`, so conditioning on Sources here made every other valid `--view` a false red. A control that silently missed cannot pass as a real one |
 | `result.reading-order-matches-dom` — count semantics | the reported number is **adjacent decreases** in the visually sorted DOM-index sequence, each position where the next element is an earlier element in the document. It is not a pairwise comparison count and not a count of misordered items |
 | `result.tablist-keyboard-<key>-consistent` / `-roving-tabindex` | ArrowRight ×2, Home, End, ArrowLeft move focus, `aria-selected`, the roving tabindex and the matching visible panel together | `--fault tab-map-broken` |
+| `result.selected-panel-aria-controls-resolved` + `result.<view>-contrast-<node>-inside-selected-panel` / `-meets-AA` / `-surface-measured` | every contrast node is resolved strictly inside the selected tab's own `aria-controls` panel with per-node membership asserted; effective contrast folds own + ancestor opacity into the foreground alpha; a group-forming ancestor with `opacity < 1` is `UNSUPPORTED` — a non-pass whose diagnostic ratio is never an accepted number | offline `fixtures/controls/contrast-panel.mjs` |
+| `result.sources-long-title-wraps-not-clipped` (mobile) | the longest Sources title lays out its full text — line-clamp, ellipsis, clipped line rects and document horizontal overflow are all red | offline `fixtures/controls/media-predicates.mjs` |
+| `viewer.image-decoded-and-rendered` / `-no-running-animation-at-rest` | the retrieved image is decoded, non-transparent, rendered, in-viewport, hidden by no ancestor — and shows no running animation at rest | offline `fixtures/controls/media-predicates.mjs` |
+| `viewer.focus-*` keyed settle + `--focus-fallback` | the dialog close marker is derived from the per-frame sampled log, and focus settles on the recorded element key — the opener's when restorable, the selected tab's when the opener is hidden/disabled/disconnected/`tabindex="-1"` | offline `fixtures/controls/focus-settle.mjs` |
+| `a11y.no-running-animation-at-rest` | `document.getAnimations()` running count is 0 on the settled screen | offline `fixtures/controls/media-predicates.mjs` |
+| `a11y.interactive-targets-measured` + `a11y.secondary-targets-below-44px` | every rendered interactive control is measured on real geometry; sub-44 secondary controls are recorded as inconsistencies, not failed as primary violations | offline `fixtures/controls/media-predicates.mjs` |
 
 Measured, never read from a collector: the product has no `titleOverflow` or
 `textOverflow` helper to call (checked in the pinned source — neither exists, and
@@ -136,9 +145,14 @@ false green about something that does not exist.
 
 Not yet maintained here, though accepted private evidence exists for several of
 them: per-screen composited contrast on the **dark** surfaces (landing,
-investigation, viewer), mobile reading order and long-value wrapping on the
-dense inspection content, and the selected-tab fallback for a hidden, disabled,
-disconnected or `tabindex="-1"` opener.
+investigation, viewer), and mobile reading order and long-value wrapping on the
+dense inspection content.
+
+Limits of the maintained semantics: `UNSUPPORTED` contrast results are
+non-pass diagnostics, never accepted ratios; the predicates prove behavior on
+the controlled fixtures and do not establish global accessibility coverage or
+native/provider truth; and `driveOutcomeOk` makes the drive record itself
+fail-closed — a PASS claim on a malformed record fails the seal.
 
 
 Keep screenshots, ARIA snapshots, action video, sanitized response/events and

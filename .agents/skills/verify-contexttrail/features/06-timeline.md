@@ -49,6 +49,19 @@ uncertain edge breaks the decisive run, that fixture's `contextSegmentCount` is
 | `result.timeline-no-placeholder` | no `undefined`, `null`, `NaN` or `Invalid Date` in the panel text |
 | `result.tab-timeline-present` / `result.tab-timeline-selected` | the tab exists and reports `aria-selected=true` |
 
+Selected-panel contrast — each measured node is resolved strictly INSIDE the
+selected tab's own `aria-controls` panel, membership is asserted per node, own
+and ancestor opacity enter the effective foreground alpha, and any
+group-forming ancestor with `opacity < 1` is verdict `UNSUPPORTED` — a
+non-pass whose diagnostic ratio is never an accepted contrast number:
+
+|| ID | What it proves |
+|| --- | --- |
+| `result.selected-panel-aria-controls-resolved` | the selected tab's own `aria-controls` resolves to a real `[role=tabpanel]` whose id matches — the measurement scope itself is asserted |
+| `result.timeline-contrast-timeline-panel-heading-inside-selected-panel` / `-body` / `-note` | the real heading, body paragraph and trailing note were measured inside this panel, not a shared header |
+| `result.timeline-contrast-<node>-meets-AA` | canvas-resolved effective contrast meets 4.5 (or 3.0 for large text); `UNSUPPORTED` is a non-pass |
+| `result.timeline-contrast-surface-measured` | at least one accepted node was measured, or the panel is genuinely empty |
+
 Entering an occurrence from the timeline:
 
 | ID | What it proves |
