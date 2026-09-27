@@ -562,6 +562,17 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
   noCtlPerf[0] = { offered: 0, attempted: false, from: null, to: null, key: null };
   expect("N83-R4: unopenable performed row is RED",
     a8CoverageVerdict(covRec, covSurface, noCtlPerf, terminal).ok === false);
+  // A positive but INCOMPLETE control count — exactly one endpoint control —
+  // is not the zero-controls state: red on any row.
+  const oneCtlUnx = [...opened];
+  oneCtlUnx[1] = { offered: 1, attempted: false, from: null, to: null, key: null };
+  const vOneCtl = a8CoverageVerdict(covRec, covSurface, oneCtlUnx, terminal);
+  expect("N83-R4: single offered control on the unexamined row is RED",
+    vOneCtl.ok === false && /offered 1 endpoint/.test(vOneCtl.detail), vOneCtl.detail);
+  const oneCtlPerf = [...opened];
+  oneCtlPerf[0] = { offered: 1, attempted: false, from: null, to: null, key: null };
+  expect("N83-R4: single offered control on a performed row is RED",
+    a8CoverageVerdict(covRec, covSurface, oneCtlPerf, terminal).ok === false);
   // Restored after the acquisition mutations.
   expect("N83-R4: restored acquisition state is green again",
     a8CoverageVerdict(covRec, covSurface, opened, terminal).ok === true);

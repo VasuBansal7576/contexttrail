@@ -697,6 +697,35 @@ const perfRows = (doc) =>
   expect("R4: genuinely unopenable unexamined row stays green and is declared",
     chk?.ok === true && /unopenableRows=\[1\]/.test(chk?.detail ?? ""), chk?.detail);
 }
+// Exactly ONE remaining control is a positive-but-incomplete count — a failed
+// observation on any row, never the zero-controls state.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[1].remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: unexamined row with only the Earlier control is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[0].remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: unexamined row with only the Later control is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[0].querySelectorAll("button")[1].remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: performed row with a single control is RED", chk?.ok === false, chk?.detail);
+}
 
 /* ============================== RESTORED =================================== */
 

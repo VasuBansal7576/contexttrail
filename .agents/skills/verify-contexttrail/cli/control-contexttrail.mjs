@@ -5794,7 +5794,8 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
     // never passes quietly (N83-R4 residual): missing proof does not default
     // to success. `offered >= 2` itself implies the attempt — the collector
     // always opens both controls it finds.
-    const attempted = st.attempted === true || (st.offered ?? 0) >= 2;
+    const offered = st.offered ?? 0;
+    const attempted = st.attempted === true || offered >= 2;
     if (attempted && (st.from === null || st.to === null)) {
       mism.push(
         `row ${i} endpoint controls opened but identity read incomplete ` +
@@ -5803,7 +5804,15 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
     } else if (st.key !== null && st.key !== want) {
       mism.push(`row ${i} opened ${JSON.stringify(st.key)} — recorded endpoints ${JSON.stringify(want)}`);
     }
-    if (!attempted && st.key === null) unopenable.push(i);
+    // The unopenable declaration is ONLY the explicit empty state: zero
+    // controls offered, never attempted, no identity acquired. A positive but
+    // incomplete control count — a row offering exactly one endpoint control —
+    // is a FAILED observation on any row status, never the no-controls state.
+    if (offered > 0 && offered < 2 && !attempted) {
+      mism.push(`row ${i} offered ${offered} endpoint control(s) — fewer than the two required to open a pair — not the unopenable state`);
+    } else if (!attempted && st.key === null) {
+      unopenable.push(i);
+    }
     if (comparisonIsUnexamined(c)) return;
     if (comparedIds.includes(comparisonEdgeKey(c))) {
       if (st.key === null) mism.push(`performed row ${i} endpoints did not open`);
