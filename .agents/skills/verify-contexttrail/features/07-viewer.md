@@ -108,12 +108,13 @@ Navigation and content:
 | `viewer.excerpt-matches-occurrence` | the rendered `<blockquote>`'s own text EQUALS the span the product contract projects from the fixture row (`expectedAttributableSpan` — composite `Title:`/`Snippet:` split, first-paragraph body, word-boundary truncation at the viewer's 600-char budget). A prefix, a substituted quote found elsewhere in the dialog, or the bare title wrapper are all RED |
 | `viewer.excerpt-attribution-label` | the excerpt block carries the projected attribution — the backend's `displayAttribution` when present, else `Extracted page excerpt`/`Search snippet` — read ONLY from the `h3` immediately preceding that blockquote's own `figure`; the same phrase elsewhere in the dialog never satisfies it. The rendered quote is compared after stripping only the product's exact outer `“…”` wrapper pair — inner quotes/guillemets are content and survive |
 | `viewer.excerpt-absent-when-contract-has-none` | when the contract projects no quotable span (no excerpt, or a bare `Title:` wrapper), no quote renders and `No excerpt available` is shown |
-| `viewer.technical-details-fields` | expanding `Technical details` yields ≥1 `<dd>` |
-| `viewer.technical-details-real-fields` | no `<dt>` label contains `undefined`, `null` or `NaN` |
-| `viewer.technical-details-model-value` | the model field equals the **fixture's** `jevModel` verbatim |
-| `viewer.technical-details-retrieved-at-value` | the retrieval timestamp equals the fixture's `retrievedAt` verbatim |
-| `viewer.technical-details-canonical-url-value` | the canonical URL equals the fixture's `canonicalUrl` |
-| `viewer.technical-details-result-position-value` | the result position equals the fixture's `serpPosition` |
+| `viewer.technical-details-fields` | exactly one `Technical details` disclosure in the dialog, **open** at observation time — the caller opens it idempotently (inspect state, click only if closed, verify), so an already-open disclosure is never toggled shut — with exactly one own direct-child primary retrieval `<dl>` (effectively visible, carrying ≥1 direct `dt/dd` row — page-metadata blocks, nested lists and nested disclosures are structurally excluded) |
+| `viewer.technical-details-occurrence-resolved` | the reopened dialog's `Occurrence ID` resolves to exactly one fixture viewer-order entry **and** that entry is the intended occurrence the drive opened (the map's `expectedViewerId` when bound, else viewer-order row 0); absent, unknown, ambiguous, or valid-but-different IDs reject before any expected value is derived |
+| `viewer.technical-details-real-fields` | no `<dt>` label in the disclosure's own retrieval list contains `undefined`, `null` or `NaN` |
+| `viewer.technical-details-model-value` | exactly one **effectively visible** `Classification question answers` heading `<p>` inside the disclosure's own direct classification block (whose first paragraph is the heading; a second matching paragraph in the same block is a second candidate) carries the ` · <model>` suffix equal to the fixture's `jevModel` verbatim — missing/wrong/duplicate/hidden headings and the string elsewhere in the dialog all reject |
+| `viewer.technical-details-retrieved-at-value` | exactly one `Retrieved at` row in the disclosure's own retrieval list, owning exactly one direct `dt`/`dd` pair with both leaves and the row **effectively visible**, equals the fixture's `retrievedAt` verbatim |
+| `viewer.technical-details-canonical-url-value` | the canonical URL equals the fixture's `canonicalUrl` — same own-field validity: one unambiguous, leaf-visible row carrying the label |
+| `viewer.technical-details-result-position-value` | the result position equals the fixture's `serpPosition` — same own-field validity |
 | `viewer.technical-details-values-non-empty` | no rendered field is blank |
 | `viewer.technical-details-no-empty-or-undefined-values` | no field renders `undefined`/`null`/`NaN`/`-` as its value |
 
