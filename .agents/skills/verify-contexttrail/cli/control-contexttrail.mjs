@@ -5678,6 +5678,25 @@ function comparisonIsUnexamined(c) {
   return /unexamined|uncompared|skip/i.test(String(c?.connector ?? ""));
 }
 
+/** A row that offered no open controls at all — the ONLY state allowed to
+ *  stand for "genuinely unopenable". An attempted open whose identities could
+ *  not be read is a FAILED observation, not this state. */
+const A8_OPEN_NONE = Object.freeze({ offered: 0, attempted: false, from: null, to: null, key: null });
+
+/** Normalize one per-row opened-endpoint acquisition record. The live
+ *  collector emits `{offered, attempted, from, to, key}`; a bare string is the
+ *  shorthand for a fully observed `from|to` key, and null/absent is "no
+ *  acquisition record" — a legitimately unopenable row, never proof of a
+ *  correct pair. */
+function a8OpenState(entry) {
+  if (entry && typeof entry === "object") return entry;
+  if (typeof entry === "string" && entry) {
+    const [from, to = null] = entry.split("|");
+    return { offered: 2, attempted: true, from, to, key: entry };
+  }
+  return A8_OPEN_NONE;
+}
+
 /** Parse the rendered "Context comparisons: …" sentence into the three counts
  *  the Analysis coverage paragraph actually publishes. `displayedDatedCore`
  *  and the pair-id set are not rendered text — they are asserted against the
@@ -5686,7 +5705,7 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
   const expect = record.expect ?? {};
   const text = surface?.coverageText ?? null;
   if (text === null) return { ok: false, detail: "no Comparison coverage paragraph measured" };
-  const byRow = openedByRow ?? [];
+  const stRow = (openedByRow ?? []).map(a8OpenState);
   if (/No occurrences were selected for context comparison/.test(text)) {
     // Zero-selected means zero performed rows AND zero opened pairs — a
     // phantom row or endpoint under the "nothing compared" sentence is a real
@@ -5697,10 +5716,10 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
       expect.selected === 0 &&
       expect.comparedPairs === 0 &&
       rows.length === 0 &&
-      byRow.every((k) => k === null);
+      stRow.every((s) => s.key === null);
     return {
       ok,
-      detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)} performedRows=${rows.length} openedPairs=${byRow.filter((k) => k !== null).length}`,
+      detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)} performedRows=${rows.length} openedPairs=${stRow.filter((s) => s.key !== null).length}`,
     };
   }
   if (/was not reported/i.test(text)) {
@@ -5762,18 +5781,33 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
   // unopenable row keeps its explicit null state rather than being read as
   // valid.
   const performedKeys = [];
+  const unopenable = [];
   (edges ?? []).forEach((c, i) => {
     const want = comparisonEndpointKey(c);
-    const opened = byRow[i] ?? null;
+    const st = stRow[i] ?? A8_OPEN_NONE;
     if (want === null) {
       mism.push(`row ${i} edge carries no recorded endpoints`);
-    } else if (opened !== null && opened !== want) {
-      mism.push(`row ${i} opened ${JSON.stringify(opened)} — recorded endpoints ${JSON.stringify(want)}`);
     }
+    // An ATTEMPTED open — the row offered two endpoint controls and both were
+    // clicked — that returns an incomplete identity is a FAILED observation on
+    // any row, examined or not. It is never the declared unopenable state and
+    // never passes quietly (N83-R4 residual): missing proof does not default
+    // to success. `offered >= 2` itself implies the attempt — the collector
+    // always opens both controls it finds.
+    const attempted = st.attempted === true || (st.offered ?? 0) >= 2;
+    if (attempted && (st.from === null || st.to === null)) {
+      mism.push(
+        `row ${i} endpoint controls opened but identity read incomplete ` +
+          `(from=${JSON.stringify(st.from)} to=${JSON.stringify(st.to)})`,
+      );
+    } else if (st.key !== null && st.key !== want) {
+      mism.push(`row ${i} opened ${JSON.stringify(st.key)} — recorded endpoints ${JSON.stringify(want)}`);
+    }
+    if (!attempted && st.key === null) unopenable.push(i);
     if (comparisonIsUnexamined(c)) return;
     if (comparedIds.includes(comparisonEdgeKey(c))) {
-      if (opened === null) mism.push(`performed row ${i} endpoints did not open`);
-      else performedKeys.push(opened);
+      if (st.key === null) mism.push(`performed row ${i} endpoints did not open`);
+      else performedKeys.push(st.key);
     }
   });
   const seen = new Set(performedKeys);
@@ -5784,7 +5818,9 @@ function a8CoverageVerdict(record, surface, openedByRow, terminal) {
   return {
     ok: mism.length === 0,
     detail:
-      `counts=${JSON.stringify(rendered)} rows=${rows.length} ` +
+      `counts=${JSON.stringify(rendered)} rows=${rows.length}` +
+      (unopenable.length ? ` unopenableRows=${JSON.stringify(unopenable)}` : "") +
+      " " +
       (mism.length ? mism.join("; ") : `${performedKeys.length} performed pair(s) verified across ${rows.length} relationship row(s)`),
   };
 }
@@ -6395,14 +6431,19 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
         // Per-row alignment (N83-4): openedPairKeys[i] is the pair identity the
         // i-th rendered row opened — every relationship row renders, including
         // unexamined edges, so slots stay aligned even where a row is
-        // unopenable.
-        let key = null;
-        if ((await btns.count()) >= 2) {
-          const from = await readOpenedEvidenceId(page, btns.nth(0));
-          const to = await readOpenedEvidenceId(page, btns.nth(1));
-          if (from && to) key = `${from}|${to}`;
+        // unopenable. The slot carries the ACQUISITION state too (N83-R4
+        // residual): a row offering two controls whose opens return no
+        // readable identity is a FAILED read — not the same thing as a row
+        // that genuinely offered no controls to open.
+        const offered = await btns.count();
+        const st = { offered, attempted: false, from: null, to: null, key: null };
+        if (offered >= 2) {
+          st.attempted = true;
+          st.from = await readOpenedEvidenceId(page, btns.nth(0));
+          st.to = await readOpenedEvidenceId(page, btns.nth(1));
+          if (st.from && st.to) st.key = `${st.from}|${st.to}`;
         }
-        openedPairKeys.push(key);
+        openedPairKeys.push(st);
       }
     }
     const openedSupportIds = {};
@@ -10722,6 +10763,7 @@ export {
   comparisonEdgeKey,
   comparisonEndpointKey,
   comparisonIsUnexamined,
+  a8OpenState,
   // N83: the reading-order measurement and the locator call-contract helper.
   longValueLayout,
   compareReadingOrder,

@@ -645,6 +645,58 @@ const perfRows = (doc) =>
   const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
   expect("R4: wrong unexamined endpoints are RED without promoting the edge", chk?.ok === false, chk?.detail);
 }
+// R4 acquisition: the unexamined row's buttons open but return no readable
+// Occurrence ID — a FAILED observation, not the unopenable state.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[1].querySelectorAll("button")) b.setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: unexamined attempted opens with unreadable IDs are RED", chk?.ok === false, chk?.detail);
+}
+// Missing only ONE endpoint identity — either side — is still red.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[0].setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: missing first endpoint identity is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[1].setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: missing second endpoint identity is RED", chk?.ok === false, chk?.detail);
+}
+// The same failed read on a performed row stays red.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[0].querySelectorAll("button")) b.setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: performed attempted opens with unreadable IDs are RED", chk?.ok === false, chk?.detail);
+}
+// Genuinely unopenable — the unexamined row offers no controls at all — stays
+// green under its bound contract and is explicitly declared, not forged.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[1].querySelectorAll("button")) b.remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: genuinely unopenable unexamined row stays green and is declared",
+    chk?.ok === true && /unopenableRows=\[1\]/.test(chk?.detail ?? ""), chk?.detail);
+}
 
 /* ============================== RESTORED =================================== */
 

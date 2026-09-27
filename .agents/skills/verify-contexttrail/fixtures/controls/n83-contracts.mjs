@@ -529,6 +529,42 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
   unopened[0] = null;
   expect("N83-R4: an unopened performed row is RED",
     a8CoverageVerdict(covRec, covSurface, unopened, terminal).ok === false);
+  // N83-R4 acquisition: an ATTEMPTED open with an unreadable identity is a
+  // failed observation — NOT the unopenable state — on any row status.
+  const unreadableUnx = [...opened];
+  unreadableUnx[1] = { offered: 2, attempted: true, from: null, to: null, key: null };
+  const vUnreadable = a8CoverageVerdict(covRec, covSurface, unreadableUnx, terminal);
+  expect("N83-R4: unexamined row whose two opens return no IDs is RED",
+    vUnreadable.ok === false && /identity read incomplete/.test(vUnreadable.detail), vUnreadable.detail);
+  // Same when only ONE endpoint identity is missing — either side.
+  const missFirst = [...opened];
+  missFirst[1] = { offered: 2, attempted: true, from: null, to: edges[1].toOccurrenceId, key: null };
+  expect("N83-R4: missing first endpoint identity is RED",
+    a8CoverageVerdict(covRec, covSurface, missFirst, terminal).ok === false);
+  const missSecond = [...opened];
+  missSecond[1] = { offered: 2, attempted: true, from: edges[1].fromOccurrenceId, to: null, key: null };
+  expect("N83-R4: missing second endpoint identity is RED",
+    a8CoverageVerdict(covRec, covSurface, missSecond, terminal).ok === false);
+  // Same failure on a performed row stays red.
+  const unreadablePerf = [...opened];
+  unreadablePerf[0] = { offered: 2, attempted: true, from: null, to: null, key: null };
+  expect("N83-R4: performed row whose opens return no IDs is RED",
+    a8CoverageVerdict(covRec, covSurface, unreadablePerf, terminal).ok === false);
+  // Genuinely unopenable — the row offered no controls — is a separate honest
+  // state on an unexamined edge: allowed, and explicitly reported.
+  const noControls = [...opened];
+  noControls[1] = { offered: 0, attempted: false, from: null, to: null, key: null };
+  const vNoCtl = a8CoverageVerdict(covRec, covSurface, noControls, terminal);
+  expect("N83-R4: unopenable unexamined row stays green and is declared",
+    vNoCtl.ok === true && /unopenableRows=\[1\]/.test(vNoCtl.detail), vNoCtl.detail);
+  // But the same unopenable state on a PERFORMED row is still red.
+  const noCtlPerf = [...opened];
+  noCtlPerf[0] = { offered: 0, attempted: false, from: null, to: null, key: null };
+  expect("N83-R4: unopenable performed row is RED",
+    a8CoverageVerdict(covRec, covSurface, noCtlPerf, terminal).ok === false);
+  // Restored after the acquisition mutations.
+  expect("N83-R4: restored acquisition state is green again",
+    a8CoverageVerdict(covRec, covSurface, opened, terminal).ok === true);
   // Helper sanity: the connector semantics match the pin's COMPARISON_COPY.
   expect("N83-4: uncertain counts as performed, unexamined never",
     comparisonIsUnexamined(edges[1]) === true &&
