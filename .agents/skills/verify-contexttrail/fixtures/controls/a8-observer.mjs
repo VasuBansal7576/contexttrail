@@ -27,6 +27,8 @@ import {
   expectedCaseFor,
   expectedRecordKind,
   fixtureResult,
+  a8HeadingTextMatches,
+  comparisonStateLabel,
   A8_OVERVIEW_PROBE_FN,
   A8_TIMELINE_PROBE_FN,
   A8_ANALYSIS_PROBE_FN,
@@ -127,16 +129,23 @@ function timelineHtml(c) {
 function analysisHtml(c) {
   const rec = (k) => c.visibleExpectations.find((r) => kind(r, c.fixture) === k);
   const cov = rec("analysis-coverage")?.expect ?? {};
-  const pairs = cov.comparedPairIds ?? [];
   const covP =
     (cov.eligible ?? 0) === 0 && (cov.selected ?? 0) === 0
       ? "No occurrences were selected for context comparison."
       : `${cov.comparedPairs} pair${cov.comparedPairs === 1 ? "" : "s"} compared across ${cov.selected} selected of ${cov.eligible} eligible occurrences.`;
-  const performed = pairs
-    .map((pair) => {
-      const [a, b] = pair.split("|");
-      return `<li><p>${esc(a)} ↔ ${esc(b)}</p><button data-open-id="${esc(a)}">a</button><button data-open-id="${esc(b)}">b</button></li>`;
-    })
+  // The performed list renders EVERY recorded relationship row — including
+  // unexamined edges — under the honest connector label (COMPARISON_COPY),
+  // exactly like the pin's ResultView.
+  const edges = Array.isArray(fixtureResult(c.fixture)?.comparisons)
+    ? fixtureResult(c.fixture).comparisons
+    : [];
+  const performed = edges
+    .map(
+      (e) =>
+        `<li><p>${esc(comparisonStateLabel(e.connector))} · between two retrieved occurrences</p>` +
+        `<button data-open-id="${esc(e.fromOccurrenceId)}">Earlier: ${esc(e.fromOccurrenceId)}</button>` +
+        `<button data-open-id="${esc(e.toOccurrenceId)}">Later: ${esc(e.toOccurrenceId)}</button></li>`,
+    )
     .join("");
   const gatesR = rec("gates");
   const why = gatesR

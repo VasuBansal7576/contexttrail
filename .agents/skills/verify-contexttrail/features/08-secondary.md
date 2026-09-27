@@ -59,7 +59,10 @@ Analysis:
 | `result.analysis-performed-probabilities-not-comparison-rows` | a probability row is never counted as a comparison |
 | `result.analysis-performed-pairs-are-displayed` / `-list-identity` | every performed pair names two occurrences the result actually displayed, and each row names those same two in order — validated **whether or not** a coverage summary exists |
 | `result.analysis-performed-list-not-invented` | with no `comparisons` field the view must say none was performed; an absent field is never read as zero |
-| `result.analysis-coverage-count-matches-performed-list` | a **known** `comparedPairs` is cross-checked against the separately supplied list even when the summary used the empty-state sentence |
+| `result.analysis-coverage-count-matches-performed-list` | a **known** `comparedPairs` is cross-checked against the edges that resolve to the explicit `comparedPairIds` set and were examined — never the whole `comparisons` list, which also carries unexamined edges |
+| `result.analysis-coverage-compared-ids-resolve-to-performed` / `-unexamined-not-performed` | every `comparedPairIds` entry must name a recorded, examined edge (phantom id = red), and an unexamined edge must never appear in the compared set (promotion = red) |
+| `result.analysis-performed-row-labels-honest` | each rendered relationship row carries the `COMPARISON_COPY` label of its recorded connector state — an unexamined edge renders "Not compared in this investigation" and is never dressed as performed |
+| `result.analysis-coverage-matches-performed-list` | the rendered "N pairs compared" sentence equals the performed-edge count, not the all-relationships row count |
 | `result.analysis-coverage-not-contradictory` | a summary may claim at most `max(0, selected − 1)` adjacent pairs — fewer is valid for imprecise/equal-date gaps — and never a pair with nothing eligible |
 | `result.analysis-no-placeholder` | panel text contains no placeholder token |
 | `result.reporting-group-not-mislabeled` | no `Shared group of N occurrence(s)` label anywhere (R4 residual — checked first so a regression is the failure that gets named) |
