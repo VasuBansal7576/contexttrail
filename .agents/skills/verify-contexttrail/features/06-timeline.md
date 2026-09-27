@@ -17,8 +17,14 @@ the context change — and it never invents an item.
 bin/control-contexttrail drive result --run-id <id> --view timeline \
   [--case controlled-claim|controlled-trace|controlled-viewer|controlled-insufficient]
 bin/control-contexttrail drive viewer --run-id <id> --entry timeline \
-  --case image-load|image-fail|no-excerpt --viewport desktop|mobile
+  --case image-load|image-fail|no-excerpt|pair \
+  [--case <a8-fixture-name>] --viewport desktop|mobile
 ```
+
+An A8 fixture name as `--case` replays that fixture and discharges every
+expected map record for the viewer view as `a8.expect.<record-id>` assertions;
+the dated Inspect opener is scoped to the map's exact occurrence, not the
+first Inspect button on the page.
 
 ## Assertions (executable contract)
 

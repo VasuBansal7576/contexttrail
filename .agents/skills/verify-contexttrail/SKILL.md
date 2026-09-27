@@ -106,8 +106,9 @@ Implemented drives (seven):
   [--focus-fallback hidden|disabled|disconnected|tabindex-negative]` — opens
   the evidence dialog from each entry point and asserts media load or honest
   fallback, position counter/next/previous, source-link safety (`rel`
-  containing `noopener`), fixture-row attribution (the rendered Evidence ID
-  resolves to a real fixture row, the source link and title are that row's
+  containing `noopener`), fixture-row attribution (the rendered occurrence
+  identity line — `Occurrence ID:` at the accepted pin — resolves to a real
+  fixture row, the source link and title are that row's
   own, the excerpt is a strict prefix of its own excerpt), technical-details
   **values** against the fixture's own row, viewport-correct visibility of the
   image-mode group, and keyed focus restoration after Escape — including after
@@ -357,6 +358,43 @@ test-only: they carry `fixture-*.example.org` domains and `CONTROLLED` titles,
 are never wired into production, and are labeled in evidence as
 `public-contract-boundary`.
 
+### A8 expected-case map and recipe bindings
+
+`fixtures/a8-expected-case-map.json` is the accepted A8 expected-case map,
+imported byte-exact and sha256-pinned (`6721d89b…`); a drifted file fails the
+drive closed at load. `fixtures/a8-expected-case-map.CONSUMER-NOTES.md`
+carries the independent-review qualifications that govern how the map is read
+(superseded counts/locator scope — read it before touching the map consumer).
+
+`fixtures/a8-recipe-bindings.json` binds the map's 17 recipe templates —
+`runnerPin`/`acceptedCommandArgs`/`caseId`/`caseImport` were UNBOUND at seal
+time — to this CLI's real command surface: per case, `a8-<fixture>` case IDs,
+the actual `drive result|viewer` argvs (including the case's pinned
+`--claim-text` for claim_check entries), the received fixture sha256 (equal to
+the map's declared `streamSha256`), and an immutable `recipeDigest` over the
+whole bound table. Regenerate after contract changes with
+`A8_BINDINGS_EMIT=1 node fixtures/controls/a8-map-bindings.mjs >
+fixtures/a8-recipe-bindings.json` — the offline control proves the committed
+file regenerates identically and that any bound-field mutation changes the
+digest.
+
+Whenever a `drive result --case <a8-fixture>` or `drive viewer --entry
+timeline --case <a8-fixture>` invocation runs, the drive discharges every map
+record bound to that view as its own `a8.expect.<record-id>` assertion — the
+147 records (141 visible + 6 serialized-only) are distinct observations, never
+one aggregate count, and `null` expectations are explicit absent/unknown
+predicates (`Unresolved`, empty sections), never skips. Identity is proven by
+the opened dialog's `Occurrence ID:` line (inside Technical details, read via
+textContent): gate "View supporting evidence →"
+links, reporting-group members, unresolved candidates, performed-comparison
+endpoints, divergence-note endpoints and dated-timeline Inspect controls are
+each clicked and the opened ID compared with the expected one. The serialized
+caveat flag is asserted on the consumed terminal payload, never on rendered
+text; the visible caveat renders only for `NO_CONFLICT_FOUND` and is checked
+as a rendered paragraph. Native execution of the 17 recipes is a later,
+separately-authorized stage — the bindings assert readiness, not rendered
+proof.
+
 ## Helpers
 
 - `fixtures/gen-fixtures.test.ts` has two halves:
@@ -389,9 +427,11 @@ are never wired into production, and are labeled in evidence as
   AA thresholds, UNSUPPORTED as a non-pass despite diagnostic ratios),
   `media-predicates.mjs` (visible image, wrap/clipping, interactive targets,
   at-rest motion), `stream-buffer-provenance.mjs`, `request-projection.mjs`,
-  `retained-integrity.mjs`, `reading-order-target.mjs` and
-  `assertions-durable.mjs`. Run them after any predicate change; they exit
-  non-zero on the first unexpected verdict.
+  `retained-integrity.mjs`, `reading-order-target.mjs`,
+  `assertions-durable.mjs` and `a8-map-bindings.mjs` (the map digest gate, all
+  17 recipe bindings vs the real spec table, digest stability, and every
+  expected-record verdict red/green pair). Run them after any predicate
+  change; they exit non-zero on the first unexpected verdict.
 - The selected-panel contrast pass (`result.<view>-contrast-*`) measures named
   content nodes strictly inside the selected tab's own `aria-controls` panel:
   membership is asserted per node, canvas resolves whatever color format the

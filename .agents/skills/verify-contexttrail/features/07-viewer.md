@@ -18,6 +18,7 @@ safely, and hands focus back when it closes.
 bin/control-contexttrail drive viewer --run-id <id> \
   --entry timeline|sources|takeaway \
   --case image-load|image-fail|no-excerpt|pair \
+  [--case <a8-fixture-name>] \
   --viewport desktop|mobile
 ```
 
@@ -40,6 +41,13 @@ and the schema refuses it.
 carries a real `firstObservedContextDivergence` whose two endpoints are
 occurrences the report actually displays. If no checked-in fixture has one, the
 case exits 2 naming the missing fixture rather than skipping silently.
+
+`--case <a8-fixture-name>` (any of the 17 A8 fixture names) replays that
+fixture and discharges the expected map's `viewer`-view records as
+`a8.expect.<record-id>` assertions — `evidence-inspected`,
+`identity-present`, `status-or-date` records verified against the opened
+dialog's `Occurrence ID:` line. `--entry timeline` scopes the Inspect opener to
+the map's exact occurrence identity rather than the first Inspect button.
 
 Media cases are inspected with a **bounded, non-waiting** DOM read: an
 auto-waiting locator against a missing `<img>` burns a full timeout per
@@ -92,7 +100,7 @@ Navigation and content:
 | `viewer.mobile-toggle-pressed-state` (mobile) | `aria-pressed` is reported on the submitted-image button |
 | `viewer.desktop-hides-mobile-toggle` (desktop) | the same group is attached but **not visible** (`lg:hidden`) |
 | `viewer.source-link-present` / `-url` / `-noopener` | `Open original source` is an `https?` link with `target="_blank"` and `rel` containing `noopener` |
-| `viewer.occurrence-attributed-to-fixture` | the rendered `Evidence ID` resolves to an actual fixture row |
+| `viewer.occurrence-attributed-to-fixture` | the rendered `Occurrence ID` resolves to an actual fixture row |
 | `viewer.source-link-targets-occurrence` | the source link's `href` equals the fixture row's own `canonicalUrl`/`sourceUrl` — attribution proved against the fixture, not the DOM's claim |
 | `viewer.attribution-matches-occurrence` | the fixture row's title renders inside the dialog |
 | `viewer.excerpt-matches-occurrence` | the rendered quote is a strict prefix of that row's own excerpt — typographic wrapping/ellipsis still identifies the same excerpt |
@@ -213,8 +221,11 @@ byte-for-byte after cleanup.
   submitted bytes are never the harness file's bytes; the submission is
   verified by part presence, image media type, non-emptiness and the
   normalized name.
-- The viewer exposes its open occurrence as `Evidence ID: <id>`, which is what
-  the pair and order assertions compare against the fixture's own ids.
+- The viewer exposes its open occurrence as `Occurrence ID: <id>` inside the
+  collapsed Technical-details disclosure (`Evidence ID:` on pre-7ab28e9
+  builds), which is what the pair and order assertions compare against the
+  fixture's own ids — read via `textContent`, since `innerText` skips the
+  collapsed section.
 
 Keep screenshots, ARIA snapshots, action video, sanitized response/events and
 invariant results with the feature ID. Cleanup closes owned runtime state and

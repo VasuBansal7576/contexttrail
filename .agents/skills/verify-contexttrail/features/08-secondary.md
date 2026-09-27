@@ -20,6 +20,15 @@ bin/control-contexttrail drive result --run-id <id> --view analysis [--case <fix
 bin/control-contexttrail drive result --run-id <id> --view sources --viewport mobile
 ```
 
+On `--view analysis` with an A8 fixture, each map record becomes its own
+`a8.expect.<record-id>` assertion: coverage values parsed from the rendered
+text, performed-comparison "Earlier"/"Later" buttons clicked to prove the
+opened `Occurrence ID:`, gate labels/values/support links, group members, and
+unresolved-candidate links — all scoped under
+`section[aria-label="Analysis"]` via the first `ul` after each `h3`, with
+empty sections gated off so a neighbouring list is never attributed to the
+wrong heading.
+
 ## Assertions (executable contract)
 
 Sources:

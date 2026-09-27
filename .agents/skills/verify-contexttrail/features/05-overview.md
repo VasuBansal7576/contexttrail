@@ -22,6 +22,14 @@ Defaults: `--case controlled-claim`, `--view overview`. `--case` accepts any
 fixture present in `fixtures/`; `--view` ends with that tab selected, after
 every tab has been visited and asserted.
 
+For the 17 A8 fixture names the drive also discharges every expected-case-map
+record bound to the chosen view as individual `a8.expect.<record-id>`
+assertions (overview → headline/support/caveat/segments; analysis → coverage,
+comparisons, gates, groups, unresolved candidates; timeline → IDs, placement,
+connectors, divergence). Serialized-only records are checked against the
+consumed terminal payload on the overview run. See features/README.md →
+Coverage status.
+
 ## Assertions (executable contract)
 
 | ID | What it proves |

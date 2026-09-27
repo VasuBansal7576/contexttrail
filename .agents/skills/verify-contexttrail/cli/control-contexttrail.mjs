@@ -1997,8 +1997,11 @@ const FAULT_SCRIPT = `window.__ctFault = (mode) => {
         }
         document.querySelectorAll('[role="dialog"] p').forEach((q) => {
           const u = (q.textContent || "").trim();
-          const m = /^Evidence ID:\\s*(\\S+)/.exec(u);
-          if (m && m[1] !== "ev-wrong-endpoint") { q.textContent = "Evidence ID: ev-wrong-endpoint"; hit(); }
+          const m = /^(?:Evidence|Occurrence) ID:\\s*(\\S+)/.exec(u);
+          if (m && m[1] !== "ev-wrong-endpoint") {
+            q.textContent = u.replace(m[1], "ev-wrong-endpoint");
+            hit();
+          }
         });
       });
     }
@@ -2538,6 +2541,7 @@ const FEATURE_SPECS = {
     options: ["entry", "case", "delay-ms", "image", "claim-text", "focus-fallback"],
     entries: ["timeline", "sources", "takeaway"],
     cases: ["image-load", "image-fail", "no-excerpt", "pair"],
+    alsoFixtureCases: true,
     focusFallbacks: ["hidden", "disabled", "disconnected", "tabindex-negative"],
     defaultEntry: "timeline",
     defaultCase: "image-load",
@@ -2696,7 +2700,15 @@ function parseDriveOptions(opts = {}) {
   if (flags.case !== undefined) {
     if (!spec.cases && !spec.anyFixtureCase) fail(`unsupported option(s) for ${feature}: --case`);
     if (spec.cases && !spec.anyFixtureCase && !spec.cases.includes(flags.case)) {
-      fail(`unsupported --case ${flags.case} for ${feature} (supported: ${spec.cases.join("|")})`);
+      // A spec that also accepts real fixture names (the A8 recipe's
+      // `drive viewer --case <fixture>`) must still reject a name that is
+      // neither — never silently fall through to a different fixture.
+      if (!(spec.alsoFixtureCases === true && fixtureNames().includes(flags.case))) {
+        fail(
+          `unsupported --case ${flags.case} for ${feature} (supported: ${spec.cases.join("|")}` +
+            `${spec.alsoFixtureCases ? ", or a fixture name" : ""})`,
+        );
+      }
     }
     if (spec.anyFixtureCase && !fixtureNames().includes(flags.case)) {
       fail(`unknown fixture case ${flags.case} (available: ${fixtureNames().join(", ") || "none"})`);
@@ -3384,6 +3396,9 @@ function driveFixture(feature, caseName) {
   if (feature === "viewer") {
     if (caseName === "pair") return "controlled-pair";
     if (caseName === "image-load" || caseName === "no-excerpt") return "controlled-viewer";
+    // A8 recipes bind the viewer case directly to its fixture name; the parse
+    // gate already rejects names that are neither a named case nor a fixture.
+    if (typeof caseName === "string" && fixtureNames().includes(caseName)) return caseName;
     return "controlled-claim";
   }
   if (feature === "session") return "controlled-claim";
@@ -3729,12 +3744,18 @@ async function activeElement(page) {
   });
 }
 
-/** The occurrence the open viewer is showing, read from its rendered
- *  "Evidence ID: <id>" line. Compared with the fixture's own ids, so a viewer
- *  showing the wrong occurrence cannot pass. */
+/** The identity label the dialog renders for its open occurrence: pre-7ab28e9
+ *  builds render `Evidence ID:` in visible body text, the accepted pin renders
+ *  `Occurrence ID:` inside the collapsed Technical-details <details> — so the
+ *  read is `textContent`, which carries both. */
+const OPENED_IDENTITY_RE = /(?:Evidence|Occurrence) ID:\s*(\S+)/;
+
+/** The occurrence the open viewer is showing, read from its own rendered
+ *  identity line. Compared with the fixture's own ids, so a viewer showing
+ *  the wrong occurrence cannot pass. */
 async function viewerEvidenceId(dialog) {
-  const text = await dialog.innerText();
-  const m = /Evidence ID:\s*(\S+)/.exec(text);
+  const text = await dialog.textContent();
+  const m = OPENED_IDENTITY_RE.exec(text ?? "");
   return m ? m[1] : null;
 }
 
@@ -4638,6 +4659,781 @@ async function observeResultView(page, rec, view, panel, panelText) {
       );
     }
   }
+}
+
+/* ------------------ A8 expected-case map (consumed, sha-pinned) ----------- */
+
+/**
+ * The accepted A8 expected-case map, imported byte-exact from the producer's
+ * correction-final set (release seal f5435095…, receipt commit 6949ec9). The
+ * map is DATA: at load it is sha256-pinned, so a drifted or substituted file
+ * fails closed instead of letting a drive assert against unapproved
+ * expectations. Consumer notes live beside it in
+ * `fixtures/a8-expected-case-map.CONSUMER-NOTES.md`.
+ */
+const A8_MAP_FILE = path.join(FIXTURES_DIR, "a8-expected-case-map.json");
+const A8_MAP_SHA256 = "6721d89b33f01157baedc7aaf99e8dc3f56c8b9d6b5ea3703d5a4019c9455b48";
+const A8_APP_PIN = "7b18c16f953aeed397030f51b5239f8d51fee2a5";
+const A8_FIXTURE_PIN = "26528b6ee6345c019f016e909d4d17490c3db7eb";
+const A8_RELEASE_SEAL = "f5435095b89132ea2ce3120b2de42311677267d8f7bbe41e38052a93077600a0";
+
+let expectedMapCache = null;
+
+/** The digest gate itself, pure: the accepted map's sha256 is the pin —
+ *  tampered, truncated or substituted bytes are rejected before parsing. */
+function expectedMapBytesOk(bytes) {
+  return sha256(bytes) === A8_MAP_SHA256;
+}
+
+/** Load and pin the accepted expected-case map. Exported so offline controls
+ *  exercise the same bytes and the same digest gate a drive runs under. */
+function loadExpectedCaseMap() {
+  if (expectedMapCache) return expectedMapCache;
+  const bytes = fs.readFileSync(A8_MAP_FILE);
+  const sha = sha256(bytes);
+  if (!expectedMapBytesOk(bytes)) {
+    fail(
+      `a8 expected-case map digest mismatch (pin ${A8_MAP_SHA256.slice(0, 12)}…, ` +
+        `file ${sha.slice(0, 12)}…): refusing to assert against unapproved expectations`,
+    );
+  }
+  let map;
+  try {
+    map = JSON.parse(bytes.toString("utf8"));
+  } catch (err) {
+    fail(`a8 expected-case map is not parseable JSON: ${String(err?.message ?? err)}`);
+  }
+  if (!Array.isArray(map.cases) || map.cases.length !== 17) {
+    fail(`a8 expected-case map must carry exactly 17 cases (got ${asLen(map.cases)})`);
+  }
+  map.byFixture = new Map(map.cases.map((c) => [c.fixture, c]));
+  expectedMapCache = map;
+  return map;
+}
+
+/** The map's expected-case record for a fixture, or null for a non-A8 case. */
+function expectedCaseFor(fixture) {
+  if (typeof fixture !== "string" || fixture === "" || !fs.existsSync(A8_MAP_FILE)) return null;
+  return loadExpectedCaseMap().byFixture.get(fixture) ?? null;
+}
+
+/** The expectation record kind: its id minus the `<fixture>-` prefix. */
+function expectedRecordKind(record, fixture) {
+  return typeof record?.id === "string" && record.id.startsWith(`${fixture}-`)
+    ? record.id.slice(fixture.length + 1)
+    : record?.id ?? "";
+}
+
+/**
+ * Which result view renders the record's observable. The bucket is a property
+ * of where the product actually renders the contract, not of the record's
+ * name: `analysis-segments` is discharged on Overview (the count renders as the
+ * "Observed contexts" metric) and `caveat-serialized` is checked against the
+ * consumed serialized terminal, so both bind to the overview invocation.
+ */
+const A8_EXPECTATION_VIEW = {
+  "overview-headline": "overview",
+  "overview-support": "overview",
+  "caveat-visible": "overview",
+  "caveat-serialized": "overview",
+  "analysis-segments": "overview",
+  "timeline-ids": "timeline",
+  "timeline-empty-state": "timeline",
+  "undated-section-absent": "timeline",
+  placement: "timeline",
+  divergence: "timeline",
+  connectors: "timeline",
+  "analysis-coverage": "analysis",
+  "analysis-origins": "analysis",
+  "analysis-policy-not-applicable": "analysis",
+  gates: "analysis",
+};
+
+function expectedViewBucket(record, fixture) {
+  return A8_EXPECTATION_VIEW[expectedRecordKind(record, fixture)] ?? null;
+}
+
+/* ---- expected-record verdicts: pure predicates over measured surfaces ---- */
+/* Each returns { ok, detail } and is exported so the offline control can feed
+ * it counterexample surfaces and prove the SAME predicate goes red. */
+
+function a8HeadlineVerdict(record, surface) {
+  const actual = surface?.headline ?? null;
+  return {
+    ok: actual === record.expect,
+    detail: `heading=${JSON.stringify(actual)} expected=${JSON.stringify(record.expect)}`,
+  };
+}
+
+function a8SupportVerdict(record, surface) {
+  const actual = surface?.paragraphs?.[0] ?? null;
+  return {
+    ok: actual === record.expect,
+    detail: `support=${JSON.stringify(actual ?? "no support paragraph")}`,
+  };
+}
+
+function a8CaveatVerdict(record, surface) {
+  const want = String(record.expect ?? "");
+  const found = (surface?.paragraphs ?? []).some(
+    (p) => String(p).replace(/^⚠\s*/, "").trim() === want,
+  );
+  return {
+    ok: found,
+    detail: `paragraphs=${JSON.stringify(surface?.paragraphs ?? [])}`,
+  };
+}
+
+function a8CaveatSerializedVerdict(record, terminal) {
+  const actual = terminal ? terminal.doesNotProveClaimTrue ?? null : null;
+  return {
+    ok: actual === record.expect,
+    detail:
+      `serialized doesNotProveClaimTrue=${JSON.stringify(actual)} — a serialized-only ` +
+      `contract, asserted on the consumed terminal payload, never on rendered text`,
+  };
+}
+
+function a8SegmentsVerdict(record, surface) {
+  const rendered = surface?.metrics?.["Observed contexts"] ?? null;
+  const ok =
+    record.expect === null ? rendered === "Unresolved" : rendered === String(record.expect);
+  return {
+    ok,
+    detail: `observedContexts=${JSON.stringify(rendered)} expected=${JSON.stringify(record.expect)}`,
+  };
+}
+
+/** Parse the rendered "Context comparisons: …" sentence into the three counts
+ *  the Analysis coverage paragraph actually publishes. `displayedDatedCore`
+ *  and the pair-id set are not rendered text — they are asserted against the
+ *  consumed serialized payload and the clicked endpoint identity respectively. */
+function a8CoverageVerdict(record, surface, openedPairKeys) {
+  const expect = record.expect ?? {};
+  const text = surface?.coverageText ?? null;
+  if (text === null) return { ok: false, detail: "no Comparison coverage paragraph measured" };
+  if (/No occurrences were selected for context comparison/.test(text)) {
+    const ok = expect.eligible === 0 && expect.selected === 0 && expect.comparedPairs === 0;
+    return { ok, detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)}` };
+  }
+  if (/was not reported/i.test(text)) {
+    return { ok: false, detail: `coverage not reported, expected ${JSON.stringify(expect)}` };
+  }
+  const m = /(\d+) pairs? compared across (\d+) selected of (\d+) eligible occurrences/.exec(text);
+  if (!m) return { ok: false, detail: `unparsed coverage text ${JSON.stringify(text)}` };
+  const rendered = { comparedPairs: +m[1], selected: +m[2], eligible: +m[3] };
+  const countsOk =
+    rendered.comparedPairs === expect.comparedPairs &&
+    rendered.selected === expect.selected &&
+    rendered.eligible === expect.eligible;
+  if (!countsOk) {
+    return { ok: false, detail: `rendered=${JSON.stringify(rendered)} expected=${JSON.stringify(expect)}` };
+  }
+  // comparedPairIds are a separate pair-key namespace: each key is proven by
+  // the actual opened identity IDs of the performed row's endpoint buttons.
+  const expectedPairs = new Set(expect.comparedPairIds ?? []);
+  const seen = new Set(openedPairKeys ?? []);
+  const missing = [...expectedPairs].filter((p) => !seen.has(p));
+  const extra = [...seen].filter((p) => !expectedPairs.has(p));
+  return {
+    ok: missing.length === 0 && extra.length === 0 && seen.size === expectedPairs.size,
+    detail:
+      `counts=${JSON.stringify(rendered)} pairs opened=${JSON.stringify([...seen])} ` +
+      `expected=${JSON.stringify([...expectedPairs])} missing=${JSON.stringify(missing)} extra=${JSON.stringify(extra)}`,
+  };
+}
+
+function a8GatesVerdict(record, surface, openedSupportIds) {
+  const expect = record.expect ?? {};
+  const gates = expect.gates ?? [];
+  const items = surface?.gateItems ?? [];
+  const mism = [];
+  if ((expect.statusBasisRendered ?? null) !== null) {
+    if (surface?.statusBasis !== expect.statusBasisRendered) {
+      mism.push(`statusBasis rendered=${JSON.stringify(surface?.statusBasis)}`);
+    }
+  }
+  if (items.length !== gates.length) {
+    mism.push(`gate rows ${items.length} vs expected ${gates.length}`);
+  }
+  for (const [i, g] of gates.entries()) {
+    const item = items[i] ?? {};
+    if (item.label !== g.expectText) mism.push(`gate ${i} label=${JSON.stringify(item.label)} want ${JSON.stringify(g.expectText)}`);
+    if (typeof g.passed === "boolean" && typeof item.glyph === "string" && item.glyph !== (g.passed ? "✓" : "✗")) {
+      mism.push(`gate ${i} glyph=${JSON.stringify(item.glyph)} but passed=${g.passed}`);
+    }
+    if ((item.detail ?? "") !== g.detail) mism.push(`gate ${i} detail=${JSON.stringify(item.detail)}`);
+    if ((item.supportButtons ?? -1) !== (g.expectSupportLinkIds ?? []).length) {
+      mism.push(`gate ${i} support buttons ${item.supportButtons ?? "n/a"} vs ${asLen(g.expectSupportLinkIds)}`);
+    }
+    const opened = (openedSupportIds ?? {})[i] ?? [];
+    const want = g.expectSupportLinkIds ?? [];
+    for (const [j, id] of want.entries()) {
+      if (opened[j] !== id) mism.push(`gate ${i} link ${j} opened=${JSON.stringify(opened[j] ?? null)} want ${id}`);
+    }
+  }
+  return { ok: mism.length === 0, detail: mism.join("; ") || `${gates.length} gate(s) verified` };
+}
+
+function a8OriginsVerdict(record, surface, openedMemberIds) {
+  const expect = record.expect ?? {};
+  const mism = [];
+  // The counts line is parsed from the rendered "Reporting origins" paragraph,
+  // never re-derived from the fixture.
+  const om = /(\d+) resolved reporting groups?/.exec(surface?.originsText ?? "");
+  const um = /(\d+) unresolved candidates?/.exec(surface?.originsText ?? "");
+  const renderedGroups = om ? +om[1] : null;
+  const renderedUnresolved = um ? +um[1] : null;
+  if (renderedGroups !== expect.reportingGroupCount) {
+    mism.push(`resolved groups rendered=${renderedGroups} want ${expect.reportingGroupCount}`);
+  }
+  if (renderedUnresolved !== expect.unresolvedOriginCount) {
+    mism.push(`unresolved rendered=${renderedUnresolved} want ${expect.unresolvedOriginCount}`);
+  }
+  const items = surface?.groupItems ?? [];
+  const groups = expect.groups ?? [];
+  if (groups.length === 0 && (surface?.groupsEmpty ?? null) === null && items.length > 0) {
+    mism.push(`no groups expected but ${items.length} rendered`);
+  }
+  if (groups.length > 0 && items.length !== groups.length) {
+    mism.push(`group rows ${items.length} vs expected ${groups.length}`);
+  }
+  for (const [i, g] of groups.entries()) {
+    const item = items[i] ?? {};
+    const memberCount = asLen(g.memberIds);
+    if (!new RegExp(`Reporting group of ${memberCount} occurrence`).test(item.headline ?? "")) {
+      mism.push(`group ${i} (${g.groupId}) headline=${JSON.stringify(item.headline)}`);
+    }
+    for (const reason of g.renderedReasons ?? []) {
+      if (!(item.headline ?? "").includes(reason)) mism.push(`group ${i} missing reason ${JSON.stringify(reason)}`);
+    }
+    const opened = (openedMemberIds ?? {})[i] ?? [];
+    for (const [j, id] of (g.memberIds ?? []).entries()) {
+      if (opened[j] !== id) mism.push(`group ${i} member ${j} opened=${JSON.stringify(opened[j] ?? null)} want ${id}`);
+    }
+  }
+  const unresOpened = (openedMemberIds ?? {}).unresolved ?? [];
+  for (const [j, id] of (expect.unresolvedCandidateIds ?? []).entries()) {
+    if (unresOpened[j] !== id) {
+      mism.push(`unresolved candidate ${j} opened=${JSON.stringify(unresOpened[j] ?? null)} want ${id}`);
+    }
+  }
+  return { ok: mism.length === 0, detail: mism.join("; ") || `${groups.length} group(s), ${asLen(expect.unresolvedCandidateIds)} unresolved verified` };
+}
+
+function a8PolicyNaVerdict(record, surface) {
+  const actual = surface?.whyFallback ?? null;
+  return {
+    ok: actual === record.expect,
+    detail: `fallback=${JSON.stringify(actual)} expected=${JSON.stringify(record.expect)}`,
+  };
+}
+
+function a8TimelineIdsVerdict(record, openedDatedIds) {
+  const expect = record.expectIds ?? [];
+  const opened = openedDatedIds ?? [];
+  const mism = expect.filter((id, i) => opened[i] !== id).map((id, i) => `position ${i} opened=${JSON.stringify(opened[i] ?? null)} want ${id}`);
+  if (opened.length !== expect.length) mism.push(`opened ${opened.length} dated item(s) vs expected ${expect.length}`);
+  return { ok: mism.length === 0, detail: mism.join("; ") || `${expect.length} dated occurrence(s) opened with expected identity` };
+}
+
+function a8UndatedAbsentVerdict(record, surface) {
+  const present = surface?.undated?.sectionPresent === true && asLen(surface?.undated?.items) > 0;
+  return {
+    ok: !present,
+    detail: `undated section present=${surface?.undated?.sectionPresent ?? "unmeasured"} items=${asLen(surface?.undated?.items)}`,
+  };
+}
+
+function a8EmptyStateVerdict(record, surface) {
+  const ok =
+    surface !== null &&
+    surface.datedCount === 0 &&
+    (surface.noDatedCoreState === true || surface.noOccurrencesState === true);
+  return {
+    ok,
+    detail: `dated=${surface?.datedCount ?? "unmeasured"} noDatedCore=${surface?.noDatedCoreState} empty=${surface?.noOccurrencesState}`,
+  };
+}
+
+function a8PlacementVerdict(record, surface, openedUndatedIds) {
+  const expect = record.expectIds ?? [];
+  const mism = [];
+  const undated = surface?.undated ?? null;
+  if (!undated || undated.sectionPresent !== true) {
+    mism.push("undated section absent, expected items " + JSON.stringify(expect));
+    return { ok: false, detail: mism.join("; ") };
+  }
+  if (record.expectSectionHeading && undated.heading !== record.expectSectionHeading) {
+    mism.push(`section heading=${JSON.stringify(undated.heading)} want ${JSON.stringify(record.expectSectionHeading)}`);
+  }
+  const items = undated.items ?? [];
+  if (items.length !== expect.length) mism.push(`undated items ${items.length} vs expected ${expect.length}`);
+  for (const [i, id] of expect.entries()) {
+    const item = items[i] ?? {};
+    const text = item.text ?? "";
+    if (record.expectItemBadge && !text.includes(record.expectItemBadge)) {
+      mism.push(`item ${i} missing badge ${JSON.stringify(record.expectItemBadge)}`);
+    }
+    if (record.expectNoUsableDateText && !text.includes(record.expectNoUsableDateText)) {
+      mism.push(`item ${i} missing ${JSON.stringify(record.expectNoUsableDateText)}`);
+    }
+    const wantNote = (record.expectDateNoteById ?? {})[id] ?? null;
+    // The note is bound to the item's ACTUAL opened identity, not its position:
+    // openedUndatedIds[i] is the identity the dialog reported.
+    const openedId = (openedUndatedIds ?? [])[i] ?? null;
+    if (openedId !== id) {
+      mism.push(`item ${i} opened=${JSON.stringify(openedId)} want ${id}`);
+    } else if (wantNote !== null && !text.includes(wantNote)) {
+      mism.push(`item ${i} (${id}) missing date note ${JSON.stringify(wantNote)}`);
+    } else if (wantNote === null && /The retrieved dates for this occurrence disagree\./.test(text)) {
+      mism.push(`item ${i} (${id}) carries a disputed note it should not`);
+    }
+    // Placement's core claim: this id never enters the dated timeline.
+    if ((surface?.datedIdsOpened ?? []).includes(id)) mism.push(`${id} appeared in the dated timeline`);
+  }
+  return { ok: mism.length === 0, detail: mism.join("; ") || `${expect.length} undated item(s) placed correctly` };
+}
+
+function a8DivergenceVerdict(record, surface, openedEndpointIds) {
+  const expect = record.expect ?? {};
+  const mism = [];
+  if (surface?.divergenceNote?.present !== true) mism.push("divergence note absent");
+  const opened = openedEndpointIds ?? {};
+  if (opened.earlier !== expect.from) mism.push(`earlier opened=${JSON.stringify(opened.earlier ?? null)} want ${expect.from}`);
+  if (opened.later !== expect.to) mism.push(`later opened=${JSON.stringify(opened.later ?? null)} want ${expect.to}`);
+  return { ok: mism.length === 0, detail: mism.join("; ") || `pair ${expect.from}|${expect.to} inspectable` };
+}
+
+function a8ConnectorsVerdict(record, expectedCase, surface) {
+  const edges = expectedCase?.expectedIds?.connectorEdges ?? [];
+  const items = surface?.datedItems ?? [];
+  const ids = surface?.datedIdsOpened ?? [];
+  const mism = [];
+  for (const edge of edges) {
+    const idx = ids.indexOf(edge.toOccurrenceId);
+    if (idx < 0) {
+      mism.push(`edge ${edge.pair}: ${edge.toOccurrenceId} not among opened dated ids`);
+      continue;
+    }
+    const text = items[idx]?.text ?? "";
+    if (!text.includes(edge.expectConnectorLabel)) {
+      mism.push(`edge ${edge.pair}: connector ${JSON.stringify(edge.expectConnectorLabel)} absent in item ${idx}`);
+    }
+  }
+  return { ok: mism.length === 0, detail: mism.join("; ") || `${edges.length} connector edge(s) verified` };
+}
+
+/** The map-internal consistency a wrong-case mutation breaks: every record id
+ *  is namespaced by its own fixture, and the overview headline record agrees
+ *  with the case-level frozen headline. */
+function expectedCaseCoherent(expectedCase) {
+  const fixture = expectedCase?.fixture;
+  const records = expectedCase?.visibleExpectations ?? [];
+  const bad = records.filter((r) => expectedRecordKind(r, fixture) === r.id);
+  const headline = records.find((r) => expectedRecordKind(r, fixture) === "overview-headline");
+  return {
+    ok:
+      bad.length === 0 &&
+      (headline === undefined || headline.expect === expectedCase.expectedOverviewHeadline),
+    detail:
+      `${records.length} record(s), ${bad.length} foreign-id record(s)` +
+      (headline ? `, headline record ${headline.expect === expectedCase.expectedOverviewHeadline ? "agrees" : "DISAGREES"} with frozen headline` : ""),
+  };
+}
+
+/* ---- page-side probes (function sources, like FOCUS_SAMPLER_FN) ---------- */
+
+/** The Overview surface: status heading, the paragraphs under it, and the
+ *  three metric cards keyed by their dt label. */
+const A8_OVERVIEW_PROBE_FN = `(() => {
+  const sec = document.querySelector('section[aria-label="Investigation result"]');
+  if (!sec) return null;
+  const h1 = sec.querySelector("h1");
+  const box = h1 ? h1.parentElement : null;
+  const paragraphs = box
+    ? [...box.querySelectorAll(":scope > p")].map((p) => (p.innerText || "").trim())
+    : [];
+  const metrics = {};
+  for (const card of sec.querySelectorAll("dl > div")) {
+    const dt = card.querySelector("dt");
+    const dd = card.querySelector("dd");
+    if (dt && dd) metrics[(dt.innerText || "").trim()] = (dd.innerText || "").trim();
+  }
+  return { headline: h1 ? (h1.innerText || "").trim() : null, paragraphs, metrics };
+})()`;
+
+/** The Timeline surface: dated items, both empty states, the undated section
+ *  and the divergence note. Identity is never read off card text — openers
+ *  are clicked and the dialog's identity line is the identity proof. */
+const A8_TIMELINE_PROBE_FN = `(() => {
+  const panel = document.getElementById("ct-panel-timeline");
+  if (!panel) return null;
+  const ol = panel.querySelector("ol");
+  const datedItems = [...(ol ? ol.querySelectorAll(":scope > li") : [])].map((li) => ({
+    title: (li.querySelector("h3")?.innerText ?? "").trim(),
+    text: li.innerText ?? "",
+    inspectLabel: li.querySelector('button[aria-label^="Inspect evidence"]')?.getAttribute("aria-label") ?? null,
+  }));
+  const undatedSec = panel.querySelector('section[aria-label="Evidence with unknown dates"]');
+  const undated = undatedSec
+    ? {
+        sectionPresent: true,
+        heading: (undatedSec.querySelector("h3")?.innerText ?? "").trim(),
+        items: [...undatedSec.querySelectorAll("ul > li")].map((li) => ({
+          title: (li.querySelector("h3")?.innerText ?? "").trim(),
+          text: li.innerText ?? "",
+          inspectLabel: li.querySelector('button[aria-label^="Inspect evidence"]')?.getAttribute("aria-label") ?? null,
+        })),
+      }
+    : { sectionPresent: false, heading: null, items: [] };
+  const texts = [...panel.querySelectorAll("p")].map((p) => (p.innerText || "").trim());
+  const note = panel.querySelector('[role="note"][aria-label="First observed context divergence"]');
+  return {
+    datedCount: datedItems.length,
+    datedItems,
+    noDatedCoreState: texts.some((t) => /No dated core occurrences were found/.test(t)),
+    noOccurrencesState: texts.some((t) => /No occurrences were returned in this investigation/.test(t)),
+    undated,
+    divergenceNote: note
+      ? { present: true, buttons: [...note.querySelectorAll("button")].map((b) => (b.innerText || "").trim()) }
+      : { present: false, buttons: [] },
+  };
+})()`;
+
+/** The Analysis surface, sectioned by its own h3 headings so repeated copy
+ *  (e.g. "View supporting evidence →") is always read inside its owning gate
+ *  or group — never pooled across the panel. */
+const A8_ANALYSIS_PROBE_FN = `(() => {
+  const sec = document.querySelector('#ct-panel-analysis section[aria-label="Analysis"]');
+  if (!sec) return null;
+  const hs = [...sec.querySelectorAll("h3")];
+  const slice = (name) => {
+    const h = hs.find((x) => (x.innerText || "").trim() === name);
+    if (!h) return [];
+    const out = [];
+    for (let n = h.nextElementSibling; n && !/^H[23]$/.test(n.tagName); n = n.nextElementSibling) out.push(n);
+    return out;
+  };
+  const paras = (els) => els.filter((e) => e.tagName === "P").map((e) => (e.innerText || "").trim());
+  const cov = slice("Comparison coverage");
+  const perf = slice("Comparisons performed");
+  const perfUl = perf.find((e) => e.tagName === "UL");
+  const why = slice("Why this result");
+  const whyParas = paras(why);
+  const whyUl = why.find((e) => e.tagName === "UL");
+  const grp = slice("Reporting groups");
+  const grpUl = grp.find((e) => e.tagName === "UL");
+  const unresolvedP = grp
+    .filter((e) => e.tagName === "P")
+    .find((e) => /^\\d+ unresolved candidates?:/.test((e.innerText || "").trim()));
+  return {
+    coverageText: paras(cov)[0] ?? null,
+    performedRows: perfUl
+      ? [...perfUl.children].map((li) => ({
+          text: (li.innerText || "").trim(),
+          buttons: li.querySelectorAll("button").length,
+        }))
+      : [],
+    performedEmpty: paras(perf).find((t) => /No context comparison was performed/.test(t)) ?? null,
+    originsText: paras(slice("Reporting origins"))[0] ?? null,
+    statusBasis: whyParas.find((t) => /^Status basis:/.test(t)) ?? null,
+    whyFallback: whyParas.find((t) => /policy reasons were not included/i.test(t)) ?? null,
+    gateItems: whyUl
+      ? [...whyUl.children].map((li) => {
+          const rawLabel = (li.querySelector("p")?.innerText ?? "").trim();
+          // The pass glyph is an aria-hidden span inside the label <p>; the
+          // map's expectText carries "<label>: passed|not passed" without it.
+          const glyph = /^[✓✗]/.exec(rawLabel)?.[0] ?? null;
+          return {
+            label: rawLabel.replace(/^[✓✗]\s*/, ""),
+            glyph,
+            detail: (li.querySelectorAll("p")[1]?.innerText ?? "").trim(),
+            supportButtons: li.querySelectorAll("button").length,
+          };
+        })
+      : [],
+    groupsEmpty: paras(grp).find((t) => /No resolved reporting groups/.test(t)) ?? null,
+    groupItems: grpUl
+      ? [...grpUl.children].map((li) => ({
+          headline: (li.querySelector("p")?.innerText ?? "").trim(),
+          memberButtons: li.querySelectorAll("button").length,
+        }))
+      : [],
+    unresolvedText: unresolvedP ? (unresolvedP.innerText || "").trim() : null,
+    unresolvedButtons: unresolvedP ? unresolvedP.querySelectorAll("button").length : 0,
+  };
+})()`;
+
+/* ------- click-through helpers: opened identity is the identity ---------- */
+
+/** Click an evidence opener, read the dialog's rendered `Occurrence ID:` line —
+ *  the product's own identity statement — then close via "Back to timeline".
+ *  Returns the opened id or null; callers assert, never assume. */
+async function readOpenedEvidenceId(page, opener) {
+  try {
+    await opener.click();
+    const dialog = page.locator('[role="dialog"]');
+    await dialog.waitFor({ state: "visible", timeout: 15_000 });
+    // `Occurrence ID:` is the last line of the Technical-details <details> —
+    // rendered but collapsed, so `innerText` would skip it while textContent
+    // carries it. The pinned app renders no "Evidence ID" line.
+    const text = await dialog.textContent({ timeout: 10_000 });
+    const id = (OPENED_IDENTITY_RE.exec(text ?? "") ?? [])[1] ?? null;
+    const back = dialog.getByRole("button", { name: /back to timeline/i }).first();
+    if ((await back.count()) > 0) await back.click();
+    else await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "hidden", timeout: 10_000 }).catch(() => {});
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+/** A locator for the `li` sequence inside the FIRST `ul` following a named
+ *  Analysis h3 — adjacent-sibling CSS cannot express "the next ul" when a
+ *  paragraph (e.g. the Status basis line) intervenes, so XPath does it. The
+ *  scope is the same one the analysis probe measured. */
+function a8ListBelow(page, heading) {
+  return page
+    .locator(`#ct-panel-analysis section[aria-label="Analysis"] h3`, { hasText: heading })
+    .first()
+    .locator("xpath=following-sibling::ul[1]")
+    .locator("> li");
+}
+
+/** Discharge every map record whose observable renders on `view`, as one
+ *  `a8.expect.<record-id>` assertion each — the 147 records are consumed as
+ *  distinct observations, never collapsed into a single aggregate check. */
+async function observeExpectedRecords(page, rec, expectedCase, view, { terminal }) {
+  const fixture = expectedCase.fixture;
+  const records = (expectedCase.visibleExpectations ?? []).filter(
+    (r) => expectedViewBucket(r, fixture) === view,
+  );
+  if (records.length === 0) return;
+  const coherence = expectedCaseCoherent(expectedCase);
+  rec.check(
+    `a8.expect.${fixture}-map-coherent`,
+    coherence.ok,
+    coherence.detail,
+  );
+
+  if (view === "overview") {
+    const surface = await page.evaluate(`(${A8_OVERVIEW_PROBE_FN})()`).catch(() => null);
+    for (const r of records) {
+      const kind = expectedRecordKind(r, fixture);
+      let v;
+      if (kind === "overview-headline") v = a8HeadlineVerdict(r, surface);
+      else if (kind === "overview-support") v = a8SupportVerdict(r, surface);
+      else if (kind === "caveat-visible") v = a8CaveatVerdict(r, surface);
+      else if (kind === "caveat-serialized") v = a8CaveatSerializedVerdict(r, terminal);
+      else if (kind === "analysis-segments") v = a8SegmentsVerdict(r, surface);
+      else continue;
+      rec.check(`a8.expect.${r.id}`, v.ok, v.detail);
+    }
+    // The claim the terminal carried is the claim this recipe submitted —
+    // a serialized observation binding the consumed payload to the case.
+    const claimOk =
+      expectedCase.claimSubmitted === null
+        ? (terminal?.claim ?? null) === null
+        : terminal?.claim === expectedCase.claimSubmitted;
+    rec.check(
+      `a8.expect.${fixture}-claim-consumed`,
+      claimOk,
+      `terminal.claim=${JSON.stringify(terminal?.claim ?? null)} expected=${JSON.stringify(expectedCase.claimSubmitted)}`,
+    );
+  } else if (view === "timeline") {
+    const surface = await page.evaluate(`(${A8_TIMELINE_PROBE_FN})()`).catch(() => null);
+    // Open every dated card's Inspect control in order: the opened identity
+    // sequence is the timeline's identity proof (never raw rendered text).
+    const openers = page.locator('#ct-panel-timeline ol > li button[aria-label^="Inspect evidence"]');
+    const openedDated = [];
+    const n = await openers.count();
+    for (let i = 0; i < n; i++) openedDated.push(await readOpenedEvidenceId(page, openers.nth(i)));
+    if (surface) surface.datedIdsOpened = openedDated;
+    for (const r of records) {
+      const kind = expectedRecordKind(r, fixture);
+      let v;
+      if (kind === "timeline-ids") v = a8TimelineIdsVerdict(r, openedDated);
+      else if (kind === "undated-section-absent") v = a8UndatedAbsentVerdict(r, surface);
+      else if (kind === "timeline-empty-state") v = a8EmptyStateVerdict(r, surface);
+      else if (kind === "connectors") v = a8ConnectorsVerdict(r, expectedCase, surface);
+      else if (kind === "placement" || kind === "divergence") v = null; // below: clicks needed
+      else continue;
+      rec.check(`a8.expect.${r.id}`, v.ok, v.detail);
+    }
+    for (const r of records) {
+      const kind = expectedRecordKind(r, fixture);
+      if (kind === "placement") {
+        const uitems = page.locator(
+          '#ct-panel-timeline section[aria-label="Evidence with unknown dates"] ul > li button[aria-label^="Inspect evidence"]',
+        );
+        const openedUndated = [];
+        const u = await uitems.count();
+        for (let i = 0; i < u; i++) openedUndated.push(await readOpenedEvidenceId(page, uitems.nth(i)));
+        const v = a8PlacementVerdict(r, surface, openedUndated);
+        rec.check(`a8.expect.${r.id}`, v.ok, v.detail);
+      } else if (kind === "divergence") {
+        const noteBtns = page.locator(
+          '#ct-panel-timeline [role="note"][aria-label="First observed context divergence"] button',
+        );
+        const opened = {};
+        if ((await noteBtns.count()) >= 2) {
+          opened.earlier = await readOpenedEvidenceId(page, noteBtns.nth(0));
+          opened.later = await readOpenedEvidenceId(page, noteBtns.nth(1));
+        }
+        const v = a8DivergenceVerdict(r, surface, opened);
+        rec.check(`a8.expect.${r.id}`, v.ok, v.detail);
+      }
+    }
+  } else if (view === "analysis") {
+    const surface = await page.evaluate(`(${A8_ANALYSIS_PROBE_FN})()`).catch(() => null);
+    const needsGates = records.some((r) => expectedRecordKind(r, fixture) === "gates");
+    const needsOrigins = records.some((r) => expectedRecordKind(r, fixture) === "analysis-origins");
+    const needsPairs = records.some((r) => expectedRecordKind(r, fixture) === "analysis-coverage");
+    // Opened identity per scope: performed-row endpoints, gate support links,
+    // group member links and unresolved candidates are each clicked in place.
+    // Each click block is gated on the probe's OWN row count for that section:
+    // an empty section renders no ul, and the nearest following-sibling ul
+    // would belong to the next heading — probing cross-section rows as this
+    // section's links must never happen.
+    const openedPairKeys = [];
+    if (needsPairs && (surface?.performedRows?.length ?? 0) > 0) {
+      const rows = a8ListBelow(page, "Comparisons performed");
+      const rowCount = await rows.count();
+      for (let i = 0; i < rowCount; i++) {
+        const btns = rows.nth(i).locator("button");
+        if ((await btns.count()) >= 2) {
+          const from = await readOpenedEvidenceId(page, btns.nth(0));
+          const to = await readOpenedEvidenceId(page, btns.nth(1));
+          if (from && to) openedPairKeys.push(`${from}|${to}`);
+        }
+      }
+    }
+    const openedSupportIds = {};
+    if (needsGates && (surface?.gateItems?.length ?? 0) > 0) {
+      const gates = a8ListBelow(page, "Why this result");
+      const gateCount = await gates.count();
+      for (let i = 0; i < gateCount; i++) {
+        const btns = gates.nth(i).locator("button");
+        const bc = await btns.count();
+        const opened = [];
+        for (let j = 0; j < bc; j++) opened.push(await readOpenedEvidenceId(page, btns.nth(j)));
+        openedSupportIds[i] = opened;
+      }
+    }
+    const openedMemberIds = {};
+    if (needsOrigins) {
+      if ((surface?.groupItems?.length ?? 0) > 0) {
+        const groups = a8ListBelow(page, "Reporting groups");
+        const groupCount = await groups.count();
+        for (let i = 0; i < groupCount; i++) {
+          const btns = groups.nth(i).locator("button");
+          const bc = await btns.count();
+          const opened = [];
+          for (let j = 0; j < bc; j++) opened.push(await readOpenedEvidenceId(page, btns.nth(j)));
+          openedMemberIds[i] = opened;
+        }
+      }
+      // The unresolved-candidates paragraph is the one that literally opens
+      // with "N unresolved candidates:" — CSS `~` cannot stop at the next h3,
+      // so the text filter does the section binding here.
+      const unres = page
+        .locator('#ct-panel-analysis section[aria-label="Analysis"] p')
+        .filter({ hasText: /^\d+ unresolved candidates?:/ })
+        .locator("button");
+      const uc = await unres.count();
+      const openedU = [];
+      for (let i = 0; i < uc; i++) openedU.push(await readOpenedEvidenceId(page, unres.nth(i)));
+      openedMemberIds.unresolved = openedU;
+    }
+    for (const r of records) {
+      const kind = expectedRecordKind(r, fixture);
+      let v;
+      if (kind === "analysis-coverage") v = a8CoverageVerdict(r, surface, openedPairKeys);
+      else if (kind === "gates") v = a8GatesVerdict(r, surface, openedSupportIds);
+      else if (kind === "analysis-origins") v = a8OriginsVerdict(r, surface, openedMemberIds);
+      else if (kind === "analysis-policy-not-applicable") v = a8PolicyNaVerdict(r, surface);
+      else continue;
+      rec.check(`a8.expect.${r.id}`, v.ok, v.detail);
+    }
+  }
+}
+
+/* ------------------------- A8 recipe bindings ---------------------------- */
+
+/**
+ * The maintained-runner binding for each of the map's 17 recipe templates.
+ * `runnerPin`/`acceptedCommandArgs`/`caseId`/`caseImport` were UNBOUND at map
+ * seal time; this builder binds them to this CLI's real command surface —
+ * nothing is fabricated: every arg vector is one `parseDriveOptions` accepts,
+ * the fixture sha is read from the received bytes, and the digest covers the
+ * whole binding table so a later edit changes it loudly.
+ *
+ * `runnerSha256` is recorded as evidence (the module bytes at bind time) but
+ * is deliberately OUTSIDE `recipeDigest`: the digest covers the semantic
+ * contract only, so a CLI change that does not touch the contract keeps it.
+ */
+function buildA8RecipeBindings() {
+  const map = loadExpectedCaseMap();
+  const viewArg = { Overview: "overview", Timeline: "timeline", "Timeline-empty-state": "timeline", Sources: "sources", Analysis: "analysis" };
+  const recipes = map.cases.map((c) => {
+    const fixture = c.fixture;
+    const fixtureSha = sha256(fs.readFileSync(fixturePath(fixture)));
+    const claimArgs =
+      c.entryMode === "claim_check" ? ["--claim-text", c.claimSubmitted ?? ""] : [];
+    const commands = [];
+    const resultViews = new Set();
+    let wantsViewer = false;
+    for (const v of c.views ?? []) {
+      if (v.startsWith("viewer:")) wantsViewer = true;
+      else if (viewArg[v]) resultViews.add(viewArg[v]);
+    }
+    for (const view of ["overview", "timeline", "sources", "analysis"]) {
+      if (!resultViews.has(view)) continue;
+      commands.push({
+        purpose: `result view ${view}`,
+        args: ["drive", "result", "--run-id", "<run-id>", "--case", fixture, "--view", view, ...claimArgs],
+      });
+    }
+    if (wantsViewer) {
+      commands.push({
+        purpose: "viewer Inspect evidence (dated timeline occurrences)",
+        args: ["drive", "viewer", "--run-id", "<run-id>", "--entry", "timeline", "--case", fixture, ...claimArgs],
+      });
+    }
+    return {
+      caseId: `a8-${fixture}`,
+      fixture,
+      fixtureSha256: fixtureSha,
+      entryTier: c.entryTier ?? null,
+      entryMode: c.entryMode ?? null,
+      claimSubmitted: c.claimSubmitted ?? null,
+      expectedStatus: c.expectedStatus ?? null,
+      streamSha256: c.streamSha256 ?? null,
+      views: c.views ?? [],
+      negativeFamily: c.negativeFamily ?? "none",
+      negativeRole: c.negativeRole ?? null,
+      commands,
+      requiredFlags: ["--run-id", ...(c.entryMode === "claim_check" ? ["--claim-text"] : [])],
+    };
+  });
+  const bound = {
+    mapFile: "fixtures/a8-expected-case-map.json",
+    mapSha256: A8_MAP_SHA256,
+    acceptedAppPin: A8_APP_PIN,
+    fixtureSubsetPin: A8_FIXTURE_PIN,
+    releaseSeal: A8_RELEASE_SEAL,
+    runner: "cli/control-contexttrail.mjs",
+    recipes,
+  };
+  const digest = sha256(Buffer.from(JSON.stringify(bound), "utf8"));
+  return {
+    ...bound,
+    runnerSha256: sha256(fs.readFileSync(CLI_PATH)),
+    recipeDigest: digest,
+    note: "recipeDigest covers {mapFile,mapSha256,acceptedAppPin,fixtureSubsetPin,releaseSeal,runner,recipes} only; runnerSha256 is recorded evidence, not a digest input",
+  };
 }
 
 /* --------------------------------- drive -------------------------------- */
@@ -6246,6 +7042,17 @@ const DRIVE_CASES = {
         );
       }
     }
+
+    // A8 expected-case map: when the driven fixture is one of the 17 accepted
+    // cases, every expectation record whose observable renders on this view is
+    // discharged as its own a8.expect.* assertion. Records bound to other
+    // views fire on their own invocations — the recipe runs all of them.
+    if (!live) {
+      const expectedCase = expectedCaseFor(caseName);
+      if (expectedCase) {
+        await observeExpectedRecords(page, rec, expectedCase, view, { terminal });
+      }
+    }
   },
 
   async viewer({ page, rec, m, runId, driveDir, viewport, stream, caseName, spec, delayMs, live, input }) {
@@ -6268,10 +7075,36 @@ const DRIVE_CASES = {
     if (stream) stream.releaseAll();
     await waitForTerminalResult(page, rec, { fixture, live, input });
 
+    // When the driven fixture is one of the 17 accepted A8 cases, the opener is
+    // scoped to the EXPECTED dated occurrence's own card — the map's recipe is
+    // "Inspect evidence (dated timeline occurrences only)", and a global
+    // first-match on a repeated accessible name would not prove the opener was
+    // the expected item's. The opened identity is asserted below via the
+    // dialog's rendered identity line.
+    const expectedCase = live ? null : expectedCaseFor(fixture);
+    const expectedViewerId =
+      expectedCase && entry === "timeline" ? expectedCase.expectedIds?.timeline?.[0] ?? null : null;
+    const expectedViewerTitle =
+      expectedViewerId !== null ? fixtureOccurrence(fixture, expectedViewerId)?.title ?? null : null;
+    if (expectedViewerId !== null) {
+      rec.check(
+        "a8.expect.viewer-expected-target-identified",
+        expectedViewerTitle !== null,
+        `expected opener ${expectedViewerId} title=${JSON.stringify(expectedViewerTitle)}`,
+      );
+    }
+
     let entryBtn;
     if (entry === "timeline") {
       await selectTab(page, rec, "Timeline");
-      entryBtn = page.getByRole("button", { name: /inspect evidence/i }).first();
+      entryBtn =
+        expectedViewerTitle !== null
+          ? page
+              .locator("#ct-panel-timeline ol > li")
+              .filter({ has: page.getByRole("heading", { name: expectedViewerTitle }) })
+              .getByRole("button", { name: /inspect evidence/i })
+              .first()
+          : page.getByRole("button", { name: /inspect evidence/i }).first();
       // Live: whether an entry exists depends on the response, so it is observed
       // here and the empty case is handled explicitly below.
       recordEntry(rec, "viewer.timeline-entry-present", entryBtn, live);
@@ -6351,6 +7184,19 @@ const DRIVE_CASES = {
     // The open state is evidence in its own right: a screenshot taken only after
     // the close proves nothing about what the dialog rendered.
     await shot(page, driveDir, `00-viewer-open-${entry}-${vcase}`);
+
+    // A8: the opened item's identity is the dialog's own `Occurrence ID:` line
+    // (inside Technical details — textContent, not innerText) — never the
+    // repeated opener name and never raw id text elsewhere in the DOM.
+    if (expectedViewerId !== null) {
+      const dialogText = await dialog.textContent({ timeout: 10_000 }).catch(() => "");
+      const openedId = (OPENED_IDENTITY_RE.exec(dialogText ?? "") ?? [])[1] ?? null;
+      rec.check(
+        "a8.expect.viewer-opened-identity",
+        openedId === expectedViewerId,
+        `opened Occurrence ID=${JSON.stringify(openedId)} expected=${expectedViewerId}`,
+      );
+    }
 
     // Bounded, NON-WAITING image inspection. A locator that auto-waits for a
     // missing <img> burns a full timeout per navigation step, which is how a
@@ -6661,7 +7507,7 @@ const DRIVE_CASES = {
       rec.check(
         "viewer.occurrence-attributed-to-fixture",
         openRow !== null,
-        `rendered Evidence ID ${openIdNow ?? "none"} resolves to a fixture row`,
+        `rendered identity ${openIdNow ?? "none"} resolves to a fixture row`,
       );
     }
     if (openRow) {
@@ -8512,6 +9358,38 @@ export {
   motionAtRestOk,
   // Fail-closed maintained-record verdict (accepted FD2 semantics).
   driveOutcomeOk,
+  // A8 expected-case map consumer + recipe bindings (accepted final map).
+  FEATURE_SPECS,
+  COMMAND_FLAGS,
+  expectedMapBytesOk,
+  loadExpectedCaseMap,
+  expectedCaseFor,
+  expectedRecordKind,
+  expectedViewBucket,
+  expectedCaseCoherent,
+  buildA8RecipeBindings,
+  a8HeadlineVerdict,
+  a8SupportVerdict,
+  a8CaveatVerdict,
+  a8CaveatSerializedVerdict,
+  a8SegmentsVerdict,
+  a8CoverageVerdict,
+  a8GatesVerdict,
+  a8OriginsVerdict,
+  a8PolicyNaVerdict,
+  a8TimelineIdsVerdict,
+  a8UndatedAbsentVerdict,
+  a8EmptyStateVerdict,
+  a8PlacementVerdict,
+  a8DivergenceVerdict,
+  a8ConnectorsVerdict,
+  A8_MAP_SHA256,
+  A8_APP_PIN,
+  A8_FIXTURE_PIN,
+  A8_RELEASE_SEAL,
+  A8_OVERVIEW_PROBE_FN,
+  A8_TIMELINE_PROBE_FN,
+  A8_ANALYSIS_PROBE_FN,
   // The in-page function sources, exported so offline controls can assert they
   // at least parse — a broken in-page function is otherwise invisible offline.
   FOCUS_SAMPLER_FN,

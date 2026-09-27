@@ -38,6 +38,15 @@ Implemented drives: `landing`, `upload`, `investigation`, `result`, `viewer`,
 for it). Unsupported features, entries, cases, views and flag combinations are
 rejected with exit 2 — they are never silently ignored.
 
+`fixtures/a8-expected-case-map.json` (sha256-pinned, byte-exact import) +
+`fixtures/a8-recipe-bindings.json` bind the accepted 17-case A8 expected-case
+map to this runner. Any `drive result --case <a8-fixture>` or `drive viewer
+--case <a8-fixture>` discharges every bound map record for that view as an
+individual `a8.expect.<record-id>` assertion — 141 visible + 6 serialized-only
+records across the 17 cases — with identity proven through the opened dialog's
+`Occurrence ID:` line. See SKILL.md → "A8 expected-case map and recipe bindings"
+and `fixtures/a8-expected-case-map.CONSUMER-NOTES.md`.
+
 Exit codes are the contract:
 
 | Exit | Meaning |
