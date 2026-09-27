@@ -42,6 +42,9 @@ import {
   expectedRecordKind,
   A8_TIMELINE_PROBE_FN,
   A8_ANALYSIS_PROBE_FN,
+  technicalDetailsDisclosureReader,
+  technicalDetailsModelVerdict,
+  technicalDetailsFieldVerdict,
 } from "../../cli/control-contexttrail.mjs";
 
 let failures = 0;
@@ -582,6 +585,141 @@ const pad = (s) => `${s} — ${"x".repeat(30)}`;
       comparisonIsUnexamined(edges[2]) === false &&
       comparisonStateLabel("uncertain") === "Comparison inconclusive — performed but not established" &&
       comparisonStateLabel("unexamined") === "Not compared in this investigation");
+}
+
+/* ------------- native-002: Technical-details reader on the real 7b shape --- */
+
+{
+  // Pin-faithful disclosure: retrieval rows as dl>div>dt/dd; the model as the
+  // " · jev-1.13.0" suffix of the classification heading <p>; page-metadata
+  // <dl>s nested under their own blocks (Type/Headline, og:*) — the surfaces
+  // the actual product renders at 7b18c16.
+  const TD_DL = `
+    <dl class="mt-2 space-y-1 text-xs text-white/70">
+      <div class="flex gap-2"><dt>Search ids:</dt><dd>fixture-lens-a8</dd></div>
+      <div class="flex gap-2"><dt>Retrieval engine:</dt><dd>Google Lens</dd></div>
+      <div class="flex gap-2"><dt>Result type:</dt><dd>Exact match</dd></div>
+      <div class="flex gap-2"><dt>Result position:</dt><dd>1</dd></div>
+      <div class="flex gap-2"><dt>Source URL:</dt><dd>https://conflict-alpha.test/controlled/1</dd></div>
+      <div class="flex gap-2"><dt>Canonical URL:</dt><dd>https://conflict-alpha.test/controlled/1</dd></div>
+      <div class="flex gap-2"><dt>Media relationship:</dt><dd>Exact match — reported by Google Lens</dd></div>
+      <div class="flex gap-2"><dt>Publication-date source:</dt><dd>Page structured data</dd></div>
+      <div class="flex gap-2"><dt>Retrieved at:</dt><dd>2026-09-26T21:17:45.919Z</dd></div>
+    </dl>`;
+  const TD_META = `
+    <div class="mt-3"><p>Page metadata</p>
+      <ul><li><span>Structured data root_entity:</span>
+        <dl><div><dt>Type:</dt><dd>NewsArticle</dd></div>
+            <div><dt>Headline:</dt><dd>CONTROLLED article</dd></div>
+            <div><dt>Retrieved at:</dt><dd>WRONG-METADATA-VALUE</dd></div></dl>
+      </li></ul>
+      <dl><div><dt>og:title:</dt><dd>CONTROLLED article</dd></div></dl>
+    </div>`;
+  const tdDom = (inner) =>
+    new JSDOM(`<details><summary>Technical details</summary>${inner}
+      <p class="mt-3 break-all text-xs text-white/60">Occurrence ID: ev-x</p></details>`)
+      .window.document.querySelector("details");
+
+  const goodCls = `<div class="mt-3"><p>Classification question answers · jev-1.13.0</p>
+    <p>These are the classification model's answers…</p></div>`;
+
+  // Positive: the real structure discharges all three readers.
+  let d = tdDom(TD_DL + goodCls + TD_META);
+  let td = technicalDetailsDisclosureReader(d);
+  expect("TD: scoped read returns exactly the 9 retrieval fields",
+    td.fieldCount === 9 && td.labels.length === 9 &&
+      !td.labels.some((l) => /^(Type|Headline|og:title)$/.test(l)),
+    JSON.stringify(td.labels));
+  const tdPairs = td.labels.map((l, i) => [l, td.values[i] ?? ""]);
+  const m = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  expect("TD: classification heading suffix binds the model verbatim", m.ok === true,
+    JSON.stringify(m));
+  const ts = technicalDetailsFieldVerdict(tdPairs, /^retrieved at$/i, "2026-09-26T21:17:45.919Z");
+  expect("TD: 'Retrieved at' binds the fixture timestamp, page-metadata dl not flattened",
+    ts.ok === true && ts.candidates === 1, JSON.stringify(ts));
+
+  // Missing model paragraph (distributions absent — the product renders
+  // "No classification answers were recorded").
+  td = technicalDetailsDisclosureReader(
+    tdDom(TD_DL + `<p>No classification answers were recorded for this occurrence.</p>` + TD_META));
+  const mMiss = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  expect("TD: absent classification heading is a missing candidate, not a pass",
+    mMiss.ok === false && mMiss.candidates === 0 && mMiss.rendered === null, JSON.stringify(mMiss));
+
+  // Wrong model suffix.
+  const mWrong = technicalDetailsModelVerdict(
+    ["Classification question answers · jev-0.0.0"], "jev-1.13.0");
+  expect("TD: wrong model suffix is RED", mWrong.ok === false, JSON.stringify(mWrong));
+
+  // Heading present but model suffix absent (product renders label only).
+  const mBare = technicalDetailsModelVerdict(["Classification question answers"], "jev-1.13.0");
+  expect("TD: heading without a model suffix is RED", mBare.ok === false && mBare.rendered === null);
+
+  // Duplicate classification headings — ambiguous scope, never a pass.
+  td = technicalDetailsDisclosureReader(tdDom(TD_DL + goodCls + goodCls));
+  const mDup = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  expect("TD: duplicate classification headings are RED",
+    mDup.ok === false && mDup.candidates === 2, JSON.stringify(mDup));
+
+  // Wrong scope: the model text living in a DIFFERENT disclosure or in an
+  // unrelated paragraph must never satisfy this occurrence's disclosure.
+  td = technicalDetailsDisclosureReader(
+    tdDom(TD_DL + `<p>Provider report · jev-1.13.0</p>` + TD_META));
+  const mScope = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  expect("TD: jev-1.13.0 in an unrelated paragraph cannot pass",
+    mScope.ok === false && mScope.candidates === 0);
+  const otherDetails = new JSDOM(`<div>
+      <details><summary>Other</summary><p>Classification question answers · jev-1.13.0</p></details>
+      <details><summary>Technical details</summary>${TD_DL}${TD_META}</details>
+    </div>`).window.document;
+  td = technicalDetailsDisclosureReader(otherDetails.querySelectorAll("details")[1]);
+  const mOther = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  expect("TD: a sibling disclosure's model suffix is out of scope",
+    mOther.ok === false && mOther.candidates === 0, JSON.stringify(mOther));
+
+  // Old-surface negative: the pre-7ab28e9 "Model version"/"Retrieval
+  // timestamp" dt rows are now the WRONG surface — both must reject.
+  const oldDl = `<dl><div><dt>Model version:</dt><dd>jev-1.13.0</dd></div>
+    <div><dt>Retrieval timestamp:</dt><dd>2026-09-26T21:17:45.919Z</dd></div></dl>`;
+  td = technicalDetailsDisclosureReader(tdDom(oldDl + goodCls));
+  const mOld = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  const tsOld = technicalDetailsFieldVerdict(
+    td.labels.map((l, i) => [l, td.values[i] ?? ""]), /^retrieved at$/i, "2026-09-26T21:17:45.919Z");
+  expect("TD: the heading is the sole model authority — a stray 'Model version' dt row is neither required nor consulted",
+    mOld.ok === true);
+  expect("TD: the obsolete 'Retrieval timestamp' label is RED under the current surface",
+    tsOld.ok === false && tsOld.candidates === 0, JSON.stringify(tsOld));
+
+  // Missing timestamp label, duplicate labels, wrong value — all reject.
+  td = technicalDetailsDisclosureReader(tdDom(TD_DL.replace("Retrieved at:", "Collected at:")));
+  const tsNone = technicalDetailsFieldVerdict(
+    td.labels.map((l, i) => [l, td.values[i] ?? ""]), /^retrieved at$/i, "x");
+  expect("TD: missing 'Retrieved at' is RED", tsNone.ok === false && tsNone.candidates === 0);
+  const tsDup = technicalDetailsFieldVerdict(
+    [["Retrieved at", "a"], ["Retrieved at", "a"]], /^retrieved at$/i, "a");
+  expect("TD: duplicate 'Retrieved at' rows are RED", tsDup.ok === false && tsDup.candidates === 2);
+  const tsBad = technicalDetailsFieldVerdict(
+    [["Retrieved at", "2020-01-01T00:00:00.000Z"]], /^retrieved at$/i, "2026-09-26T21:17:45.919Z");
+  expect("TD: wrong timestamp value is RED", tsBad.ok === false);
+
+  // The model string as ordinary body text (a dd value in a nested, non-primary
+  // list) is never a candidate.
+  td = technicalDetailsDisclosureReader(
+    tdDom(TD_DL + `<div><dl><div><dt>Note:</dt><dd>jev-1.13.0</dd></div></dl></div>`));
+  const mBody = technicalDetailsModelVerdict(td.modelParas, "jev-1.13.0");
+  expect("TD: jev-1.13.0 carried in a dd value cannot satisfy the model check",
+    mBody.ok === false && mBody.candidates === 0);
+
+  // A second top-level retrieval list is ambiguous scope — both are ignored
+  // (listCount≠1 zeroes the field read).
+  td = technicalDetailsDisclosureReader(tdDom(TD_DL + TD_DL));
+  expect("TD: two top-level retrieval lists are ambiguous — no fields bound",
+    td.listCount === 2 && td.fieldCount === 0);
+
+  // No disclosure-level dl: field count zero (never a pass).
+  td = technicalDetailsDisclosureReader(tdDom(goodCls));
+  expect("TD: disclosure without its own retrieval dl yields zero fields",
+    td.fieldCount === 0 && td.labels.length === 0);
 }
 
 console.log(

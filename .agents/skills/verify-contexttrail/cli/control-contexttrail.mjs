@@ -4009,6 +4009,59 @@ async function readFocusDescriptor(locator) {
   return locator.evaluate(FOCUS_DESCRIPTOR_EVALUATOR).catch(() => null);
 }
 
+/** The product's Technical-details disclosure at the reviewed pin renders the
+ *  retrieval fields as dt/dd rows inside its OWN first-level <dl> only —
+ *  page-metadata <dl>s nested under "Page metadata" / structured-data <li>s
+ *  must not be flattened into the same field lookup. The classification model
+ *  identity is rendered as the ` · <model>` suffix of the "Classification
+ *  question answers" heading paragraph inside the same disclosure, never as a
+ *  dt/dd "Model version" row. This reader is a real serializable function (the
+ *  Locator.evaluate contract), scoped to the ONE disclosure element passed in;
+ *  candidates outside it cannot leak in. */
+function technicalDetailsDisclosureReader(details) {
+  const dls = details.querySelectorAll(":scope > dl");
+  const dl = dls.length === 1 ? dls[0] : null;
+  const dts = dl ? [...dl.querySelectorAll(":scope dt")] : [];
+  const dds = dl ? [...dl.querySelectorAll(":scope dd")] : [];
+  const labels = dts.map((d) => (d.textContent ?? "").replace(/:\s*$/, ""));
+  const values = dds.map((d) => d.textContent ?? "");
+  const modelParas = [...details.querySelectorAll(":scope p")]
+    .map((p) => (p.textContent ?? "").trimStart())
+    .filter((t) => t.startsWith("Classification question answers"));
+  return { listCount: dls.length, fieldCount: dds.length, labels, values, modelParas };
+}
+
+/** Model-identity verdict for the current occurrence-bound disclosure: exactly
+ *  one "Classification question answers" heading paragraph must exist inside
+ *  it, and its ` · <model>` suffix must equal the fixture's own jevModel
+ *  verbatim. Missing paragraph, missing suffix, wrong suffix, or a duplicate
+ *  heading all fail — a stray `jev-1.13.0` elsewhere in the dialog can never
+ *  satisfy this. */
+function technicalDetailsModelVerdict(modelParas, expectedModel) {
+  const suffixes = modelParas.map((t) =>
+    t.slice("Classification question answers".length).trimStart(),
+  );
+  const rendered = suffixes.length === 1 && suffixes[0] !== "" ? suffixes[0] : null;
+  return {
+    ok: rendered !== null && rendered === `· ${expectedModel}`,
+    rendered,
+    candidates: suffixes.length,
+  };
+}
+
+/** Scoped field-value verdict over a disclosure's own dt/dd pairs: exactly one
+ *  row carrying `label` must exist and its value must equal `expected`
+ *  verbatim. Zero or duplicate candidates fail. */
+function technicalDetailsFieldVerdict(pairs, labelRe, expected) {
+  const rows = pairs.filter(([l]) => labelRe.test(l));
+  const rendered = rows.length === 1 ? rows[0][1] : null;
+  return {
+    ok: rendered !== null && rendered === expected,
+    rendered,
+    candidates: rows.length,
+  };
+}
+
 /**
  * Primary stability identity: the recorded per-element key when one exists.
  * A descriptor (role|selected|label) is the fallback ONLY when no key was
@@ -8961,10 +9014,26 @@ const DRIVE_CASES = {
     await entryBtn.click();
     await dialog.waitFor({ timeout: 10_000 });
     await dialog.getByText("Technical details").click();
-    const dds = await dialog.locator("dd").count();
-    rec.check("viewer.technical-details-fields", dds > 0, `${dds} field(s)`);
-
-    const sourceLabels = await dialog.locator("dt").allTextContents();
+    // Resolve the ONE Technical-details disclosure in the current
+    // occurrence-bound dialog; its own first-level <dl> is the primary
+    // retrieval field list (page-metadata <dl>s nested deeper are excluded),
+    // and its own "Classification question answers" heading carries the model
+    // identity as a ` · <model>` suffix — the product's actual contract at the
+    // pinned revision.
+    const disclosures = dialog.locator("details").filter({
+      has: page.locator("summary", { hasText: "Technical details" }),
+    });
+    const disclosureCount = await disclosures.count();
+    const td =
+      disclosureCount === 1
+        ? await disclosures.first().evaluate(technicalDetailsDisclosureReader)
+        : { listCount: 0, fieldCount: 0, labels: [], values: [], modelParas: [] };
+    rec.check(
+      "viewer.technical-details-fields",
+      disclosureCount === 1 && td.listCount === 1 && td.fieldCount > 0,
+      `${disclosureCount} disclosure(s), ${td.listCount} retrieval list(s), ${td.fieldCount} field(s)`,
+    );
+    const sourceLabels = td.labels;
     rec.check(
       "viewer.technical-details-real-fields",
       sourceLabels.length > 0 && !sourceLabels.some((t) => /undefined|null|NaN/i.test(t)),
@@ -8979,12 +9048,10 @@ const DRIVE_CASES = {
     const idx = order.indexOf(currentId);
     const rows = live ? null : fixtureResult(fixture);
     if (live) {
-      const liveLabels = await dialog.locator("dt").allTextContents();
-      const liveValues = await dialog.locator("dd").allTextContents();
       rec.note(
         "viewer.live-observed-technical-details",
         JSON.stringify(
-          liveLabels.map((label, i) => [label.replace(/:\s*$/, ""), liveValues[i] ?? ""]),
+          td.labels.map((label, i) => [label, td.values[i] ?? ""]),
         ),
       );
     }
@@ -8997,25 +9064,29 @@ const DRIVE_CASES = {
             ...(rows.undatedEvidence ?? []),
           ][idx] ?? null
         : null;
-    const detailLabels = await dialog.locator("dt").allTextContents();
-    const detailValues = await dialog.locator("dd").allTextContents();
-    const pairs = detailLabels.map((label, i) => [label.replace(/:\s*$/, ""), detailValues[i] ?? ""]);
-    // Model version must be the configured pin, rendered verbatim.
+    const pairs = td.labels.map((label, i) => [label, td.values[i] ?? ""]);
+    // Model identity must be the configured pin, rendered verbatim as the
+    // disclosure's own classification-heading ` · <model>` suffix.
     if (occurrenceRow && typeof occurrenceRow.jevModel === "string") {
-      const modelRow = pairs.find(([label]) => /model version/i.test(label));
+      const model = technicalDetailsModelVerdict(td.modelParas, occurrenceRow.jevModel);
       rec.check(
         "viewer.technical-details-model-value",
-        modelRow !== undefined && modelRow[1] === occurrenceRow.jevModel,
-        `rendered=${modelRow ? modelRow[1] : "absent"} fixture=${occurrenceRow.jevModel}`,
+        model.ok,
+        `rendered=${model.rendered ?? "absent"} candidates=${model.candidates} fixture=${occurrenceRow.jevModel}`,
       );
     }
-    // Retrieval timestamp, when the fixture ships one, must match exactly.
+    // Retrieval timestamp, when the fixture ships one, must match exactly —
+    // the product's own label is "Retrieved at".
     if (occurrenceRow && typeof occurrenceRow.retrievedAt === "string") {
-      const tsRow = pairs.find(([label]) => /retrieval timestamp/i.test(label));
+      const tsRow = technicalDetailsFieldVerdict(
+        pairs,
+        /^retrieved at$/i,
+        occurrenceRow.retrievedAt,
+      );
       rec.check(
         "viewer.technical-details-retrieved-at-value",
-        tsRow !== undefined && tsRow[1] === occurrenceRow.retrievedAt,
-        `rendered=${tsRow ? tsRow[1] : "absent"} fixture=${occurrenceRow.retrievedAt}`,
+        tsRow.ok,
+        `rendered=${tsRow.rendered ?? `absent (${tsRow.candidates} candidate(s))`} fixture=${occurrenceRow.retrievedAt}`,
       );
     }
     // Every rendered value must be non-empty: a label with a blank value is a
@@ -10729,6 +10800,10 @@ export {
   readOpenedEvidenceId,
   observeExpectedRecords,
   parseDriveOptions,
+  // Technical-details disclosure reader (native-002 stale-binding correction).
+  technicalDetailsDisclosureReader,
+  technicalDetailsModelVerdict,
+  technicalDetailsFieldVerdict,
   // Rendered excerpt identity (F38-4): the product-bound projection port.
   splitCompositeExcerpt,
   truncateExcerptWords,
