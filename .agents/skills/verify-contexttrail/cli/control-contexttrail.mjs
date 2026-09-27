@@ -3233,9 +3233,12 @@ async function longValueLayout(page, { limit = 60, panelId = null } = {}) {
     };
     const scope = panel ? document.getElementById(panel) : document.body;
     if (!scope) return { rows: [], visualDomSequence: [], inversions: null, outOfOrder: null, scopeMissing: true };
-    const rows = [];
+    // N83-3: collect text-bearing candidates, then keep only LEAVES — a
+    // collected element containing another collected element is the same text
+    // measured twice (container + descendant) and would double-count order.
+    const cand = [];
     for (const el of scope.querySelectorAll("li, dd, p, span, a, td, div")) {
-      if (rows.length >= max) break;
+      if (cand.length >= max) break;
       if (!isLong(el)) continue;
       // only leaf-ish text elements, not every wrapper
       if (el.children.length > 2) continue;
@@ -3243,7 +3246,45 @@ async function longValueLayout(page, { limit = 60, panelId = null } = {}) {
       if (r.width < 8 || r.height < 8) continue;
       const style = getComputedStyle(el);
       if (style.display === "none" || style.visibility === "hidden") continue;
+      cand.push({ el, r, style });
+    }
+    const leaves = cand.filter((c) => !cand.some((o) => o !== c && c.el.contains(o.el)));
+    // A multi-column container is a row-direction flex or a grid with more
+    // than one column track. Two leaves sitting in DIFFERENT columns of the
+    // SAME container are an independent-column pair — the product deliberately
+    // orders its Overview columns against DOM order (lg:order-*) — so their
+    // relative sequence is never an inversion. Everything else is compared:
+    // within a column and across unrelated containers, visual top-to-bottom
+    // order must follow DOM order, which is what catches column-reverse.
+    const isMultiColumn = (n) => {
+      const st = getComputedStyle(n);
+      if (st.display === "flex" || st.display === "inline-flex") {
+        return st.flexDirection === "row" || st.flexDirection === "row-reverse";
+      }
+      if (st.display === "grid" || st.display === "inline-grid") {
+        const t = (st.gridTemplateColumns || "").trim();
+        return t !== "" && t !== "none" && t.split(/\s+/).filter(Boolean).length > 1;
+      }
+      return false;
+    };
+    const domPos = (el) => Array.prototype.indexOf.call(document.querySelectorAll("*"), el);
+    const columnOf = (el) => {
+      let box = null;
+      let child = null;
+      for (let n = el, p = el.parentElement; p && p.nodeType === 1; n = p, p = p.parentElement) {
+        if (isMultiColumn(p)) {
+          box = p;
+          child = n;
+        }
+        if (p === scope) break;
+      }
+      return box ? { box: domPos(box), child: domPos(child) } : null;
+    };
+    const rows = [];
+    for (const c of leaves) {
+      const { el, r, style } = c;
       const clipped = clippingAncestor(el);
+      const col = columnOf(el);
       rows.push({
         text: (el.textContent || "").trim().slice(0, 70),
         width: Math.round(r.width),
@@ -3259,7 +3300,9 @@ async function longValueLayout(page, { limit = 60, panelId = null } = {}) {
         clippedBy: clipped ? `${clipped.tagName.toLowerCase()}${clipped.className ? "." + String(clipped.className).split(" ")[0] : ""}` : null,
         top: Math.round(r.top + (window.scrollY || 0)),
         left: Math.round(r.left + (window.scrollX || 0)),
-        domIndex: Array.prototype.indexOf.call(document.querySelectorAll("*"), el),
+        domIndex: domPos(el),
+        colBox: col ? col.box : null,
+        colChild: col ? col.child : null,
       });
     }
     // Reading order is the VISUAL order, so it must be compared against DOM order
@@ -3268,28 +3311,33 @@ async function longValueLayout(page, { limit = 60, panelId = null } = {}) {
     // `flex-direction: column-reverse`, where the markup is untouched and the
     // screen reads bottom-to-top.
     const visual = rows
-      .map((r, i) => ({ i, top: r.top, left: r.left, domIndex: r.domIndex, text: r.text }))
+      .map((r, i) => ({ i, top: r.top, left: r.left, domIndex: r.domIndex, text: r.text, colBox: r.colBox, colChild: r.colChild }))
       .sort((a, b) => a.top - b.top || a.left - b.left);
+    // An inversion is a backwards DOM step between rows that share a reading
+    // stream — every ordered pair counts, not just sort-adjacent ones (a third
+    // column's row can interleave between two rows of the same stream). Rows
+    // in different columns of the same multi-column container are independent
+    // streams — their relative order is legitimate layout, never an inversion.
+    const crossColumn = (a, b) =>
+      a.colBox !== null && b.colBox !== null && a.colBox === b.colBox && a.colChild !== b.colChild;
     let outOfOrder = null;
-    for (let k = 1; k < visual.length; k++) {
-      if (visual[k].domIndex < visual[k - 1].domIndex) {
-        outOfOrder = {
-          readsBefore: visual[k - 1].text.slice(0, 30),
-          readsAfter: visual[k].text.slice(0, 30),
-          visualOrder: visual.map((v) => v.domIndex).slice(0, 8),
-        };
-        break;
+    let inversions = 0;
+    for (let i = 0; i < visual.length; i++) {
+      for (let j = i + 1; j < visual.length; j++) {
+        const a = visual[i];
+        const b = visual[j];
+        if (b.domIndex < a.domIndex && !crossColumn(a, b)) {
+          inversions++;
+          if (outOfOrder === null) {
+            outOfOrder = {
+              readsBefore: a.text.slice(0, 30),
+              readsAfter: b.text.slice(0, 30),
+              visualOrder: visual.map((v) => v.domIndex).slice(0, 8),
+            };
+          }
+        }
       }
     }
-    // RO3: the number of ADJACENT decreases in the visually sorted domIndex
-    // sequence — each position where the next element is an earlier element in the
-    // document. It is not a pairwise comparison count and is not a count of
-    // misordered items: one item jumping backwards contributes one, and no
-    // combinations of pairs are counted.
-    const inversions = visual.reduce(
-      (n, v, k) => (k > 0 && v.domIndex < visual[k - 1].domIndex ? n + 1 : n),
-      0,
-    );
     return {
       rows,
       visualDomSequence: visual.map((v) => v.domIndex),
@@ -3947,6 +3995,19 @@ const FOCUS_SAMPLER_FN = `(() => {
 /** Full element descriptor read in-page; returns null when the sampler was
  *  never installed, so a missing sampler can never be read as a valid target. */
 const FOCUS_DESCRIPTOR_FN = `(el) => (window.__ctFocusDescribe ? window.__ctFocusDescribe(el) : null)`;
+
+/** The same descriptor read as a REAL serializable function. Locator.evaluate
+ *  invokes only an actual function with the element — passing the string
+ *  expression evaluates it (yielding an unserializable function object) and
+ *  never calls it, so the opener descriptor would silently read null. */
+const FOCUS_DESCRIPTOR_EVALUATOR = (el) =>
+  window.__ctFocusDescribe ? window.__ctFocusDescribe(el) : null;
+
+/** Descriptor read through a Locator under the real call contract: a
+ *  serializable function is passed, invoked in-page with the element. */
+async function readFocusDescriptor(locator) {
+  return locator.evaluate(FOCUS_DESCRIPTOR_EVALUATOR).catch(() => null);
+}
 
 /**
  * Primary stability identity: the recorded per-element key when one exists.
@@ -5557,29 +5618,108 @@ function a8SegmentsVerdict(record, surface) {
   };
 }
 
+/** Heading identity is a semantic match on the heading's OWN text: the product
+ *  renders section headings with CSS `text-transform: uppercase`, so the
+ *  rendered string ("WHY THIS RESULT") and the authored string ("Why this
+ *  result") are the same heading. Normalization is scoped to headings only —
+ *  paragraph content is never case-normalized. */
+function a8HeadingTextMatches(actual, want) {
+  if (typeof actual !== "string" || typeof want !== "string") return false;
+  const norm = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  return norm(actual) === norm(want);
+}
+
+/** The rendered label the pin assigns each comparison connector state —
+ *  evidence-display.ts `comparisonState` + `COMPARISON_COPY` at 7b18c16. An
+ *  unexamined edge is honestly labeled "Not compared in this investigation"
+ *  and never counts as performed; `uncertain` remains performed. */
+const A8_COMPARISON_STATE_LABELS = {
+  same: "Same context — compared",
+  different: "Different context — compared",
+  uncertain: "Comparison inconclusive — performed but not established",
+  unexamined: "Not compared in this investigation",
+  unknown: "Comparison status unknown",
+};
+
+function comparisonStateLabel(connector) {
+  const kind = String(connector ?? "").toLowerCase();
+  if (kind.includes("same")) return A8_COMPARISON_STATE_LABELS.same;
+  if (kind.includes("different")) return A8_COMPARISON_STATE_LABELS.different;
+  if (kind.includes("uncertain") || kind.includes("ambiguous")) return A8_COMPARISON_STATE_LABELS.uncertain;
+  if (kind.includes("unexamined") || kind.includes("uncompared") || kind.includes("skip"))
+    return A8_COMPARISON_STATE_LABELS.unexamined;
+  return A8_COMPARISON_STATE_LABELS.unknown;
+}
+
+/** The edge identity a relationship carries — the recorded `pairId`, or the
+ *  same `fromId|toId` fallback key the product's projection derives. */
+function comparisonEdgeKey(c) {
+  return (
+    c?.pairId ??
+    (typeof c?.fromOccurrenceId === "string" && typeof c?.toOccurrenceId === "string"
+      ? `${c.fromOccurrenceId}|${c.toOccurrenceId}`
+      : null)
+  );
+}
+
+/** The endpoint identity a row actually opens — ALWAYS the recorded
+ *  `fromOccurrenceId|toOccurrenceId` in order, never the `pairId` namespace:
+ *  the clicked buttons prove endpoints, and orientation is part of the
+ *  identity (a reversed pair is a wrong target, not the same pair). */
+function comparisonEndpointKey(c) {
+  return typeof c?.fromOccurrenceId === "string" && typeof c?.toOccurrenceId === "string"
+    ? `${c.fromOccurrenceId}|${c.toOccurrenceId}`
+    : null;
+}
+
+/** Whether a recorded relationship edge was never examined — the same token
+ *  set the pin's `comparisonState` maps to the "unexamined" state. */
+function comparisonIsUnexamined(c) {
+  return /unexamined|uncompared|skip/i.test(String(c?.connector ?? ""));
+}
+
+/** A row that offered no open controls at all — the ONLY state allowed to
+ *  stand for "genuinely unopenable". An attempted open whose identities could
+ *  not be read is a FAILED observation, not this state. */
+const A8_OPEN_NONE = Object.freeze({ offered: 0, attempted: false, from: null, to: null, key: null });
+
+/** Normalize one per-row opened-endpoint acquisition record. The live
+ *  collector emits `{offered, attempted, from, to, key}`; a bare string is the
+ *  shorthand for a fully observed `from|to` key, and null/absent is "no
+ *  acquisition record" — a legitimately unopenable row, never proof of a
+ *  correct pair. */
+function a8OpenState(entry) {
+  if (entry && typeof entry === "object") return entry;
+  if (typeof entry === "string" && entry) {
+    const [from, to = null] = entry.split("|");
+    return { offered: 2, attempted: true, from, to, key: entry };
+  }
+  return A8_OPEN_NONE;
+}
+
 /** Parse the rendered "Context comparisons: …" sentence into the three counts
  *  the Analysis coverage paragraph actually publishes. `displayedDatedCore`
  *  and the pair-id set are not rendered text — they are asserted against the
  *  consumed serialized payload and the clicked endpoint identity respectively. */
-function a8CoverageVerdict(record, surface, openedPairKeys) {
+function a8CoverageVerdict(record, surface, openedByRow, terminal) {
   const expect = record.expect ?? {};
   const text = surface?.coverageText ?? null;
   if (text === null) return { ok: false, detail: "no Comparison coverage paragraph measured" };
+  const stRow = (openedByRow ?? []).map(a8OpenState);
   if (/No occurrences were selected for context comparison/.test(text)) {
     // Zero-selected means zero performed rows AND zero opened pairs — a
     // phantom row or endpoint under the "nothing compared" sentence is a real
     // contradiction, not decoration.
     const rows = surface?.performedRows ?? [];
-    const opened = openedPairKeys ?? [];
     const ok =
       expect.eligible === 0 &&
       expect.selected === 0 &&
       expect.comparedPairs === 0 &&
       rows.length === 0 &&
-      opened.length === 0;
+      stRow.every((s) => s.key === null);
     return {
       ok,
-      detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)} performedRows=${rows.length} openedPairs=${opened.length}`,
+      detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)} performedRows=${rows.length} openedPairs=${stRow.filter((s) => s.key !== null).length}`,
     };
   }
   if (/was not reported/i.test(text)) {
@@ -5595,26 +5735,102 @@ function a8CoverageVerdict(record, surface, openedPairKeys) {
   if (!countsOk) {
     return { ok: false, detail: `rendered=${JSON.stringify(rendered)} expected=${JSON.stringify(expect)}` };
   }
-  // comparedPairIds are a separate pair-key namespace: each key is proven by
-  // the actual opened identity IDs of the performed row's endpoint buttons.
-  // Cardinality is exact on BOTH collections — the performed rows themselves
-  // and the opened pair sequence (a Set would hide duplicate opens).
+  // N83-4: the rendered "Comparisons performed" list is the ALL-relationships
+  // list — every recorded connector edge renders a row under its honest label,
+  // including "Not compared in this investigation". The performed set is ONLY
+  // the explicit compared-pair id set; an unexamined edge is rendered but never
+  // counted, and `uncertain` still counts as performed.
+  const mism = [];
   const rows = surface?.performedRows ?? [];
-  const expectedPairs = new Set(expect.comparedPairIds ?? []);
-  const opened = openedPairKeys ?? [];
-  const seen = new Set(opened);
-  const missing = [...expectedPairs].filter((p) => !seen.has(p));
-  const extra = opened.filter((p) => !expectedPairs.has(p));
-  const cardinalityOk =
-    rows.length === (expect.comparedPairIds ?? []).length &&
-    opened.length === expectedPairs.size &&
-    seen.size === opened.length;
+  const edges = Array.isArray(terminal?.comparisons) ? terminal.comparisons : null;
+  const comparedIds = Array.isArray(expect.comparedPairIds) ? expect.comparedPairIds : [];
+  if (edges === null) {
+    mism.push("terminal carries no `comparisons` relationship list — performed identity cannot be established");
+  } else {
+    if (rows.length !== edges.length) {
+      mism.push(`relationship rows ${rows.length} vs recorded edges ${edges.length}`);
+    }
+    edges.forEach((c, i) => {
+      const want = comparisonStateLabel(c?.connector);
+      if (!String(rows[i]?.text ?? "").includes(want)) {
+        mism.push(`row ${i} missing label ${JSON.stringify(want)} for connector ${JSON.stringify(c?.connector)}`);
+      }
+      if (comparisonIsUnexamined(c) && comparedIds.includes(comparisonEdgeKey(c))) {
+        mism.push(`unexamined edge ${comparisonEdgeKey(c)} promoted into comparedPairIds`);
+      }
+    });
+    for (const id of comparedIds) {
+      if (!edges.some((c) => comparisonEdgeKey(c) === id && !comparisonIsUnexamined(c))) {
+        mism.push(`comparedPairId ${id} resolves to no performed edge`);
+      }
+    }
+    const performedEdges = edges.filter(
+      (c) => comparedIds.includes(comparisonEdgeKey(c)) && !comparisonIsUnexamined(c),
+    );
+    if (performedEdges.length !== expect.comparedPairs) {
+      mism.push(`performed edges ${performedEdges.length} vs reported comparedPairs ${expect.comparedPairs}`);
+    }
+  }
+  // Opened identity is bound PER ROW (N83-R4): byRow[i] is the pair key the
+  // i-th rendered row's endpoint buttons actually opened, and it must equal
+  // that row's OWN recorded endpoints in recorded from|to order — a key that
+  // belongs to another row, or reverses this row's orientation, is a wrong
+  // target even when it lands inside the compared set. Unexamined rows carry
+  // legitimate endpoint buttons too: their targets are bound the same way,
+  // and they still never contribute to the performed set. A genuinely
+  // unopenable row keeps its explicit null state rather than being read as
+  // valid.
+  const performedKeys = [];
+  const unopenable = [];
+  (edges ?? []).forEach((c, i) => {
+    const want = comparisonEndpointKey(c);
+    const st = stRow[i] ?? A8_OPEN_NONE;
+    if (want === null) {
+      mism.push(`row ${i} edge carries no recorded endpoints`);
+    }
+    // An ATTEMPTED open — the row offered two endpoint controls and both were
+    // clicked — that returns an incomplete identity is a FAILED observation on
+    // any row, examined or not. It is never the declared unopenable state and
+    // never passes quietly (N83-R4 residual): missing proof does not default
+    // to success. `offered >= 2` itself implies the attempt — the collector
+    // always opens both controls it finds.
+    const offered = st.offered ?? 0;
+    const attempted = st.attempted === true || offered >= 2;
+    if (attempted && (st.from === null || st.to === null)) {
+      mism.push(
+        `row ${i} endpoint controls opened but identity read incomplete ` +
+          `(from=${JSON.stringify(st.from)} to=${JSON.stringify(st.to)})`,
+      );
+    } else if (st.key !== null && st.key !== want) {
+      mism.push(`row ${i} opened ${JSON.stringify(st.key)} — recorded endpoints ${JSON.stringify(want)}`);
+    }
+    // The unopenable declaration is ONLY the explicit empty state: zero
+    // controls offered, never attempted, no identity acquired. A positive but
+    // incomplete control count — a row offering exactly one endpoint control —
+    // is a FAILED observation on any row status, never the no-controls state.
+    if (offered > 0 && offered < 2 && !attempted) {
+      mism.push(`row ${i} offered ${offered} endpoint control(s) — fewer than the two required to open a pair — not the unopenable state`);
+    } else if (!attempted && st.key === null) {
+      unopenable.push(i);
+    }
+    if (comparisonIsUnexamined(c)) return;
+    if (comparedIds.includes(comparisonEdgeKey(c))) {
+      if (st.key === null) mism.push(`performed row ${i} endpoints did not open`);
+      else performedKeys.push(st.key);
+    }
+  });
+  const seen = new Set(performedKeys);
+  if (performedKeys.length !== (edges ?? []).filter((c) => comparedIds.includes(comparisonEdgeKey(c)) && !comparisonIsUnexamined(c)).length) {
+    mism.push(`opened performed rows ${performedKeys.length} vs performed edges ${(edges ?? []).filter((c) => comparedIds.includes(comparisonEdgeKey(c)) && !comparisonIsUnexamined(c)).length}`);
+  }
+  if (seen.size !== performedKeys.length) mism.push("duplicate performed pair keys");
   return {
-    ok: missing.length === 0 && extra.length === 0 && cardinalityOk,
+    ok: mism.length === 0,
     detail:
-      `counts=${JSON.stringify(rendered)} rows=${rows.length} pairs opened=${JSON.stringify(opened)} ` +
-      `expected=${JSON.stringify([...expectedPairs])} missing=${JSON.stringify(missing)} extra=${JSON.stringify(extra)}` +
-      (cardinalityOk ? "" : " cardinality mismatch"),
+      `counts=${JSON.stringify(rendered)} rows=${rows.length}` +
+      (unopenable.length ? ` unopenableRows=${JSON.stringify(unopenable)}` : "") +
+      " " +
+      (mism.length ? mism.join("; ") : `${performedKeys.length} performed pair(s) verified across ${rows.length} relationship row(s)`),
   };
 }
 
@@ -5763,8 +5979,24 @@ function a8PlacementVerdict(record, surface, openedUndatedIds) {
     mism.push("undated section absent, expected items " + JSON.stringify(expect));
     return { ok: false, detail: mism.join("; ") };
   }
-  if (record.expectSectionHeading && undated.heading !== record.expectSectionHeading) {
-    mism.push(`section heading=${JSON.stringify(undated.heading)} want ${JSON.stringify(record.expectSectionHeading)}`);
+  if (record.expectSectionHeading) {
+    // N83-2: the section's heading is matched as a VISIBLE, UNIQUE h3 whose
+    // authored OR CSS-transformed text equals the expected heading — the
+    // product renders it uppercase, so the comparison is case-insensitive but
+    // strictly scoped to the heading element.
+    if (undated.headingCount !== 1) {
+      mism.push(`undated section carries ${undated.headingCount ?? "?"} h3 heading(s), expected exactly one`);
+    }
+    const headingOk =
+      undated.headingVisible === true &&
+      (a8HeadingTextMatches(undated.heading, record.expectSectionHeading) ||
+        a8HeadingTextMatches(undated.headingRendered, record.expectSectionHeading));
+    if (!headingOk) {
+      mism.push(
+        `section heading=${JSON.stringify(undated.heading)} rendered=${JSON.stringify(undated.headingRendered)} ` +
+          `visible=${undated.headingVisible} want ${JSON.stringify(record.expectSectionHeading)}`,
+      );
+    }
   }
   const items = undated.items ?? [];
   if (items.length !== expect.length) mism.push(`undated items ${items.length} vs expected ${expect.length}`);
@@ -5900,6 +6132,24 @@ const A8_OVERVIEW_PROBE_FN = `(() => {
   return { headline: h1 ? (h1.innerText || "").trim() : null, paragraphs, metrics };
 })()`;
 
+/** Effective visibility for a heading (or any element), evaluated in-page:
+ *  own AND ancestor display/visibility/opacity, the [hidden] attribute chain,
+ *  and a real rendered box. A child of display:none keeps ordinary own
+ *  display — only the ancestor walk sees the hiding — and an opacity:0 heading
+ *  retains normal display/visibility, so both must be checked explicitly. */
+const A8_EFFECTIVE_VISIBLE_FN = `(el) => {
+  if (!el || el.nodeType !== 1) return false;
+  for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    const st = getComputedStyle(n);
+    if (st.display === "none") return false;
+    if (st.visibility === "hidden" || st.visibility === "collapse") return false;
+    if (Number.parseFloat(st.opacity) === 0) return false;
+    if (n.hasAttribute("hidden")) return false;
+  }
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}`;
+
 /** The Timeline surface: dated items, both empty states, the undated section
  *  and the divergence note. Identity is never read off card text — openers
  *  are clicked and the dialog's identity line is the identity proof. */
@@ -5916,17 +6166,36 @@ const A8_TIMELINE_PROBE_FN = `(() => {
     inspectLabel: li.querySelector('button[aria-label^="Inspect evidence"]')?.getAttribute("aria-label") ?? null,
   }));
   const undatedSec = panel.querySelector('section[aria-label="Evidence with unknown dates"]');
+  const undatedHeads = undatedSec ? [...undatedSec.querySelectorAll(":scope > h3")] : [];
+  const undatedH = undatedHeads[0] ?? null;
   const undated = undatedSec
     ? {
         sectionPresent: true,
-        heading: (undatedSec.querySelector("h3")?.innerText ?? "").trim(),
+        // Heading identity is read BOTH ways: heading is the authored
+        // textContent and headingRendered the CSS-transformed innerText —
+        // the product styles this h3 uppercase, so the verdict compares
+        // case-insensitively and requires the heading to be independently
+        // VISIBLE (display/visibility/[hidden] all count against it).
+        heading: undatedH ? (undatedH.textContent ?? "").replace(/\\s+/g, " ").trim() : null,
+        headingRendered: undatedH ? (undatedH.innerText ?? "").replace(/\\s+/g, " ").trim() : null,
+        headingCount: undatedHeads.length,
+        // Effective visibility: own + ancestor display/visibility/opacity,
+        // [hidden], and a real rendered box — an invisible heading owns nothing.
+        headingVisible: (${A8_EFFECTIVE_VISIBLE_FN})(undatedH),
         items: [...undatedSec.querySelectorAll("ul > li")].map((li) => ({
           title: (li.querySelector("h3")?.innerText ?? "").trim(),
           text: li.innerText ?? "",
           inspectLabel: li.querySelector('button[aria-label^="Inspect evidence"]')?.getAttribute("aria-label") ?? null,
         })),
       }
-    : { sectionPresent: false, heading: null, items: [] };
+    : {
+        sectionPresent: false,
+        heading: null,
+        headingRendered: null,
+        headingCount: 0,
+        headingVisible: false,
+        items: [],
+      };
   const texts = [...panel.querySelectorAll("p")].map((p) => (p.innerText || "").trim());
   const note = panel.querySelector('[role="note"][aria-label="First observed context divergence"]');
   return {
@@ -5952,8 +6221,26 @@ const A8_ANALYSIS_PROBE_FN = `(() => {
   const sec = document.querySelector('#ct-panel-analysis section[aria-label="Analysis"]');
   if (!sec) return null;
   const hs = [...sec.querySelectorAll("h3")];
+  // N83-2: section ownership is bound to a UNIQUE, VISIBLE heading whose
+  // authored OR CSS-rendered text equals the expected name. The product styles
+  // these h3 headings uppercase via text-transform, so authored textContent and
+  // rendered innerText are both accepted case-insensitively — but only for the
+  // heading element itself; paragraph content is never case-normalized. A
+  // section with zero or several matching visible headings owns nothing.
+  const normHead = (s) => (s ?? "").replace(/\\s+/g, " ").trim().toLowerCase();
+  const headVisible = ${A8_EFFECTIVE_VISIBLE_FN};
+  const findHeading = (name) => {
+    const want = normHead(name);
+    const matches = hs.filter((x) => {
+      const authored = normHead(x.textContent);
+      const rendered = typeof x.innerText === "string" ? normHead(x.innerText) : authored;
+      return authored === want || rendered === want;
+    });
+    const visible = matches.filter(headVisible);
+    return visible.length === 1 ? visible[0] : null;
+  };
   const slice = (name) => {
-    const h = hs.find((x) => (x.innerText || "").trim() === name);
+    const h = findHeading(name);
     if (!h) return [];
     const out = [];
     for (let n = h.nextElementSibling; n && !/^H[23]$/.test(n.tagName); n = n.nextElementSibling) out.push(n);
@@ -6150,11 +6437,22 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
       const rowCount = await rows.count();
       for (let i = 0; i < rowCount; i++) {
         const btns = rows.nth(i).locator("button");
-        if ((await btns.count()) >= 2) {
-          const from = await readOpenedEvidenceId(page, btns.nth(0));
-          const to = await readOpenedEvidenceId(page, btns.nth(1));
-          if (from && to) openedPairKeys.push(`${from}|${to}`);
+        // Per-row alignment (N83-4): openedPairKeys[i] is the pair identity the
+        // i-th rendered row opened — every relationship row renders, including
+        // unexamined edges, so slots stay aligned even where a row is
+        // unopenable. The slot carries the ACQUISITION state too (N83-R4
+        // residual): a row offering two controls whose opens return no
+        // readable identity is a FAILED read — not the same thing as a row
+        // that genuinely offered no controls to open.
+        const offered = await btns.count();
+        const st = { offered, attempted: false, from: null, to: null, key: null };
+        if (offered >= 2) {
+          st.attempted = true;
+          st.from = await readOpenedEvidenceId(page, btns.nth(0));
+          st.to = await readOpenedEvidenceId(page, btns.nth(1));
+          if (st.from && st.to) st.key = `${st.from}|${st.to}`;
         }
+        openedPairKeys.push(st);
       }
     }
     const openedSupportIds = {};
@@ -6197,7 +6495,7 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
     for (const r of records) {
       const kind = expectedRecordKind(r, fixture);
       let v;
-      if (kind === "analysis-coverage") v = a8CoverageVerdict(r, surface, openedPairKeys);
+      if (kind === "analysis-coverage") v = a8CoverageVerdict(r, surface, openedPairKeys, terminal);
       else if (kind === "gates") v = a8GatesVerdict(r, surface, openedSupportIds);
       else if (kind === "analysis-origins") v = a8OriginsVerdict(r, surface, openedMemberIds);
       else if (kind === "analysis-policy-not-applicable") v = a8PolicyNaVerdict(r, surface);
@@ -7802,6 +8100,17 @@ const DRIVE_CASES = {
                 }),
               "each rendered comparison must name the two occurrences the result recorded, in order",
             );
+            // Every rendered relationship row must carry the honest label of
+            // its recorded connector state (COMPARISON_COPY) — an unexamined
+            // edge renders "Not compared in this investigation" and is never
+            // dressed as a performed comparison.
+            rec.check(
+              "result.analysis-performed-row-labels-honest",
+              comparisons.every((c, i) =>
+                String(performedItems[i] ?? "").includes(comparisonStateLabel(c?.connector)),
+              ),
+              `each rendered row must carry the label of its recorded connector state`,
+            );
             // Probability values are their own contract, kept separate from the
             // comparison count (C7-R1).
             const withDistributions = comparisons.filter(
@@ -7848,6 +8157,17 @@ const DRIVE_CASES = {
           const selected = count("selected");
           const compared = count("comparedPairs");
           const comparedIds = Array.isArray(coverage.comparedPairIds) ? coverage.comparedPairIds : [];
+          // N83-4: `comparisons` is the ALL-relationships list — unexamined
+          // edges render too, honestly labeled, and never count as performed.
+          // The performed set is exactly the recorded edges whose identity is
+          // in the explicit comparedPairIds set and whose connector was
+          // actually examined.
+          const performedEdges =
+            comparisons === null
+              ? null
+              : comparisons.filter(
+                  (c) => comparedIds.includes(comparisonEdgeKey(c)) && !comparisonIsUnexamined(c),
+                );
           const surface = analysisSurface;
           const summary = surface.coverage?.text ?? "";
           const pairSentence = /(\d+) pairs? compared/.exec(summary);
@@ -7904,15 +8224,34 @@ const DRIVE_CASES = {
           }
 
           // A KNOWN count is checked against the separately supplied performed
-          // list even when the summary used the empty-state sentence instead of
-          // a numeric one (C7-R3). An absent/null count is never invented.
+          // EDGES — only the relationships the result explicitly reports as
+          // compared — even when the summary used the empty-state sentence
+          // instead of a numeric one (C7-R3). An absent/null count is never
+          // invented, and unexamined relationship rows never inflate it.
           if (compared !== null) {
-            const performedCount = comparisons === null ? null : comparisons.length;
-            if (performedCount !== null) {
+            if (performedEdges !== null) {
               rec.check(
                 "result.analysis-coverage-count-matches-performed-list",
-                compared === performedCount,
-                `coverage reports ${compared} compared pair(s) while the result supplies ${performedCount} performed comparison(s)`,
+                compared === performedEdges.length,
+                `coverage reports ${compared} compared pair(s); ${performedEdges.length} recorded edge(s) resolve ` +
+                  `to compared, examined pair id(s) of ${comparisons.length} relationship row(s) total`,
+              );
+              // The explicit set is authoritative both ways: every compared id
+              // must name a real performed edge (phantom id = red), and no
+              // unexamined edge may be promoted into it.
+              rec.check(
+                "result.analysis-coverage-compared-ids-resolve-to-performed",
+                comparedIds.every((id) =>
+                  comparisons.some((c) => comparisonEdgeKey(c) === id && !comparisonIsUnexamined(c)),
+                ),
+                `every comparedPairId must resolve to a recorded, examined edge — ids=${JSON.stringify(comparedIds)}`,
+              );
+              rec.check(
+                "result.analysis-coverage-unexamined-not-performed",
+                comparisons
+                  .filter(comparisonIsUnexamined)
+                  .every((c) => !comparedIds.includes(comparisonEdgeKey(c))),
+                `unexamined edge(s) ${JSON.stringify(comparisons.filter(comparisonIsUnexamined).map(comparisonEdgeKey))} must never appear in comparedPairIds`,
               );
             } else {
               rec.note(
@@ -7935,8 +8274,9 @@ const DRIVE_CASES = {
             if (comparisons !== null) {
               rec.check(
                 "result.analysis-coverage-matches-performed-list",
-                claimed === comparisons.length,
-                `summary claims ${claimed} pair(s) while the result records ${comparisons.length} performed comparison(s)`,
+                claimed === performedEdges.length,
+                `summary claims ${claimed} pair(s) while the result records ${performedEdges.length} performed edge(s) ` +
+                  `(${comparisons.length} relationship row(s) including unexamined)`,
               );
             } else {
               rec.note(
@@ -8127,7 +8467,7 @@ const DRIVE_CASES = {
     // the currently selected tab it falls back to. Both carry durable
     // per-element keys assigned by the sampler, so "focus returned" compares
     // element identity, not a label two different elements could share.
-    const openerDesc = await entryBtn.evaluate(FOCUS_DESCRIPTOR_FN).catch(() => null);
+    const openerDesc = await readFocusDescriptor(entryBtn);
     const selectedTabDesc = await page
       .evaluate(
         `(${FOCUS_DESCRIPTOR_FN})([...document.querySelectorAll('[role="tab"]')].find((t) => t.getAttribute('aria-selected') === 'true') ?? null)`,
@@ -10427,6 +10767,17 @@ export {
   a8PlacementVerdict,
   a8DivergenceVerdict,
   a8ConnectorsVerdict,
+  a8HeadingTextMatches,
+  comparisonStateLabel,
+  comparisonEdgeKey,
+  comparisonEndpointKey,
+  comparisonIsUnexamined,
+  a8OpenState,
+  // N83: the reading-order measurement and the locator call-contract helper.
+  longValueLayout,
+  compareReadingOrder,
+  readFocusDescriptor,
+  FOCUS_DESCRIPTOR_EVALUATOR,
   A8_MAP_SHA256,
   A8_APP_PIN,
   A8_FIXTURE_PIN,
@@ -10434,6 +10785,7 @@ export {
   A8_OVERVIEW_PROBE_FN,
   A8_TIMELINE_PROBE_FN,
   A8_ANALYSIS_PROBE_FN,
+  A8_EFFECTIVE_VISIBLE_FN,
   // The in-page function sources, exported so offline controls can assert they
   // at least parse — a broken in-page function is otherwise invisible offline.
   FOCUS_SAMPLER_FN,

@@ -41,6 +41,7 @@ import {
   expectedRecordKind,
   expectedViewBucket,
   expectedCaseCoherent,
+  fixtureResult,
   buildA8RecipeBindings,
   a8HeadlineVerdict,
   a8SupportVerdict,
@@ -291,40 +292,59 @@ const nullSeg = { ...segsRec, expect: null };
 expect("analysis-segments null expectation green on 'Unresolved'", a8SegmentsVerdict(nullSeg, { metrics: { "Observed contexts": "Unresolved" } }).ok === true);
 expect("analysis-segments null expectation RED on an invented count", a8SegmentsVerdict(nullSeg, { metrics: { "Observed contexts": "3" } }).ok === false);
 
-// Coverage: counts from the rendered paragraph, pair ids from opened endpoints.
+// Coverage: counts from the rendered paragraph, performed identity from the
+// explicit compared-pair set resolved against the consumed terminal edges —
+// N83-4 semantics: ALL relationship rows render honestly labeled, only the
+// comparedPairIds-resolving examined edges count as performed.
 const covRec = rec("analysis-coverage");
+const covTerminal = fixtureResult("controlled-conflict");
 const covSurface = {
   coverageText: "Context comparisons: 1 pair compared across 2 selected of 2 eligible occurrences.",
-  performedRows: [{ text: "ev-muiw5agw-32 ↔ ev-muiw5agw-33", buttons: 2 }],
+  performedRows: [
+    {
+      text: "Same context — compared · between two retrieved occurrences Earlier: ev-muiw5agw-32 Later: ev-muiw5agw-33",
+      buttons: 2,
+    },
+  ],
 };
 expect(
   "analysis-coverage green on parsed counts + opened pair key",
-  a8CoverageVerdict(covRec, covSurface, ["ev-muiw5agw-32|ev-muiw5agw-33"]).ok === true,
+  a8CoverageVerdict(covRec, covSurface, ["ev-muiw5agw-32|ev-muiw5agw-33"], covTerminal).ok === true,
 );
 expect(
   "analysis-coverage RED on a phantom performed row (exact row cardinality)",
   a8CoverageVerdict(
     covRec,
     { ...covSurface, performedRows: [...covSurface.performedRows, { text: "ghost", buttons: 2 }] },
-    ["ev-muiw5agw-32|ev-muiw5agw-33"],
+    ["ev-muiw5agw-32|ev-muiw5agw-33", null],
+    covTerminal,
   ).ok === false,
 );
 expect(
   "analysis-coverage RED on a wrong rendered count",
-  a8CoverageVerdict(covRec, { coverageText: "Context comparisons: 2 pairs compared across 2 selected of 2 eligible occurrences." }, ["ev-muiw5agw-32|ev-muiw5agw-33"]).ok === false,
+  a8CoverageVerdict(covRec, { coverageText: "Context comparisons: 2 pairs compared across 2 selected of 2 eligible occurrences." }, ["ev-muiw5agw-32|ev-muiw5agw-33"], covTerminal).ok === false,
 );
 expect(
   "analysis-coverage RED when a compared pair was never actually opened",
-  a8CoverageVerdict(covRec, covSurface, []).ok === false,
+  a8CoverageVerdict(covRec, covSurface, [null], covTerminal).ok === false,
 );
 expect(
   "analysis-coverage RED on a wrong endpoint (endpoint rejection)",
-  a8CoverageVerdict(covRec, covSurface, ["ev-muiw5agw-32|ev-WRONG"]).ok === false,
+  a8CoverageVerdict(covRec, covSurface, ["ev-muiw5agw-32|ev-WRONG"], covTerminal).ok === false,
+);
+expect(
+  "analysis-coverage RED on a dishonest row label (unexamined dressed as performed)",
+  a8CoverageVerdict(
+    covRec,
+    { ...covSurface, performedRows: [{ text: "Not compared in this investigation · ev-muiw5agw-32 ev-muiw5agw-33", buttons: 2 }] },
+    ["ev-muiw5agw-32|ev-muiw5agw-33"],
+    covTerminal,
+  ).ok === false,
 );
 const zeroCov = { ...covRec, expect: { eligible: 0, selected: 0, comparedPairs: 0, comparedPairIds: [], displayedDatedCore: 0 } };
 expect(
   "zero-selected coverage green on the product's explicit empty sentence",
-  a8CoverageVerdict(zeroCov, { coverageText: "Context comparisons: No occurrences were selected for context comparison." }, []).ok === true,
+  a8CoverageVerdict(zeroCov, { coverageText: "Context comparisons: No occurrences were selected for context comparison." }, [], covTerminal).ok === true,
 );
 
 // Gates: label/value/detail plus per-link opened identity inside the gate row.
@@ -414,6 +434,9 @@ const plSurface = {
   undated: {
     sectionPresent: true,
     heading: "Additional evidence · date unknown",
+    headingRendered: "ADDITIONAL EVIDENCE · DATE UNKNOWN",
+    headingCount: 1,
+    headingVisible: true,
     items: [
       { title: "disputed", text: "Date unknown No usable date was retrieved for this occurrence. The retrieved dates for this occurrence disagree." },
       { title: "unknown", text: "Date unknown No usable date was retrieved for this occurrence." },

@@ -27,6 +27,8 @@ import {
   expectedCaseFor,
   expectedRecordKind,
   fixtureResult,
+  a8HeadingTextMatches,
+  comparisonStateLabel,
   A8_OVERVIEW_PROBE_FN,
   A8_TIMELINE_PROBE_FN,
   A8_ANALYSIS_PROBE_FN,
@@ -127,16 +129,23 @@ function timelineHtml(c) {
 function analysisHtml(c) {
   const rec = (k) => c.visibleExpectations.find((r) => kind(r, c.fixture) === k);
   const cov = rec("analysis-coverage")?.expect ?? {};
-  const pairs = cov.comparedPairIds ?? [];
   const covP =
     (cov.eligible ?? 0) === 0 && (cov.selected ?? 0) === 0
       ? "No occurrences were selected for context comparison."
       : `${cov.comparedPairs} pair${cov.comparedPairs === 1 ? "" : "s"} compared across ${cov.selected} selected of ${cov.eligible} eligible occurrences.`;
-  const performed = pairs
-    .map((pair) => {
-      const [a, b] = pair.split("|");
-      return `<li><p>${esc(a)} ↔ ${esc(b)}</p><button data-open-id="${esc(a)}">a</button><button data-open-id="${esc(b)}">b</button></li>`;
-    })
+  // The performed list renders EVERY recorded relationship row — including
+  // unexamined edges — under the honest connector label (COMPARISON_COPY),
+  // exactly like the pin's ResultView.
+  const edges = Array.isArray(fixtureResult(c.fixture)?.comparisons)
+    ? fixtureResult(c.fixture).comparisons
+    : [];
+  const performed = edges
+    .map(
+      (e) =>
+        `<li><p>${esc(comparisonStateLabel(e.connector))} · between two retrieved occurrences</p>` +
+        `<button data-open-id="${esc(e.fromOccurrenceId)}">Earlier: ${esc(e.fromOccurrenceId)}</button>` +
+        `<button data-open-id="${esc(e.toOccurrenceId)}">Later: ${esc(e.toOccurrenceId)}</button></li>`,
+    )
     .join("");
   const gatesR = rec("gates");
   const why = gatesR
@@ -199,6 +208,17 @@ function makeHarness(html) {
       return this.textContent ?? "";
     },
     configurable: true,
+  });
+  // Honest geometry: jsdom lays out nothing, so the probes' effective-
+  // visibility rendered-box check would zero every heading. Elements carry a
+  // real box unless a control overrides one (the zero-box negatives live in
+  // n83-contracts.mjs).
+  Object.defineProperty(w.HTMLElement.prototype, "getBoundingClientRect", {
+    value() {
+      return { top: 10, left: 10, width: 200, height: 24, right: 210, bottom: 34 };
+    },
+    configurable: true,
+    writable: true,
   });
   const dialogEl = doc.createElement("div");
   dialogEl.setAttribute("role", "dialog");
@@ -286,8 +306,9 @@ const CASES = {
   claim: expectedCaseFor("controlled-claim"),
   insufficient: expectedCaseFor("controlled-insufficient"),
   uncertain: expectedCaseFor("controlled-trace-uncertain-transition"),
+  pair: expectedCaseFor("controlled-pair"),
 };
-expect("the three control cases resolve through the real roster gate", Object.values(CASES).every((c) => c !== null));
+expect("the four control cases resolve through the real roster gate", Object.values(CASES).every((c) => c !== null));
 
 const htmlFor = (c) => overviewHtml(c) + timelineHtml(c) + analysisHtml(c);
 const terminalFor = (c) => fixtureResult(c.fixture);
@@ -514,6 +535,196 @@ for (const [label, c] of Object.entries(CASES)) {
     chk?.ok === false,
     chk?.detail,
   );
+}
+
+/* ============ N83-R2: effective heading visibility through the consumer ===== */
+
+const perfRows = (doc) =>
+  [...doc.querySelectorAll('#ct-panel-analysis section[aria-label="Analysis"] h3')]
+    .find((x) => x.textContent.trim() === "Comparisons performed")?.nextElementSibling;
+
+// Own opacity:0 on the "Why this result" heading — display/visibility stay
+// normal, so only the effective-visibility walk sees it.
+{
+  const c = CASES.claim;
+  const r = await runView(c, "analysis", (doc) => {
+    const h = [...doc.querySelectorAll("#ct-panel-analysis h3")].find((x) => x.textContent.trim() === "Why this result");
+    h.style.opacity = "0";
+  });
+  const chk = findCheck(r, `${c.fixture}-gates`);
+  expect("R2: own opacity:0 heading owns no gate rows (RED)", chk?.ok === false, chk?.detail);
+}
+// Ancestor display:none — the heading's own computed display stays normal;
+// the ancestor walk must see through it.
+{
+  const c = CASES.claim;
+  const r = await runView(c, "analysis", (doc) => {
+    doc.querySelector('#ct-panel-analysis section[aria-label="Analysis"]').style.display = "none";
+  });
+  const chk = findCheck(r, `${c.fixture}-gates`);
+  expect("R2: a section hidden by display:none owns no gate rows (RED)", chk?.ok === false, chk?.detail);
+}
+// Wrong heading text and a duplicate both stay red on the same predicates.
+{
+  const c = CASES.claim;
+  const r = await runView(c, "analysis", (doc) => {
+    const h = [...doc.querySelectorAll("#ct-panel-analysis h3")].find((x) => x.textContent.trim() === "Why this result");
+    h.textContent = "Why this outcome";
+  });
+  const chk = findCheck(r, `${c.fixture}-gates`);
+  expect("R2: wrong heading text owns nothing (RED)", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.claim;
+  const r = await runView(c, "analysis", (doc) => {
+    const h = [...doc.querySelectorAll("#ct-panel-analysis h3")].find((x) => x.textContent.trim() === "Why this result");
+    const dup = h.cloneNode(true);
+    h.parentElement.insertBefore(dup, h);
+  });
+  const chk = findCheck(r, `${c.fixture}-gates`);
+  expect("R2: duplicate matching headings own nothing (RED)", chk?.ok === false, chk?.detail);
+}
+// Placement heading: own opacity:0 and a hidden undated section are both RED.
+{
+  const c = CASES.claim;
+  const r = await runView(c, "timeline", (doc) => {
+    doc.querySelector('section[aria-label="Evidence with unknown dates"] > h3').style.opacity = "0";
+  });
+  const chk = findCheck(r, `${c.fixture}-placement`);
+  expect("R2: undated heading opacity:0 fails placement (RED)", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.claim;
+  const r = await runView(c, "timeline", (doc) => {
+    doc.querySelector('section[aria-label="Evidence with unknown dates"]').style.display = "none";
+  });
+  const chk = findCheck(r, `${c.fixture}-placement`);
+  expect("R2: undated section display:none fails placement (RED)", chk?.ok === false, chk?.detail);
+}
+
+/* ============ N83-R4: per-row opened-endpoint binding ====================== */
+
+// Swap rows 0 and 2's opened pairs — the performed SET is unchanged, so only
+// per-row identity catches this.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    const a = [...rows[0].querySelectorAll("button")];
+    const b = [...rows[2].querySelectorAll("button")];
+    for (let i = 0; i < 2; i++) {
+      const t = a[i].getAttribute("data-open-id");
+      a[i].setAttribute("data-open-id", b[i].getAttribute("data-open-id"));
+      b[i].setAttribute("data-open-id", t);
+    }
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: performed rows opening each other's pairs is RED", chk?.ok === false, chk?.detail);
+}
+// Reversing a single row's endpoints keeps the same two ids — orientation
+// is part of the pair's identity.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    const btns = [...rows[0].querySelectorAll("button")];
+    const t = btns[0].getAttribute("data-open-id");
+    btns[0].setAttribute("data-open-id", btns[1].getAttribute("data-open-id"));
+    btns[1].setAttribute("data-open-id", t);
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: reversed endpoints on one row are RED", chk?.ok === false, chk?.detail);
+}
+// A wrong endpoint on the UNEXAMINED row is red — and never promotes it.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[1].querySelectorAll("button")) b.setAttribute("data-open-id", "wrong-unexamined-id");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: wrong unexamined endpoints are RED without promoting the edge", chk?.ok === false, chk?.detail);
+}
+// R4 acquisition: the unexamined row's buttons open but return no readable
+// Occurrence ID — a FAILED observation, not the unopenable state.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[1].querySelectorAll("button")) b.setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: unexamined attempted opens with unreadable IDs are RED", chk?.ok === false, chk?.detail);
+}
+// Missing only ONE endpoint identity — either side — is still red.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[0].setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: missing first endpoint identity is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[1].setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: missing second endpoint identity is RED", chk?.ok === false, chk?.detail);
+}
+// The same failed read on a performed row stays red.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[0].querySelectorAll("button")) b.setAttribute("data-open-id", "");
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: performed attempted opens with unreadable IDs are RED", chk?.ok === false, chk?.detail);
+}
+// Genuinely unopenable — the unexamined row offers no controls at all — stays
+// green under its bound contract and is explicitly declared, not forged.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    for (const b of rows[1].querySelectorAll("button")) b.remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: genuinely unopenable unexamined row stays green and is declared",
+    chk?.ok === true && /unopenableRows=\[1\]/.test(chk?.detail ?? ""), chk?.detail);
+}
+// Exactly ONE remaining control is a positive-but-incomplete count — a failed
+// observation on any row, never the zero-controls state.
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[1].remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: unexamined row with only the Earlier control is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[1].querySelectorAll("button")[0].remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: unexamined row with only the Later control is RED", chk?.ok === false, chk?.detail);
+}
+{
+  const c = CASES.pair;
+  const r = await runView(c, "analysis", (doc) => {
+    const rows = perfRows(doc).children;
+    rows[0].querySelectorAll("button")[1].remove();
+  });
+  const chk = findCheck(r, `${c.fixture}-analysis-coverage`);
+  expect("R4: performed row with a single control is RED", chk?.ok === false, chk?.detail);
 }
 
 /* ============================== RESTORED =================================== */
