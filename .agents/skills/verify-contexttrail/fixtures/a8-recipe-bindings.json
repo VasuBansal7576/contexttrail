@@ -1556,7 +1556,7 @@
    ]
   }
  ],
- "runnerSha256": "f54648826c6c2c5c126eb01f0ef10ba5975aac7a58fb32cd0c93b97252c953df",
+ "runnerSha256": "70ece745de5642594f9396cdf699dc2cf61acf17ff1d6a3a3789b65e8642bb48",
  "recipeDigest": "f835830eeaea7a0da95f05cb3abeb0273f916e0a2fb96db8ac3ce1420fd106ba",
  "note": "recipeDigest covers {mapFile,mapSha256,acceptedAppPin,fixtureSubsetPin,releaseSeal,runner,recipes} only; runnerSha256 is recorded evidence, not a digest input"
 }

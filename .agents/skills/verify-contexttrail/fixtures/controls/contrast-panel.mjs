@@ -159,9 +159,11 @@ expect("a null scope record is RED", panelScopeOk(null) === false);
 
 // The accepted node set is scoped per view and names real, contract-bound
 // content targets — never the shared ContextTrail header or a bare action
-// link. Every entry carries a populated selector and the contract that
-// decides whether it is owed; contract-empty targets name the explanation
-// node that must render instead (F38-3).
+// link. Every entry carries a populated selector (a bare selector string or
+// a scoped {selector, scope?, nth?} spec resolved inside the panel) and the
+// contract that decides whether it is owed; contract-empty targets name the
+// explanation node that must render instead (F38-3, V39-4).
+const selOk = (s) => typeof s === "string" || (s !== null && typeof s === "object" && typeof s.selector === "string");
 for (const [view, targets] of Object.entries(PANEL_NODE_TARGETS)) {
   expect(
     `${view} panel targets name ${targets.length} contract-bound content node(s)`,
@@ -169,32 +171,57 @@ for (const [view, targets] of Object.entries(PANEL_NODE_TARGETS)) {
       targets.every(
         (t) =>
           typeof t.key === "string" &&
-          typeof t.populated === "string" &&
+          selOk(t.populated) &&
           typeof t.populatedWhen === "string" &&
           typeof t.note === "string" &&
           (t.populatedWhen === "always" ||
-            (t.empty && typeof t.empty.selector === "string" && typeof t.empty.text === "string")),
+            (t.populatedWhen === "accountingRows" && t.absentOk === true) ||
+            (t.empty && selOk(t.empty.selector ?? t.empty) && typeof t.empty.text === "string")),
       ),
   );
 }
 expect("no panel targets are declared for overview", (PANEL_NODE_TARGETS.overview ?? []).length === 0);
 
-// The measurement contract itself discriminates: a fixture terminal that
-// ships occurrences owes populated Sources/Timeline nodes; a terminal with
-// none owes the visible explanation; absent/nullable retrieval accounting
-// owes its explanation; an unknown contract (live run) requires populated —
-// a selector finding nothing is a measured miss, never a skip.
+// The measurement contract itself discriminates over the tri-state resolver:
+// a fixture terminal that ships occurrences owes populated Sources/Timeline
+// nodes; a terminal with none owes the visible explanation; the retrieval
+// accounting contract mirrors the product's three branches (requestLog array
+// → rows+note even when empty, absent requestLog + empty counts → the
+// explanation, non-empty counts → legacy rows+note); and an unknown contract
+// (live run) stays populated-required — a selector finding nothing is a
+// measured miss, never a skip.
 const populatedTerminal = { timeline: [{}], supportingEvidence: [], contextualEvidence: [], undatedEvidence: [] };
-const emptyTerminal = { timeline: [], supportingEvidence: [], contextualEvidence: [], undatedEvidence: [], requestLog: null, searchCounts: null };
-expect("populated contract: occurrences present", panelContractPopulated("hasAnyOccurrence", populatedTerminal) === true);
-expect("empty contract: no occurrences at all", panelContractPopulated("hasAnyOccurrence", emptyTerminal) === false);
-expect("empty contract: retrieval accounting absent", panelContractPopulated("hasRetrievalAccounting", emptyTerminal) === false);
-expect("populated contract: requestLog rows present", panelContractPopulated("hasRetrievalAccounting", { requestLog: [{ engine: "x" }] }) === true);
-expect("populated contract: legacy searchCounts rows present", panelContractPopulated("hasRetrievalAccounting", { requestLog: null, searchCounts: [{ engine: "x", count: 2 }] }) === true);
-expect("empty contract: empty requestLog array owes the explanation", panelContractPopulated("hasRetrievalAccounting", { requestLog: [] }) === false);
-expect("an unknown contract (live) requires the populated branch", panelContractPopulated("hasAnyOccurrence", null) === true);
-expect("the always contract never requires an explanation", panelContractPopulated("always", emptyTerminal) === true);
-expect("an unknown contract mode requires the populated branch", panelContractPopulated("never-heard-of", emptyTerminal) === true);
+const emptyTerminal = { timeline: [], supportingEvidence: [], contextualEvidence: [], undatedEvidence: [], requestLog: null };
+expect("populated contract: occurrences present", panelContractPopulated("hasAnyOccurrence", { terminal: populatedTerminal }) === "populated");
+expect("empty contract: no occurrences at all", panelContractPopulated("hasAnyOccurrence", { terminal: emptyTerminal }) === "empty");
+expect(
+  "empty contract: absent requestLog + known-empty counts owes the explanation for the note",
+  panelContractPopulated("accountingNote", { terminal: emptyTerminal, searchCounts: [] }) === "empty",
+);
+expect(
+  "empty contract: the same surface owes NO rows (absent, not empty)",
+  panelContractPopulated("accountingRows", { terminal: emptyTerminal, searchCounts: [] }) === "absent",
+);
+expect("populated contract: requestLog rows present", panelContractPopulated("accountingRows", { terminal: { requestLog: [{ engine: "x" }] } }) === "populated");
+expect(
+  "populated contract: legacy searchCounts rows present",
+  panelContractPopulated("accountingRows", { terminal: { requestLog: null }, searchCounts: [{ engine: "x", count: 2 }] }) === "populated",
+);
+expect(
+  "absent contract: an empty requestLog array keeps the branch but owes zero rows",
+  panelContractPopulated("accountingRows", { terminal: { requestLog: [] } }) === "absent",
+);
+expect(
+  "populated contract: the accounting note still renders for an empty requestLog",
+  panelContractPopulated("accountingNote", { terminal: { requestLog: [] } }) === "populated",
+);
+expect(
+  "optional contract: absent requestLog + unknowable counts is measured, not skipped",
+  panelContractPopulated("accountingRows", { terminal: emptyTerminal, searchCounts: null }) === "optional",
+);
+expect("an unknown contract (live) requires the populated branch", panelContractPopulated("hasAnyOccurrence", null) === "populated");
+expect("the always contract never requires an explanation", panelContractPopulated("always", { terminal: emptyTerminal }) === "populated");
+expect("an unknown contract mode requires the populated branch", panelContractPopulated("never-heard-of", { terminal: emptyTerminal }) === "populated");
 
 console.log(
   JSON.stringify({ control: "contrast-panel", checks: results.length, failures, ok: failures === 0 }),

@@ -367,7 +367,14 @@ are never wired into production, and are labeled in evidence as
 
 `fixtures/a8-expected-case-map.json` is the accepted A8 expected-case map,
 imported byte-exact and sha256-pinned (`6721d89b…`); a drifted file fails the
-drive closed at load. `fixtures/a8-expected-case-map.CONSUMER-NOTES.md`
+drive closed at load — and for any of the 17 pinned maintained A8 fixture
+names (`A8_MAINTAINED_FIXTURES`), map authority is established in
+`parseDriveOptions` itself, before any manifest read, port probe, stream
+setup or page exists: a missing, unreadable, digest-mismatched, malformed,
+wrong-count or missing-entry map refuses the drive at parse time. Names
+outside the pinned roster (retained controls, coverage-mutant scratch
+streams) are genuinely non-A8 and need no map.
+`fixtures/a8-expected-case-map.CONSUMER-NOTES.md`
 carries the independent-review qualifications that govern how the map is read
 (superseded counts/locator scope — read it before touching the map consumer).
 
@@ -383,12 +390,16 @@ fixtures/a8-recipe-bindings.json` — the offline control proves the committed
 file regenerates identically and that any bound-field mutation changes the
 digest.
 
-Whenever a `drive result --case <a8-fixture>` or `drive viewer --entry
-timeline --case <a8-fixture>` invocation runs, the drive discharges every map
-record bound to that view as its own `a8.expect.<record-id>` assertion — the
-147 records (141 visible + 6 serialized-only) are distinct observations, never
-one aggregate count, and `null` expectations are explicit absent/unknown
-predicates (`Unresolved`, empty sections), never skips. Identity is proven by
+Whenever a `drive result --case <a8-fixture>` runs, the drive discharges
+every map record bound to that `--view` as its own `a8.expect.<record-id>`
+assertion — the 147 records (141 visible + 6 serialized-only) are distinct
+observations bucketed into overview/timeline/analysis only, never one
+aggregate count, and `null` expectations are explicit absent/unknown
+predicates (`Unresolved`, empty sections), never skips. A `drive viewer
+--entry timeline --case <a8-fixture>` binds the map through two viewer
+assertions instead (`a8.expect.viewer-expected-target-identified` and
+`a8.expect.viewer-opened-identity`) — no viewer-view record kind exists.
+Identity is proven by
 the opened dialog's `Occurrence ID:` line (inside Technical details, read via
 textContent): gate "View supporting evidence →"
 links, reporting-group members, unresolved candidates, performed-comparison
@@ -443,7 +454,16 @@ proof.
   `retained-integrity.mjs`, `reading-order-target.mjs`,
   `assertions-durable.mjs` and `a8-map-bindings.mjs` (the map digest gate, all
   17 recipe bindings vs the real spec table, digest stability, and every
-  expected-record verdict red/green pair). Run them after any predicate
+  expected-record verdict red/green pair), `a8-observer.mjs` (the real
+  `observeExpectedRecords` consumer against jsdom-rendered fixture surfaces:
+  exactly one probe evaluation per view, wrong/missing/extra identity and
+  phantom-cardinality rejections on the same predicates, null surfaces never
+  pass absence, restored positives green) and `v39-contracts.mjs` (the real
+  parser via the CLI process — fixture-own `--claim-text`, trace rejection,
+  live gate preserved — plus parse-time map authority, the tri-state panel
+  contract, `PANEL_MEASURE_FN` heading scope, all three accounting branches,
+  clip-vs-overflow verdicts, excerpt wrapper/attribution scoping and the
+  Technical-details identity reader). Run them after any predicate
   change; they exit non-zero on the first unexpected verdict.
 - The selected-panel contrast pass (`result.<view>-contrast-*`) measures named
   content nodes strictly inside the selected tab's own `aria-controls` panel:

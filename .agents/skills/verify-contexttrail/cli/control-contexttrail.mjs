@@ -2509,7 +2509,7 @@ function assertFaultScriptParses() {
 
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, mobile: { width: 390, height: 844 } };
 const RESULT_TABS = ["Overview", "Timeline", "Sources", "Analysis"];
-const LIVE_ONLY = ["image", "claim-text"];
+const LIVE_ONLY = ["image"];
 const DELAY_MS_MAX = 600_000;
 
 /** Per-feature executable contract: exactly which options exist, which
@@ -2777,6 +2777,45 @@ function parseDriveOptions(opts = {}) {
 
   for (const k of LIVE_ONLY) {
     if (flags[k] !== undefined && !live) fail(`--${k} is only valid with --live`);
+  }
+  // A controlled drive may pin --claim-text ONLY to the fixture's own
+  // submitted claim: the replayed terminal asserts that exact investigation,
+  // so any other text would submit a different claim than the one under
+  // test. Trace fixtures and non-fixture cases carry no claim at all.
+  if (flags["claim-text"] !== undefined && !live) {
+    const claimFixture = driveFixture(feature, flags.case);
+    const claimResult =
+      typeof claimFixture === "string" ? fixtureResult(claimFixture) : null;
+    const ownClaim =
+      typeof claimResult?.claim === "string"
+        ? claimResult.claim
+        : typeof claimResult?.input?.claim === "string"
+          ? claimResult.input.claim
+          : null;
+    if (fixtureMode(claimFixture) !== "claim" || ownClaim === null) {
+      fail(
+        `--claim-text on a controlled drive requires a claim-mode fixture case ` +
+          `(--case ${flags.case} resolves to ${claimFixture ?? "none"}, mode=${fixtureMode(claimFixture) ?? "unknown"})`,
+      );
+    }
+    if (flags["claim-text"] !== ownClaim) {
+      fail(
+        `--claim-text must equal the fixture's own submitted claim — a different text ` +
+          `would submit a different investigation than the replayed terminal asserts`,
+      );
+    }
+  }
+  // Expected-map authority BEFORE any effect (V39-3): when the resolved case
+  // is a maintained A8 fixture the accepted map must be present, readable,
+  // digest-pinned and carry the fixture — checked at parse time, before any
+  // manifest read, port probe, stream setup or page exists. A genuinely
+  // non-A8 name (retained control, coverage-mutant scratch stream) needs no
+  // map and skips silently by design.
+  if (!live) {
+    const fx = driveFixture(feature, flags.case);
+    if (typeof fx === "string" && A8_MAINTAINED_FIXTURES.has(fx)) {
+      expectedCaseFor(fx);
+    }
   }
   if (flags["live-manifest"] !== undefined && !live) {
     fail("--live-manifest is only valid with --live");
@@ -3444,12 +3483,20 @@ function resolveInput(runId, { live, mode, fixture, spec = null }) {
   const file = uploadFileSet(runId)["upload.png"];
   // The fixture's own terminal mode decides whether a claim is submitted: a
   // Trace fixture is driven with an empty claim, so a Trace result can never be
-  // the product of a claim-carrying request.
+  // the product of a claim-carrying request. When a claim IS submitted it is
+  // the fixture's OWN claim — --claim-text may pin it (parseDriveOptions
+  // already validated it equals this exact string), and the default is the
+  // same claim rather than a generic string that would describe a different
+  // investigation than the replayed terminal.
   const fixtureClaimMode = fixture ? fixtureMode(fixture) === "claim" : mode === "claim";
+  const ownClaim =
+    typeof fixture === "string" && typeof fixtureResult(fixture)?.claim === "string"
+      ? fixtureResult(fixture).claim
+      : null;
   return {
     kind: "controlled",
     file,
-    claim: fixtureClaimMode ? flags["claim-text"] ?? CONTROLLED_CLAIM : null,
+    claim: fixtureClaimMode ? flags["claim-text"] ?? ownClaim ?? CONTROLLED_CLAIM : null,
     claimProvided: fixtureClaimMode,
     fixtureMode: fixture ? fixtureMode(fixture) : null,
     imageName: "upload.png",
@@ -3744,19 +3791,54 @@ async function activeElement(page) {
   });
 }
 
-/** The identity label the dialog renders for its open occurrence: pre-7ab28e9
- *  builds render `Evidence ID:` in visible body text, the accepted pin renders
- *  `Occurrence ID:` inside the collapsed Technical-details <details> — so the
- *  read is `textContent`, which carries both. */
-const OPENED_IDENTITY_RE = /(?:Evidence|Occurrence) ID:\s*(\S+)/;
+/** The opened dialog's identity is the `Occurrence ID:` paragraph inside the
+ *  collapsed Technical-details <details> — exactly one such field must exist
+ *  there. Reading textContent works while collapsed; a phrase inside an
+ *  excerpt, the title or any other dialog text can never satisfy this, and a
+ *  second spoofed field makes the read ambiguous → failure. Returns
+ *  { ok, id, reason, matches } — callers assert on ok/id, never on a string
+ *  found somewhere in the dialog. */
+async function openedOccurrenceId(dialog) {
+  const r = await dialog
+    .evaluate((d) => {
+      const det = [...d.querySelectorAll("details")].find((x) =>
+        /technical details/i.test(x.querySelector("summary")?.textContent ?? ""),
+      );
+      if (!det) return { ok: false, reason: "no Technical-details disclosure in the dialog" };
+      const matches = [...det.querySelectorAll("p")]
+        .map((p) => (p.textContent ?? "").trim())
+        .filter((t) => /^(?:Occurrence|Evidence) ID:\s*\S+/.test(t));
+      if (matches.length !== 1)
+        return { ok: false, reason: `${matches.length} occurrence-id field(s) inside Technical details`, matches };
+      return { ok: true, id: /(?:Occurrence|Evidence) ID:\s*(\S+)/.exec(matches[0])[1] };
+    })
+    .catch(() => ({ ok: false, reason: "dialog evaluate failed" }));
+  return r;
+}
 
-/** The occurrence the open viewer is showing, read from its own rendered
- *  identity line. Compared with the fixture's own ids, so a viewer showing
- *  the wrong occurrence cannot pass. */
+/** The attribution bound to the excerpt's own block: the h3 immediately
+ *  preceding the blockquote's <figure> — the product renders it as the
+ *  excerpt block's own heading. The same phrase elsewhere in the dialog (the
+ *  Full retrieved text disclosure, a gate label) must never satisfy this. */
+async function excerptAttributionHeading(dialog) {
+  return dialog
+    .evaluate((d) => {
+      const bq = d.querySelector("blockquote");
+      if (!bq) return { found: false, reason: "no blockquote" };
+      const fig = bq.closest("figure");
+      const h = fig?.previousElementSibling;
+      if (!h || h.tagName !== "H3") return { found: false, reason: "no h3 heading bound to the excerpt figure" };
+      return { found: true, text: (h.textContent ?? "").replace(/\s+/g, " ").trim() };
+    })
+    .catch(() => ({ found: false, reason: "evaluate failed" }));
+}
+
+/** The occurrence the open viewer is showing — the scoped Technical-details
+ *  field only. Compared with the fixture's own ids, so a viewer showing the
+ *  wrong occurrence cannot pass. */
 async function viewerEvidenceId(dialog) {
-  const text = await dialog.textContent();
-  const m = OPENED_IDENTITY_RE.exec(text ?? "");
-  return m ? m[1] : null;
+  const r = await openedOccurrenceId(dialog);
+  return r.ok === true ? r.id : null;
 }
 
 /** Press Tab until an element whose text/label matches `pattern` has focus.
@@ -4272,7 +4354,14 @@ function contrastVerdictFor(node, threshold) {
  * Contract keys (resolved by `panelContractPopulated`):
  *   "always"                — the node exists on every render of this panel
  *   "hasAnyOccurrence"      — any of timeline/supporting/contextual/undated
- *   "hasRetrievalAccounting"— requestLog non-empty OR searchCounts non-empty
+ *   "accountingRows"        — the Retrieval-accounting list rows: populated
+ *                             for a requestLog array with mapped entries or
+ *                             known non-empty searchCounts; absent for an
+ *                             empty requestLog or known-empty counts
+ *   "accountingNote"        — the trailing accounting note: populated for a
+ *                             requestLog array or known non-empty counts;
+ *                             empty (the missing-counts explanation) when
+ *                             requestLog is absent and counts are known empty
  *                             (the "Retrieval accounting" section at pin
  *                             ResultView 603-640: per-operation engine rows
  *                             with attempted/returned/retained and search id,
@@ -4304,17 +4393,21 @@ const PANEL_NODE_TARGETS = {
     },
     {
       key: "analysis-retrieval-accounting-row",
-      populated: "ul li.text-ink\\/75, ul li > span.text-ink\\/75",
-      populatedWhen: "hasRetrievalAccounting",
-      empty: { selector: "p.mt-2.text-sm", text: "No retrieval counts were preserved" },
-      note: "a Retrieval-accounting operation row (engine · attempted/returned/retained) — the pin's section at ResultView 603-640",
+      populated: { selector: "ul > li", scope: "Retrieval accounting" },
+      populatedWhen: "accountingRows",
+      absentOk: true,
+      note: "a Retrieval-accounting operation row — request-log entries or legacy per-engine counts, whichever branch the consumed state produces (pin ResultView 595-642)",
     },
     {
       key: "analysis-retrieval-accounting-note",
-      populated: "p.mt-2.text-xs",
-      populatedWhen: "hasRetrievalAccounting",
-      empty: { selector: "p.mt-2.text-sm", text: "No retrieval counts were preserved" },
-      note: "the Retrieval-accounting trailing note explaining search-id provenance",
+      populated: { selector: "p.mt-2.text-xs", scope: "Retrieval accounting" },
+      populatedWhen: "accountingNote",
+      empty: {
+        selector: "p.mt-2.text-sm",
+        scope: "Retrieval accounting",
+        text: "No retrieval counts were preserved",
+      },
+      note: "the Retrieval-accounting trailing note — per-operation accounting or legacy counts text; the contract-empty branch renders the missing-counts explanation in its place",
     },
   ],
   timeline: [
@@ -4326,44 +4419,192 @@ const PANEL_NODE_TARGETS = {
       note: "the real Timeline panel heading",
     },
     {
-      key: "timeline-panel-body",
-      populated: "p",
+      key: "timeline-panel-intro",
+      populated: "p.mt-2.max-w-3xl",
       populatedWhen: "hasAnyOccurrence",
       empty: { selector: "p.text-center", text: "No occurrences were returned" },
-      note: "the real Timeline panel body paragraph",
+      note: "the populated Timeline intro paragraph — the empty state is a bare p.text-center that can never satisfy this selector",
     },
     {
-      key: "timeline-panel-note",
-      populated: "p:last-of-type",
+      key: "timeline-coverage-paragraph",
+      populated: { selector: "p.mt-2.max-w-3xl", nth: 1 },
       populatedWhen: "hasAnyOccurrence",
       empty: { selector: "p.text-center", text: "No occurrences were returned" },
-      note: "the real Timeline panel trailing note",
+      note: "the populated Timeline comparison-coverage paragraph (second intro p)",
     },
   ],
 };
 
-/**
- * Resolve whether a target's populated branch is owed. An unknown contract
- * (live run — no fixture terminal to compare) requires the populated branch:
- * the harness cannot prove the surface should be empty, so absence is a
- * defect, never a skip.
- */
-function panelContractPopulated(mode, terminal) {
-  if (mode === "always") return true;
-  if (terminal === null || terminal === undefined) return true;
-  const evidenceTotal =
-    asLen(terminal.timeline) +
-    asLen(terminal.supportingEvidence) +
-    asLen(terminal.contextualEvidence) +
-    asLen(terminal.undatedEvidence);
-  if (mode === "hasAnyOccurrence") return evidenceTotal > 0;
-  if (mode === "hasRetrievalAccounting") {
-    return (
-      (Array.isArray(terminal.requestLog) && terminal.requestLog.length > 0) ||
-      (Array.isArray(terminal.searchCounts) && terminal.searchCounts.length > 0)
-    );
+/** The fixture's full event stream — the consumed state the page actually
+ *  renders from, which is broader than the terminal alone (searchCounts live
+ *  in hook state folded from `search.batch` events, not the result payload). */
+function fixtureEvents(name) {
+  const p = path.join(FIXTURES_DIR, `${name}.ndjson`);
+  if (!fs.existsSync(p)) return null;
+  return fs
+    .readFileSync(p, "utf8")
+    .split("\n")
+    .filter((l) => l.trim().length > 0)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+/** The request-log entries the product's getRequestLog maps out of the
+ *  terminal — non-string-engine items are dropped. An ARRAY (even empty) is
+ *  truthy for the product: it renders the request-log branch, including the
+ *  trailing per-operation note, even when zero rows survive the mapping. */
+function mappedRequestLog(terminal) {
+  if (!terminal || !Array.isArray(terminal.requestLog)) return null;
+  return terminal.requestLog.filter(
+    (e) => e && typeof e.engine === "string" && e.engine.length > 0,
+  );
+}
+
+/** The hook's searchCounts contract, folded from the consumed `search.batch`
+ *  events exactly as useInvestigation reduces them (per-engine count, latest
+ *  wins). `null` = not derivable (live run — the populated branch is then
+ *  not provably owed, so the contract is "optional", never a hard skip). */
+function consumedSearchCounts(events) {
+  if (!Array.isArray(events)) return null;
+  const counts = [];
+  for (const ev of events) {
+    if (ev?.type !== "search.batch") continue;
+    if (typeof ev.engine !== "string" || typeof ev.count !== "number") continue;
+    const ex = counts.find((c) => c.engine === ev.engine);
+    if (ex) ex.count = ev.count;
+    else counts.push({ engine: ev.engine, count: ev.count });
   }
-  return true;
+  return counts;
+}
+
+/**
+ * Resolve which measurement branch a target's contract owes — four states:
+ *   "populated" — populated content is owed and must render a real node
+ *   "empty"     — the contract-empty explanation must render and be measured
+ *   "absent"    — the populated node must NOT render (e.g. empty requestLog
+ *                 ul), and no explanation is owed in its place
+ *   "optional"  — the consumed state cannot decide (live run, or hook state
+ *                 not in the terminal): measure whichever legitimate branch
+ *                 rendered; per-target `absentOk` governs a nothing-rendered
+ *                 outcome.
+ * The three retrieval-accounting modes mirror the product's own branch:
+ * `requestLog` truthy (any ARRAY, even one mapping to zero rows) renders the
+ * request-log list + per-operation note; otherwise `searchCounts.length === 0`
+ * renders the missing-counts explanation, else the legacy counts list + note.
+ */
+function panelContractPopulated(mode, contract) {
+  const terminal = contract?.terminal ?? null;
+  const searchCounts = contract ? contract.searchCounts : null;
+  if (mode === "always") return "populated";
+  const evidenceTotal =
+    asLen(terminal?.timeline) +
+    asLen(terminal?.supportingEvidence) +
+    asLen(terminal?.contextualEvidence) +
+    asLen(terminal?.undatedEvidence);
+  if (mode === "hasAnyOccurrence") {
+    if (terminal === null) return "populated"; // live: populated required
+    return evidenceTotal > 0 ? "populated" : "empty";
+  }
+  if (mode === "accountingRows" || mode === "accountingNote") {
+    const mapped = mappedRequestLog(terminal);
+    if (terminal === null) return "optional"; // live: hook state unknowable
+    if (mapped !== null) {
+      if (mode === "accountingNote") return "populated"; // note renders even for []
+      return mapped.length > 0 ? "populated" : "absent";
+    }
+    if (searchCounts !== null) {
+      if (searchCounts.length > 0) return "populated";
+      return mode === "accountingNote" ? "empty" : "absent";
+    }
+    return "optional"; // requestLog absent and hook counts unknowable
+  }
+  return "populated";
+}
+
+/** The Retrieval-accounting branch probe: which of the product's three
+ *  branches actually rendered under the section's own heading — the
+ *  request-log list + per-operation note, the legacy counts list + note, or
+ *  the missing-counts explanation — plus row/note detail for the verdict. */
+const ACCOUNTING_BRANCH_FN = `(() => {
+  const panel = document.getElementById("ct-panel-analysis");
+  if (!panel) return null;
+  const sec = panel.querySelector('section[aria-label="Analysis"]') ?? panel;
+  const h = [...sec.querySelectorAll("h3")].find(
+    (x) => (x.textContent || "").trim() === "Retrieval accounting",
+  );
+  if (!h) return { heading: false };
+  const sibs = [];
+  for (let n = h.nextElementSibling; n && !/^H[23]$/.test(n.tagName); n = n.nextElementSibling) sibs.push(n);
+  const ul = sibs.find((e) => e.tagName === "UL") ?? null;
+  const expl = sibs.find(
+    (e) => e.tagName === "P" && /No retrieval counts were preserved/.test(e.textContent || ""),
+  ) ?? null;
+  const notes = sibs
+    .filter((e) => e.tagName === "P" && e !== expl)
+    .map((e) => (e.textContent || "").replace(/\\s+/g, " ").trim());
+  return {
+    heading: true,
+    branch: ul
+      ? notes.some((t) => /Per-operation accounting/.test(t))
+        ? "requestLog"
+        : notes.some((t) => /Counts are retrieved results/.test(t))
+          ? "legacy"
+          : "list-unknown"
+      : expl
+        ? "empty"
+        : "none",
+    rowCount: ul ? ul.children.length : 0,
+    noteTexts: notes,
+    explanationRendered: expl !== null,
+    explanationVisible: expl
+      ? !!(expl.offsetWidth || expl.offsetHeight || expl.getClientRects().length)
+      : false,
+  };
+})()`;
+
+/** The consumed-state contract for the accounting branch, validated against
+ *  what actually rendered: a present requestLog array (even one mapping to
+ *  zero entries — the product keeps the branch) requires the request-log
+ *  branch with exactly the mapped row count; absent requestLog + known empty
+ *  searchCounts requires the explanation; known non-empty counts require the
+ *  legacy branch; and when the hook state is unknowable from the terminal
+ *  (live, or a payload that omits it) the legacy or empty branch is accepted
+ *  — but "none" is always a defect. */
+function accountingBranchVerdict(terminal, searchCounts, b) {
+  if (!b || b.heading !== true)
+    return { ok: false, detail: "the Retrieval accounting heading did not render — no branch to measure" };
+  const mapped = mappedRequestLog(terminal);
+  const sc = Array.isArray(searchCounts) ? searchCounts : null;
+  if (mapped !== null) {
+    const ok =
+      b.branch === "requestLog" && b.rowCount === mapped.length && b.explanationRendered === false;
+    return {
+      ok,
+      detail: `terminal requestLog=${mapped.length} mapped row(s); rendered branch=${b.branch} rows=${b.rowCount} explanation=${b.explanationRendered}`,
+    };
+  }
+  if (sc !== null) {
+    const want = sc.length > 0 ? "legacy" : "empty";
+    const rowsOk = want === "legacy" ? b.rowCount === sc.length : b.rowCount === 0;
+    return {
+      ok: b.branch === want && rowsOk && (want !== "empty" || b.explanationVisible === true),
+      detail: `consumed searchCounts=${sc.length}; rendered branch=${b.branch} rows=${b.rowCount} explanationVisible=${b.explanationVisible}`,
+    };
+  }
+  // Consumed state cannot establish the counts branch (live run, or a payload
+  // that carries neither field): any single legitimate branch is acceptable,
+  // but a request-log branch without requestLog data or NO branch is a defect.
+  const ok = b.branch === "legacy" || b.branch === "empty";
+  return {
+    ok,
+    detail: `accounting contract undecidable from consumed state; rendered branch=${b.branch} rows=${b.rowCount}`,
+  };
 }
 
 /**
@@ -4389,11 +4630,28 @@ function panelScopeOk(info) {
  *  contain it — the required explanation measured on the REAL node. The node
  *  is tagged data-ctnpm so the follow-up CLIP_FN measures this element's own
  *  text range rather than any lookalike text elsewhere in the document. */
-const PANEL_MEASURE_FN = `({ panelId, selector, expectText }) => {
+const PANEL_MEASURE_FN = `({ panelId, selector, expectText, scope, nth }) => {
   const panel = document.getElementById(panelId);
   if (!panel) return { found: false, reason: 'no panel', panelId, selector };
-  const el = panel.querySelector(selector);
-  if (!el) return { found: false, reason: 'selector matched nothing inside the panel', panelId, selector };
+  const normT = (s) => String(s ?? '').replace(/\\s+/g, ' ').trim();
+  // scope: restrict matching to the sibling slice after the named heading —
+  // an unscoped selector can silently pick another section's lookalike node
+  // (e.g. p.mt-2.text-sm matches the Analysis intro, not the Retrieval
+  // accounting explanation it was written for).
+  let matches;
+  if (typeof scope === 'string' && scope.length > 0) {
+    const heads = [...panel.querySelectorAll('h1,h2,h3,h4')];
+    const h = heads.find((x) => normT(x.textContent).toLowerCase().includes(scope.toLowerCase()));
+    if (!h) return { found: false, reason: 'scope heading not found: ' + scope, panelId, selector, matchCount: 0 };
+    const sibs = [];
+    for (let n = h.nextElementSibling; n && !/^H[1-4]$/.test(n.tagName); n = n.nextElementSibling) sibs.push(n);
+    matches = sibs.flatMap((s) => [...(s.matches(selector) ? [s] : []), ...s.querySelectorAll(selector)]);
+  } else {
+    matches = [...panel.querySelectorAll(selector)];
+  }
+  const matchCount = matches.length;
+  const el = matches[typeof nth === 'number' ? nth : 0] ?? null;
+  if (!el) return { found: false, reason: 'selector matched nothing inside the panel', panelId, selector, matchCount };
   const owner = el.closest('[id^="ct-panel-"]');
   const membership = owner ? owner.id : null;
   const norm = (s) => String(s ?? '').replace(/\\s+/g, ' ').trim();
@@ -4627,12 +4885,14 @@ const CLIP_FN = `(({ text, nodeIdentity } = {}) => {
 })`;
 
 /**
- * The clip verdict (F38-2): a missing scoped node is a fail (populated
+ * The clip verdict (F38-2/V39-5): a missing scoped node is a fail (populated
  * content that never rendered is a defect, not a skip); an unrendered or
  * empty-range node is a fail; content measured beyond the node's border box
- * or beyond any clipping ancestor — in EITHER axis — is a fail; document
- * horizontal overflow is a fail. Long inline content that genuinely wraps
- * inside its bounds passes — length alone never fails.
+ * is a fail only when the node clips that axis itself (overflow != visible),
+ * and beyond any clipping ancestor — in EITHER axis — always; document
+ * horizontal overflow is a fail. Visible overflow inside all real clip
+ * bounds passes — text painted beyond a non-clipping box is still fully
+ * rendered, and length alone never fails.
  */
 function wrapVerdict(m) {
   if (!m || m.found !== true)
@@ -4647,15 +4907,21 @@ function wrapVerdict(m) {
   const rangeBottom = Math.max(...m.lineRects.map((r) => r.bottom));
   const nr = m.nodeRect;
   if (nr) {
-    // The node's own border box bounds in both axes (1px subpixel tolerance).
-    if (rangeRight > nr.right + 1)
-      return { pass: false, why: `range right ${Math.round(rangeRight)}px exceeds node right ${Math.round(nr.right)}px` };
-    if (rangeBottom > nr.bottom + 1)
-      return { pass: false, why: `range bottom ${Math.round(rangeBottom)}px exceeds node bottom ${Math.round(nr.bottom)}px` };
-    if (rangeLeft < nr.left - 1)
-      return { pass: false, why: `range left ${Math.round(rangeLeft)}px precedes node left ${Math.round(nr.left)}px` };
-    if (rangeTop < nr.top - 1)
-      return { pass: false, why: `range top ${Math.round(rangeTop)}px precedes node top ${Math.round(nr.top)}px` };
+    // A range outrunning the node's own border box is a defect ONLY when the
+    // node clips that axis itself — overflow:visible paints the overhang and
+    // the text remains fully visible, which the ancestor clip bounds and the
+    // document-overflow check below still govern. Containment-by-convention
+    // is not clipping and must not be called one.
+    const clipsX = (m.overflowX ?? "visible") !== "visible";
+    const clipsY = (m.overflowY ?? "visible") !== "visible";
+    if (clipsX && rangeRight > nr.right + 1)
+      return { pass: false, why: `range right ${Math.round(rangeRight)}px clipped by node overflow-x=${m.overflowX} at ${Math.round(nr.right)}px` };
+    if (clipsY && rangeBottom > nr.bottom + 1)
+      return { pass: false, why: `range bottom ${Math.round(rangeBottom)}px clipped by node overflow-y=${m.overflowY} at ${Math.round(nr.bottom)}px` };
+    if (clipsX && rangeLeft < nr.left - 1)
+      return { pass: false, why: `range left ${Math.round(rangeLeft)}px clipped by node overflow-x=${m.overflowX} at ${Math.round(nr.left)}px` };
+    if (clipsY && rangeTop < nr.top - 1)
+      return { pass: false, why: `range top ${Math.round(rangeTop)}px clipped by node overflow-y=${m.overflowY} at ${Math.round(nr.top)}px` };
   }
   // Ancestor clip chain: a hidden/clip/scroll/auto ancestor cuts content at
   // its own padding box regardless of the node's own overflow value — this is
@@ -4995,11 +5261,14 @@ function renderedExcerptVerdict(quoteText, span) {
     return { ok: false, why: "the contract projects no attributable span for this occurrence" };
   if (typeof quoteText !== "string" || quoteText.trim().length === 0)
     return { ok: false, why: "no blockquote rendered for an occurrence whose contract has a quotable excerpt" };
-  const rendered = String(quoteText)
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^[“”"'«»\s]+/, "")
-    .replace(/[“”"'«»\s]+$/, "");
+  // The product wraps the span in exactly one outer curly pair
+  // (“{span.text}”) — remove THAT wrapper only. A genuine span that itself
+  // begins/ends with ASCII quotes, guillemets or an apostrophe must keep
+  // those characters; stripping them would silently accept a clipped span.
+  let rendered = String(quoteText).replace(/\s+/g, " ").trim();
+  if (rendered.startsWith("“") && rendered.endsWith("”") && rendered.length >= 2) {
+    rendered = rendered.slice(1, -1);
+  }
   const expected = String(span.text).replace(/\s+/g, " ").trim();
   if (rendered === expected)
     return { ok: true, why: `exact ${expected.length}-char span${span.truncated ? " (contract-truncated)" : ""}`, rendered, expected };
@@ -5121,7 +5390,15 @@ function expectedMapBytesOk(bytes) {
  *  exercise the same bytes and the same digest gate a drive runs under. */
 function loadExpectedCaseMap() {
   if (expectedMapCache) return expectedMapCache;
-  const bytes = fs.readFileSync(A8_MAP_FILE);
+  let bytes;
+  try {
+    bytes = fs.readFileSync(A8_MAP_FILE);
+  } catch (err) {
+    fail(
+      `a8 expected-case map is missing or unreadable (${String(err?.message ?? err)}): ` +
+        "the expectation authority cannot be read, so no controlled observation may proceed",
+    );
+  }
   const sha = sha256(bytes);
   if (!expectedMapBytesOk(bytes)) {
     fail(
@@ -5143,10 +5420,51 @@ function loadExpectedCaseMap() {
   return map;
 }
 
-/** The map's expected-case record for a fixture, or null for a non-A8 case. */
+/** The pinned maintained-A8 roster — exactly the 17 accepted streams that the
+ *  expected-case map is authoritative for. Pinned by NAME, not derived from
+ *  the fixtures directory or the map itself: transient control streams
+ *  (coverage-mutants writes e.g. `controlled-empty-contrary-count` into the
+ *  same directory) are deliberately non-A8, while a roster fixture missing
+ *  from the map means the authority is incomplete — both must be
+ *  distinguishable without trusting either side to self-declare. */
+const A8_MAINTAINED_FIXTURES = new Set([
+  "controlled-conflict",
+  "controlled-no-conflict",
+  "controlled-claim",
+  "controlled-insufficient",
+  "controlled-pair",
+  "controlled-viewer",
+  "controlled-trace-strong",
+  "controlled-trace-limited",
+  "controlled-trace-no-dated",
+  "controlled-trace-divergent",
+  "controlled-trace-uncertain-transition",
+  "controlled-trace-dated-core-merged",
+  "controlled-trace-dated-core-ceiling",
+  "controlled-trace-coverage-gap",
+  "controlled-trace-unresolved-origin",
+  "controlled-placement-disputed-vs-unknown",
+  "controlled-trace",
+]);
+
+/** The map's expected-case record for a fixture, or null for a non-A8 case.
+ *  A maintained A8 fixture (the pinned roster above — the 17 accepted
+ *  streams) is a KNOWN case: the map is required authority for it, so missing
+ *  or unreadable map bytes, a digest mismatch, or a map that does not carry
+ *  the fixture are all fail()s — never a silent skip of its assertions.
+ *  Genuinely non-A8 names (coverage-mutant scratch streams, retained-control
+ *  cases) return null. */
 function expectedCaseFor(fixture) {
-  if (typeof fixture !== "string" || fixture === "" || !fs.existsSync(A8_MAP_FILE)) return null;
-  return loadExpectedCaseMap().byFixture.get(fixture) ?? null;
+  if (typeof fixture !== "string" || fixture === "") return null;
+  if (!A8_MAINTAINED_FIXTURES.has(fixture)) return null;
+  const c = loadExpectedCaseMap().byFixture.get(fixture) ?? null;
+  if (c === null) {
+    fail(
+      `maintained fixture ${fixture} has no case in the accepted a8 map: ` +
+        "the expectation authority does not cover a known fixture — refusing rather than skipping its assertions",
+    );
+  }
+  return c;
 }
 
 /** The expectation record kind: its id minus the `<fixture>-` prefix. */
@@ -5245,8 +5563,21 @@ function a8CoverageVerdict(record, surface, openedPairKeys) {
   const text = surface?.coverageText ?? null;
   if (text === null) return { ok: false, detail: "no Comparison coverage paragraph measured" };
   if (/No occurrences were selected for context comparison/.test(text)) {
-    const ok = expect.eligible === 0 && expect.selected === 0 && expect.comparedPairs === 0;
-    return { ok, detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)}` };
+    // Zero-selected means zero performed rows AND zero opened pairs — a
+    // phantom row or endpoint under the "nothing compared" sentence is a real
+    // contradiction, not decoration.
+    const rows = surface?.performedRows ?? [];
+    const opened = openedPairKeys ?? [];
+    const ok =
+      expect.eligible === 0 &&
+      expect.selected === 0 &&
+      expect.comparedPairs === 0 &&
+      rows.length === 0 &&
+      opened.length === 0;
+    return {
+      ok,
+      detail: `rendered=${JSON.stringify(text)} expected=${JSON.stringify(expect)} performedRows=${rows.length} openedPairs=${opened.length}`,
+    };
   }
   if (/was not reported/i.test(text)) {
     return { ok: false, detail: `coverage not reported, expected ${JSON.stringify(expect)}` };
@@ -5263,15 +5594,24 @@ function a8CoverageVerdict(record, surface, openedPairKeys) {
   }
   // comparedPairIds are a separate pair-key namespace: each key is proven by
   // the actual opened identity IDs of the performed row's endpoint buttons.
+  // Cardinality is exact on BOTH collections — the performed rows themselves
+  // and the opened pair sequence (a Set would hide duplicate opens).
+  const rows = surface?.performedRows ?? [];
   const expectedPairs = new Set(expect.comparedPairIds ?? []);
-  const seen = new Set(openedPairKeys ?? []);
+  const opened = openedPairKeys ?? [];
+  const seen = new Set(opened);
   const missing = [...expectedPairs].filter((p) => !seen.has(p));
-  const extra = [...seen].filter((p) => !expectedPairs.has(p));
+  const extra = opened.filter((p) => !expectedPairs.has(p));
+  const cardinalityOk =
+    rows.length === (expect.comparedPairIds ?? []).length &&
+    opened.length === expectedPairs.size &&
+    seen.size === opened.length;
   return {
-    ok: missing.length === 0 && extra.length === 0 && seen.size === expectedPairs.size,
+    ok: missing.length === 0 && extra.length === 0 && cardinalityOk,
     detail:
-      `counts=${JSON.stringify(rendered)} pairs opened=${JSON.stringify([...seen])} ` +
-      `expected=${JSON.stringify([...expectedPairs])} missing=${JSON.stringify(missing)} extra=${JSON.stringify(extra)}`,
+      `counts=${JSON.stringify(rendered)} rows=${rows.length} pairs opened=${JSON.stringify(opened)} ` +
+      `expected=${JSON.stringify([...expectedPairs])} missing=${JSON.stringify(missing)} extra=${JSON.stringify(extra)}` +
+      (cardinalityOk ? "" : " cardinality mismatch"),
   };
 }
 
@@ -5340,12 +5680,25 @@ function a8OriginsVerdict(record, surface, openedMemberIds) {
       if (!(item.headline ?? "").includes(reason)) mism.push(`group ${i} missing reason ${JSON.stringify(reason)}`);
     }
     const opened = (openedMemberIds ?? {})[i] ?? [];
+    // Exact cardinality both ways: rendered member buttons and the opened
+    // identity sequence must each equal the expected member list — a phantom
+    // extra member or opened id is a real inconsistency, not surplus proof.
+    if ((item.memberButtons ?? -1) !== asLen(g.memberIds)) {
+      mism.push(`group ${i} member buttons ${item.memberButtons ?? "n/a"} vs ${asLen(g.memberIds)} expected`);
+    }
+    if (opened.length !== asLen(g.memberIds)) {
+      mism.push(`group ${i} opened ${opened.length} member(s) vs ${asLen(g.memberIds)} expected`);
+    }
     for (const [j, id] of (g.memberIds ?? []).entries()) {
       if (opened[j] !== id) mism.push(`group ${i} member ${j} opened=${JSON.stringify(opened[j] ?? null)} want ${id}`);
     }
   }
   const unresOpened = (openedMemberIds ?? {}).unresolved ?? [];
-  for (const [j, id] of (expect.unresolvedCandidateIds ?? []).entries()) {
+  const wantUnresolved = expect.unresolvedCandidateIds ?? [];
+  if (unresOpened.length !== wantUnresolved.length) {
+    mism.push(`unresolved opened ${unresOpened.length} vs ${wantUnresolved.length} expected`);
+  }
+  for (const [j, id] of wantUnresolved.entries()) {
     if (unresOpened[j] !== id) {
       mism.push(`unresolved candidate ${j} opened=${JSON.stringify(unresOpened[j] ?? null)} want ${id}`);
     }
@@ -5370,10 +5723,15 @@ function a8TimelineIdsVerdict(record, openedDatedIds) {
 }
 
 function a8UndatedAbsentVerdict(record, surface) {
-  const present = surface?.undated?.sectionPresent === true && asLen(surface?.undated?.items) > 0;
+  // Absence can only be claimed from a measured surface — a failed or null
+  // probe is not proof the section is absent.
+  if (surface === null || surface === undefined || surface.undated === null || surface.undated === undefined) {
+    return { ok: false, detail: "timeline surface unmeasured — cannot establish undated-section absence" };
+  }
+  const present = surface.undated.sectionPresent === true && asLen(surface.undated.items) > 0;
   return {
     ok: !present,
-    detail: `undated section present=${surface?.undated?.sectionPresent ?? "unmeasured"} items=${asLen(surface?.undated?.items)}`,
+    detail: `undated section present=${surface.undated.sectionPresent} items=${asLen(surface.undated.items)}`,
   };
 }
 
@@ -5576,9 +5934,11 @@ const A8_ANALYSIS_PROBE_FN = `(() => {
           const rawLabel = (li.querySelector("p")?.innerText ?? "").trim();
           // The pass glyph is an aria-hidden span inside the label <p>; the
           // map's expectText carries "<label>: passed|not passed" without it.
+          // (double-escaped: this body is itself a template literal, so the
+          // evaluated regex needs the backslash preserved)
           const glyph = /^[✓✗]/.exec(rawLabel)?.[0] ?? null;
           return {
-            label: rawLabel.replace(/^[✓✗]\s*/, ""),
+            label: rawLabel.replace(/^[✓✗]\\s*/, ""),
             glyph,
             detail: (li.querySelectorAll("p")[1]?.innerText ?? "").trim(),
             supportButtons: li.querySelectorAll("button").length,
@@ -5608,10 +5968,11 @@ async function readOpenedEvidenceId(page, opener) {
     const dialog = page.locator('[role="dialog"]');
     await dialog.waitFor({ state: "visible", timeout: 15_000 });
     // `Occurrence ID:` is the last line of the Technical-details <details> —
-    // rendered but collapsed, so `innerText` would skip it while textContent
-    // carries it. The pinned app renders no "Evidence ID" line.
-    const text = await dialog.textContent({ timeout: 10_000 });
-    const id = (OPENED_IDENTITY_RE.exec(text ?? "") ?? [])[1] ?? null;
+    // rendered but collapsed, so textContent (not innerText) carries it. The
+    // read is scoped to that disclosure: exactly one field, spoofed text
+    // elsewhere in the dialog cannot impersonate it.
+    const ident = await openedOccurrenceId(dialog);
+    const id = ident.ok === true ? ident.id : null;
     const back = dialog.getByRole("button", { name: /back to timeline/i }).first();
     if ((await back.count()) > 0) await back.click();
     else await page.keyboard.press("Escape");
@@ -5651,7 +6012,7 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
   );
 
   if (view === "overview") {
-    const surface = await page.evaluate(`(${A8_OVERVIEW_PROBE_FN})()`).catch(() => null);
+    const surface = await page.evaluate(A8_OVERVIEW_PROBE_FN).catch(() => null);
     for (const r of records) {
       const kind = expectedRecordKind(r, fixture);
       let v;
@@ -5675,7 +6036,7 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
       `terminal.claim=${JSON.stringify(terminal?.claim ?? null)} expected=${JSON.stringify(expectedCase.claimSubmitted)}`,
     );
   } else if (view === "timeline") {
-    const surface = await page.evaluate(`(${A8_TIMELINE_PROBE_FN})()`).catch(() => null);
+    const surface = await page.evaluate(A8_TIMELINE_PROBE_FN).catch(() => null);
     // Open every dated card's Inspect control in order: the opened identity
     // sequence is the timeline's identity proof (never raw rendered text).
     const openers = page.locator('#ct-panel-timeline ol > li button[aria-label^="Inspect evidence"]');
@@ -5690,7 +6051,7 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
       else if (kind === "undated-section-absent") v = a8UndatedAbsentVerdict(r, surface);
       else if (kind === "timeline-empty-state") v = a8EmptyStateVerdict(r, surface);
       else if (kind === "connectors") v = a8ConnectorsVerdict(r, expectedCase, surface);
-      else if (kind === "placement" || kind === "divergence") v = null; // below: clicks needed
+      else if (kind === "placement" || kind === "divergence") continue; // click-dependent records discharge in the loop below
       else continue;
       rec.check(`a8.expect.${r.id}`, v.ok, v.detail);
     }
@@ -5719,7 +6080,7 @@ async function observeExpectedRecords(page, rec, expectedCase, view, { terminal 
       }
     }
   } else if (view === "analysis") {
-    const surface = await page.evaluate(`(${A8_ANALYSIS_PROBE_FN})()`).catch(() => null);
+    const surface = await page.evaluate(A8_ANALYSIS_PROBE_FN).catch(() => null);
     const needsGates = records.some((r) => expectedRecordKind(r, fixture) === "gates");
     const needsOrigins = records.some((r) => expectedRecordKind(r, fixture) === "analysis-origins");
     const needsPairs = records.some((r) => expectedRecordKind(r, fixture) === "analysis-coverage");
@@ -6732,6 +7093,10 @@ const DRIVE_CASES = {
 
   async result({ page, rec, m, runId, driveDir, live, delayMs, stream, caseName, input, viewport }) {
     const view = flags.view ?? "overview";
+    // Map authority is resolved BEFORE any drive effect: for a maintained A8
+    // fixture a missing/unreadable/mismatched map or a missing entry fails the
+    // run here, never mid-observation as a silent skip.
+    const expectedCase = live ? null : expectedCaseFor(caseName);
     if (!live && stream) stream.plan(caseName, { holds: delayMs > 0 ? 0 : 1, paceMs: delayMs });
     await submitUpload(page, m, runId, { claim: input.claim, rec, file: input.file });
     await submitButton(page).click();
@@ -6969,12 +7334,26 @@ const DRIVE_CASES = {
     const panelTargets = PANEL_NODE_TARGETS[view] ?? [];
     if (panelTargets.length > 0 && panelScopeOk(panelInfo)) {
       await page.evaluate(EFFECTIVE_CONTRAST_FN).catch(() => {});
+      // The consumed-stream contract: searchCounts come from the hook's
+      // search.batch fold, not the terminal payload — so the fixture's own
+      // events decide which retrieval-accounting branch is owed.
+      const contractCtx = {
+        terminal,
+        searchCounts: live ? null : consumedSearchCounts(fixtureEvents(caseName)),
+      };
       const measured = [];
+      const owed = [];
       for (const t of panelTargets) {
-        const wantPopulated = panelContractPopulated(t.populatedWhen, terminal);
-        let m;
-        if (wantPopulated) {
-          m = await measurePanelContrast(page, panelInfo.panelId, t.populated).catch((e) => ({
+        const contract = panelContractPopulated(t.populatedWhen, contractCtx);
+        const populatedSpec =
+          typeof t.populated === "string" ? { selector: t.populated } : t.populated;
+        const emptySpec = t.empty
+          ? { selector: t.empty.selector, scope: t.empty.scope, nth: t.empty.nth, expectText: t.empty.text }
+          : null;
+        let m = null;
+        if (contract === "populated") {
+          owed.push(t.key);
+          m = await measurePanelContrast(page, panelInfo.panelId, populatedSpec).catch((e) => ({
             found: false,
             reason: String(e),
           }));
@@ -6983,28 +7362,67 @@ const DRIVE_CASES = {
             m.found === true && m.isInsidePanel === true && m.membership === panelInfo.panelId,
             JSON.stringify({ key: t.key, note: t.note, found: m.found, membership: m.membership ?? null, reason: m.reason ?? null }),
           );
-        } else {
+        } else if (contract === "empty") {
           // Contract-empty: the populated selector must match NOTHING inside
           // the panel (data cannot produce it), and the required explanation
           // text must be the visible measured node instead.
-          const leaked = await page
-            .evaluate(
-              `(() => { const p = document.getElementById(${JSON.stringify(panelInfo.panelId)}); return p ? p.querySelectorAll(${JSON.stringify(t.populated)}).length : -1; })()`,
-            )
-            .catch(() => -1);
+          const pop = await measurePanelContrast(page, panelInfo.panelId, populatedSpec).catch(() => ({ found: false, matchCount: null }));
           rec.check(
             `result.${view}-contrast-${t.key}-populated-absent`,
-            leaked === 0,
-            `contract ${t.populatedWhen}=empty for this fixture; ${leaked} populated node(s) rendered`,
+            pop.matchCount === 0,
+            `contract ${t.populatedWhen}=empty for this fixture; ${pop.matchCount ?? "?"} populated node(s) rendered`,
           );
-          m = await measurePanelContrast(page, panelInfo.panelId, {
-            selector: t.empty.selector,
-            expectText: t.empty.text,
-          }).catch((e) => ({ found: false, reason: String(e) }));
+          owed.push(t.key);
+          m = emptySpec
+            ? await measurePanelContrast(page, panelInfo.panelId, emptySpec).catch((e) => ({ found: false, reason: String(e) }))
+            : { found: false, reason: "target declares no empty spec" };
           rec.check(
             `result.${view}-contrast-${t.key}-empty-explanation-rendered`,
             m.found === true && m.isInsidePanel === true && m.textMatched === true && m.rendered === true,
-            JSON.stringify({ key: t.key, found: m.found, textMatched: m.textMatched ?? null, rendered: m.rendered ?? null, expected: t.empty.text }),
+            JSON.stringify({ key: t.key, found: m.found, textMatched: m.textMatched ?? null, rendered: m.rendered ?? null, expected: t.empty?.text ?? null }),
+          );
+        } else if (contract === "absent") {
+          // Required-absent (e.g. an empty requestLog maps to zero rows): the
+          // populated selector must match nothing; no explanation is owed.
+          const pop = await measurePanelContrast(page, panelInfo.panelId, populatedSpec).catch(() => ({ found: false, matchCount: null }));
+          rec.check(
+            `result.${view}-contrast-${t.key}-populated-absent`,
+            pop.matchCount === 0,
+            `contract ${t.populatedWhen}=absent for this fixture; ${pop.matchCount ?? "?"} populated node(s) rendered`,
+          );
+          continue;
+        } else {
+          // Optional contract (live run, or hook state not in the terminal):
+          // measure whichever legitimate branch actually rendered — populated
+          // first, else the declared explanation. Targets with absentOk may
+          // honestly render nothing; all others must render SOMETHING.
+          m = await measurePanelContrast(page, panelInfo.panelId, populatedSpec).catch(() => ({ found: false }));
+          if (m.found !== true && emptySpec !== null) {
+            const em = await measurePanelContrast(page, panelInfo.panelId, emptySpec).catch(() => ({ found: false }));
+            if (em.found === true && em.textMatched === true) m = em;
+          }
+          if (m.found !== true) {
+            if (t.absentOk !== true) owed.push(t.key); // owed a render and failed
+            if (t.absentOk === true) {
+              rec.check(
+                `result.${view}-contrast-${t.key}-optional-absent`,
+                true,
+                `contract optional; no ${t.key} content rendered — legitimate under the consumed state`,
+              );
+              continue;
+            }
+            rec.check(
+              `result.${view}-contrast-${t.key}-branch-measured`,
+              false,
+              `contract optional but NEITHER populated nor explanation content rendered for ${t.key}`,
+            );
+            continue;
+          }
+          owed.push(t.key);
+          rec.check(
+            `result.${view}-contrast-${t.key}-inside-selected-panel`,
+            m.isInsidePanel === true && m.membership === panelInfo.panelId,
+            JSON.stringify({ key: t.key, optional: true, membership: m.membership ?? null, text: (m.text ?? "").slice(0, 50) }),
           );
         }
         if (m.found !== true || !m.node) continue;
@@ -7013,7 +7431,7 @@ const DRIVE_CASES = {
         measured.push({
           key: t.key,
           selector: m.selector,
-          branch: wantPopulated ? "populated" : "empty-explanation",
+          branch: contract === "populated" ? "populated" : contract === "empty" ? "empty-explanation" : "optional-rendered",
           membership: m.membership,
           text: m.text,
           threshold: th.threshold,
@@ -7031,8 +7449,8 @@ const DRIVE_CASES = {
       }
       rec.check(
         `result.${view}-contrast-surface-measured`,
-        measured.length === panelTargets.length,
-        `${measured.length}/${panelTargets.length} contract-bound node(s) measured inside ${panelInfo.panelId}`,
+        measured.length === owed.length,
+        `${measured.length}/${owed.length} contract-owed node(s) measured inside ${panelInfo.panelId} (${panelTargets.length - owed.length} required-absent/optional-absent)`,
       );
       writeJson(path.join(driveDir, `panel-contrast-${view}.json`), {
         view,
@@ -7045,6 +7463,15 @@ const DRIVE_CASES = {
         },
         measured,
       });
+      // The accounting branch is a three-way product contract (requestLog
+      // array → request-log rows + per-operation note; absent requestLog +
+      // empty counts → the explanation; absent + non-empty → legacy counts) —
+      // validate WHICH branch rendered, not just that some node did.
+      if (view === "analysis") {
+        const branch = await page.evaluate(ACCOUNTING_BRANCH_FN).catch(() => null);
+        const bv = accountingBranchVerdict(terminal, contractCtx.searchCounts, branch);
+        rec.check(`result.analysis-retrieval-accounting-branch`, bv.ok, bv.detail);
+      }
     }
 
     // Host clipping on mobile, on the node's own measured text range: the
@@ -7053,7 +7480,8 @@ const DRIVE_CASES = {
     // range outrunning the node box or any clipping ancestor in either axis,
     // and document horizontal overflow, are all red.
     if (viewport === "mobile" && view === "sources" && panelScopeOk(panelInfo)) {
-      const wantPopulated = panelContractPopulated("hasAnyOccurrence", terminal);
+      const wantPopulated =
+        panelContractPopulated("hasAnyOccurrence", { terminal, searchCounts: null }) === "populated";
       const picked = await page.evaluate(
         `((pid, populated) => {
           const panel = document.getElementById(pid);
@@ -7542,11 +7970,8 @@ const DRIVE_CASES = {
     // cases, every expectation record whose observable renders on this view is
     // discharged as its own a8.expect.* assertion. Records bound to other
     // views fire on their own invocations — the recipe runs all of them.
-    if (!live) {
-      const expectedCase = expectedCaseFor(caseName);
-      if (expectedCase) {
-        await observeExpectedRecords(page, rec, expectedCase, view, { terminal });
-      }
+    if (!live && expectedCase !== null) {
+      await observeExpectedRecords(page, rec, expectedCase, view, { terminal });
     }
   },
 
@@ -7560,6 +7985,10 @@ const DRIVE_CASES = {
     // and the asserted surface are the same fixture. A LIVE run has no fixture:
     // it asserts the dialog contract and records what the real response showed.
     const fixture = live ? null : driveFixture("viewer", vcase);
+    // Map authority is resolved BEFORE any drive effect — a maintained A8
+    // fixture with a missing/unreadable/mismatched map or a missing entry
+    // fails here, never mid-observation as a silent skip.
+    const expectedCase = live ? null : expectedCaseFor(fixture);
     // The focus sampler must be installed before the first navigation so the
     // per-frame log covers the dialog's open and its ACTUAL recorded close —
     // the settle below derives the close marker from this log, never a guess.
@@ -7576,7 +8005,6 @@ const DRIVE_CASES = {
     // first-match on a repeated accessible name would not prove the opener was
     // the expected item's. The opened identity is asserted below via the
     // dialog's rendered identity line.
-    const expectedCase = live ? null : expectedCaseFor(fixture);
     const expectedViewerId =
       expectedCase && entry === "timeline" ? expectedCase.expectedIds?.timeline?.[0] ?? null : null;
     const expectedViewerTitle =
@@ -7687,12 +8115,11 @@ const DRIVE_CASES = {
     // (inside Technical details — textContent, not innerText) — never the
     // repeated opener name and never raw id text elsewhere in the DOM.
     if (expectedViewerId !== null) {
-      const dialogText = await dialog.textContent({ timeout: 10_000 }).catch(() => "");
-      const openedId = (OPENED_IDENTITY_RE.exec(dialogText ?? "") ?? [])[1] ?? null;
+      const openedIdent = await openedOccurrenceId(dialog);
       rec.check(
         "a8.expect.viewer-opened-identity",
-        openedId === expectedViewerId,
-        `opened Occurrence ID=${JSON.stringify(openedId)} expected=${expectedViewerId}`,
+        openedIdent.ok === true && openedIdent.id === expectedViewerId,
+        `opened Occurrence ID=${JSON.stringify(openedIdent.ok === true ? openedIdent.id : openedIdent)} expected=${expectedViewerId}`,
       );
     }
 
@@ -8038,10 +8465,11 @@ const DRIVE_CASES = {
           `${v.why} — for ${openIdNow}`,
         );
         const wantAttribution = expectedExcerptAttribution(openRow, expectedSpan);
+        const attrLabel = await excerptAttributionHeading(dialog);
         rec.check(
           "viewer.excerpt-attribution-label",
-          wantAttribution !== null && dialogText.includes(wantAttribution),
-          `attribution "${wantAttribution}" must label the excerpt block for ${openIdNow}`,
+          wantAttribution !== null && attrLabel.found === true && attrLabel.text === wantAttribution,
+          `attribution heading=${JSON.stringify(attrLabel.found === true ? attrLabel.text : attrLabel)} expected=${JSON.stringify(wantAttribution)} for ${openIdNow}`,
         );
       } else {
         rec.check(
@@ -9889,6 +10317,24 @@ export {
   PANEL_NODE_TARGETS,
   panelScopeOk,
   panelContractPopulated,
+  // Consumed-state contract machinery + scoped identity reader (V39-3/4/7/8).
+  fixtureResult,
+  fixtureTerminal,
+  fixtureOccurrence,
+  driveFixture,
+  fixtureMode,
+  A8_MAINTAINED_FIXTURES,
+  fixtureEvents,
+  mappedRequestLog,
+  consumedSearchCounts,
+  ACCOUNTING_BRANCH_FN,
+  accountingBranchVerdict,
+  openedOccurrenceId,
+  excerptAttributionHeading,
+  viewerEvidenceId,
+  readOpenedEvidenceId,
+  observeExpectedRecords,
+  parseDriveOptions,
   // Rendered excerpt identity (F38-4): the product-bound projection port.
   splitCompositeExcerpt,
   truncateExcerptWords,

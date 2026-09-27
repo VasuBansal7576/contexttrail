@@ -65,7 +65,8 @@ and the drive exits 1.
 | `drive result --run-id <id> --view tab` | exit 2, lists the four views |
 | `drive result --run-id <id> --mode claim` | exit 2, result declares no `--mode` |
 | `drive result --run-id <id> --case pair` | exit 2 (no such fixture) |
-| `drive result --run-id <id> --claim-text hi` | exit 2, `--claim-text` is only valid with `--live` |
+| `drive result --run-id <id> --claim-text hi` | exit 2 — on a controlled drive `--claim-text` must equal the resolved fixture's own submitted claim (`hi` never does); trace fixtures reject it outright |
+| `drive result --run-id <id> --case controlled-conflict --claim-text "A controlled claim used to drive a corroborated context conflict."` | parses — the exact fixture claim pins the replayed investigation |
 | `drive result --run-id <id> --fault bad-selection` | **exit 1** — `result.tab-sources-selected` fails |
 
 ## Gotchas

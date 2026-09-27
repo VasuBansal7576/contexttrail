@@ -40,11 +40,13 @@ rejected with exit 2 — they are never silently ignored.
 
 `fixtures/a8-expected-case-map.json` (sha256-pinned, byte-exact import) +
 `fixtures/a8-recipe-bindings.json` bind the accepted 17-case A8 expected-case
-map to this runner. Any `drive result --case <a8-fixture>` or `drive viewer
---case <a8-fixture>` discharges every bound map record for that view as an
-individual `a8.expect.<record-id>` assertion — 141 visible + 6 serialized-only
-records across the 17 cases — with identity proven through the opened dialog's
-`Occurrence ID:` line. See SKILL.md → "A8 expected-case map and recipe bindings"
+map to this runner. Any `drive result --case <a8-fixture>` discharges every
+bound map record for that `--view` as an individual `a8.expect.<record-id>`
+assertion — 141 visible + 6 serialized-only records across the 17 cases,
+bucketed into overview/timeline/analysis only (no viewer-view kind exists; a
+viewer drive binds via `a8.expect.viewer-expected-target-identified` and
+`a8.expect.viewer-opened-identity`) — with identity proven through the opened
+dialog's `Occurrence ID:` line. See SKILL.md → "A8 expected-case map and recipe bindings"
 and `fixtures/a8-expected-case-map.CONSUMER-NOTES.md`.
 
 Exit codes are the contract:
@@ -190,7 +192,15 @@ lists its own; the standing set is:
   unknown outcomes exit 2, valid FAIL/INCOMPLETE seal inspectably),
   `stream-buffer-provenance.mjs`, `request-projection.mjs`,
   `retained-integrity.mjs`, `reading-order-target.mjs`,
-  `assertions-durable.mjs`.
+  `assertions-durable.mjs`, `a8-map-bindings.mjs` (map digest gate, 17 recipe
+  bindings, every expected-record verdict red/green), `a8-observer.mjs` (the
+  real `observeExpectedRecords` against jsdom surfaces: one probe evaluation
+  per view, phantom cardinality and wrong-identity rejections) and
+  `v39-contracts.mjs` (the real parser via the CLI — fixture-own
+  `--claim-text`, trace rejection, parse-time map authority — plus the
+  tri-state panel contract, all three accounting branches, clip-vs-overflow,
+  excerpt wrapper/attribution scope and the Technical-details identity
+  reader).
 - 3 schema rejections for `--focus-fallback`: an unknown value, a viewer-only
   flag on another feature, and combination with `--fault` each exit 2.
 

@@ -63,7 +63,7 @@ Entry points: `browse` (label click → `filechooser`), `keyboard`
 | `drive upload --run-id <id> --entry telepathy` | exit 2, lists `browse\|keyboard\|drop\|paste\|setinputfiles` |
 | `drive upload --run-id <id> --case does-not-exist` | exit 2, lists the eight cases |
 | `drive upload --run-id <id> --image <file>` | exit 2, `--image` is only valid with `--live` |
-| `drive upload --run-id <id> --claim-text hi` | exit 2, `--claim-text` is only valid with `--live` |
+| `drive upload --run-id <id> --claim-text hi` | exit 2, `--claim-text` requires a claim-mode fixture case (upload resolves to none) |
 | `drive upload --run-id <id> --live` | exit 2, `--live requires RUN_LIVE_TESTS=1 (provider credit gate)` — the gate is evaluated before any other live handling |
 | `RUN_LIVE_TESTS=1 drive upload --run-id <id> --live` | exit 2, `--live requires --image <path>` (upload accepts `--live`, but needs the submitted media) |
 

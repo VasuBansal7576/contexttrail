@@ -293,10 +293,21 @@ expect("analysis-segments null expectation RED on an invented count", a8Segments
 
 // Coverage: counts from the rendered paragraph, pair ids from opened endpoints.
 const covRec = rec("analysis-coverage");
-const covSurface = { coverageText: "Context comparisons: 1 pair compared across 2 selected of 2 eligible occurrences." };
+const covSurface = {
+  coverageText: "Context comparisons: 1 pair compared across 2 selected of 2 eligible occurrences.",
+  performedRows: [{ text: "ev-muiw5agw-32 ↔ ev-muiw5agw-33", buttons: 2 }],
+};
 expect(
   "analysis-coverage green on parsed counts + opened pair key",
   a8CoverageVerdict(covRec, covSurface, ["ev-muiw5agw-32|ev-muiw5agw-33"]).ok === true,
+);
+expect(
+  "analysis-coverage RED on a phantom performed row (exact row cardinality)",
+  a8CoverageVerdict(
+    covRec,
+    { ...covSurface, performedRows: [...covSurface.performedRows, { text: "ghost", buttons: 2 }] },
+    ["ev-muiw5agw-32|ev-muiw5agw-33"],
+  ).ok === false,
 );
 expect(
   "analysis-coverage RED on a wrong rendered count",

@@ -130,15 +130,24 @@ expect("a hidden (no-rect) node is RED", wrapVerdict(clip({ rendered: false, rea
 expect("an ancestor-hidden node is RED", wrapVerdict(clip({ rendered: false, hiddenByAncestor: { tag: "DIV", display: "none" } })).pass === false);
 expect("an empty text range is RED", wrapVerdict(clip({ rangeMeasured: false, lineRects: [] })).pass === false);
 
-// Clipping in BOTH axes: the range outrunning its own node box horizontally
-// or vertically is red, as is any clipping ancestor cutting it.
+// Clipping vs visible overflow (V39-5): a range outrunning its own node box
+// is green while neither axis clips — overflow:visible paints the overhang —
+// and red the moment the node itself clips that axis.
 expect(
-  "a range wider than its node box is RED (horizontal clip)",
-  wrapVerdict(clip({ lineRects: [{ left: 8, right: 500, top: 10, bottom: 28 }] })).pass === false,
+  "a range wider than a NON-clipping node box is GREEN (visible overflow)",
+  wrapVerdict(clip({ lineRects: [{ left: 8, right: 500, top: 10, bottom: 28 }] })).pass === true,
 );
 expect(
-  "a range extending below its node box is RED (vertical clip)",
-  wrapVerdict(clip({ lineRects: [{ left: 8, right: 328, top: 10, bottom: 80 }] })).pass === false,
+  "the same range is RED once the node clips horizontally",
+  wrapVerdict(clip({ overflowX: "hidden", lineRects: [{ left: 8, right: 500, top: 10, bottom: 28 }] })).pass === false,
+);
+expect(
+  "a range below a NON-clipping node box is GREEN (visible overflow)",
+  wrapVerdict(clip({ lineRects: [{ left: 8, right: 328, top: 10, bottom: 80 }] })).pass === true,
+);
+expect(
+  "the same range is RED once the node clips vertically",
+  wrapVerdict(clip({ overflowY: "clip", lineRects: [{ left: 8, right: 328, top: 10, bottom: 80 }] })).pass === false,
 );
 expect(
   "an overflow-x:hidden ancestor narrower than the range is RED (too-wide)",

@@ -17,8 +17,7 @@ safely, and hands focus back when it closes.
 ```
 bin/control-contexttrail drive viewer --run-id <id> \
   --entry timeline|sources|takeaway \
-  --case image-load|image-fail|no-excerpt|pair \
-  [--case <a8-fixture-name>] \
+  --case image-load|image-fail|no-excerpt|pair|<a8-fixture-name> \
   --viewport desktop|mobile
 ```
 
@@ -43,11 +42,14 @@ occurrences the report actually displays. If no checked-in fixture has one, the
 case exits 2 naming the missing fixture rather than skipping silently.
 
 `--case <a8-fixture-name>` (any of the 17 A8 fixture names) replays that
-fixture and discharges the expected map's `viewer`-view records as
-`a8.expect.<record-id>` assertions — `evidence-inspected`,
-`identity-present`, `status-or-date` records verified against the opened
-dialog's `Occurrence ID:` line. `--entry timeline` scopes the Inspect opener to
-the map's exact occurrence identity rather than the first Inspect button.
+fixture. The map's 147 expectation records bucket only into the three result
+views (overview/timeline/analysis) — no viewer-view record kind exists — so
+the viewer drive binds the map through two viewer assertions instead:
+`a8.expect.viewer-expected-target-identified` (the map's expected dated
+occurrence resolves to a real fixture row, and the Inspect opener is scoped
+to that card, never the first Inspect button) and
+`a8.expect.viewer-opened-identity` (the opened dialog's `Occurrence ID:` line
+inside Technical details equals the expected id).
 
 Media cases are inspected with a **bounded, non-waiting** DOM read: an
 auto-waiting locator against a missing `<img>` burns a full timeout per
@@ -104,7 +106,7 @@ Navigation and content:
 | `viewer.source-link-targets-occurrence` | the source link's `href` equals the fixture row's own `canonicalUrl`/`sourceUrl` — attribution proved against the fixture, not the DOM's claim |
 | `viewer.attribution-matches-occurrence` | the fixture row's title renders inside the dialog |
 | `viewer.excerpt-matches-occurrence` | the rendered `<blockquote>`'s own text EQUALS the span the product contract projects from the fixture row (`expectedAttributableSpan` — composite `Title:`/`Snippet:` split, first-paragraph body, word-boundary truncation at the viewer's 600-char budget). A prefix, a substituted quote found elsewhere in the dialog, or the bare title wrapper are all RED |
-| `viewer.excerpt-attribution-label` | the excerpt block carries the projected attribution — the backend's `displayAttribution` when present, else `Extracted page excerpt`/`Search snippet` |
+| `viewer.excerpt-attribution-label` | the excerpt block carries the projected attribution — the backend's `displayAttribution` when present, else `Extracted page excerpt`/`Search snippet` — read ONLY from the `h3` immediately preceding that blockquote's own `figure`; the same phrase elsewhere in the dialog never satisfies it. The rendered quote is compared after stripping only the product's exact outer `“…”` wrapper pair — inner quotes/guillemets are content and survive |
 | `viewer.excerpt-absent-when-contract-has-none` | when the contract projects no quotable span (no excerpt, or a bare `Title:` wrapper), no quote renders and `No excerpt available` is shown |
 | `viewer.technical-details-fields` | expanding `Technical details` yields ≥1 `<dd>` |
 | `viewer.technical-details-real-fields` | no `<dt>` label contains `undefined`, `null` or `NaN` |
