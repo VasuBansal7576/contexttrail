@@ -69,7 +69,15 @@ export default function UploadForm({
           <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-ink" />
           ContextTrail
         </p>
-        <Link href="/" className="text-sm text-ink/60 hover:text-ink">
+        {/* 44px target: the only interactive control on this screen that had no
+            minimum size, while its Replace/Remove siblings set min-h-[44px] and
+            the submit uses min-h-[48px]. Appearance is unchanged — same text-sm,
+            ink-soft secondary styling, same copy, same destination; only the hit
+            area grows, with the label vertically centred inside it. */}
+        <Link
+          href="/"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm text-ink-soft hover:text-ink"
+        >
           ← Back
         </Link>
       </header>
@@ -109,6 +117,7 @@ export default function UploadForm({
               }}
               className={cn(
                 "rounded-2xl border-2 border-dashed p-10 text-center transition",
+                "focus-within:border-signal focus-within:ring-2 focus-within:ring-signal/50 focus-within:ring-offset-2 focus-within:ring-offset-paper",
                 dragging ? "border-signal bg-signal/5" : "border-ink/20 bg-white/60",
               )}
             >
@@ -133,7 +142,7 @@ export default function UploadForm({
                   e.target.value = "";
                 }}
               />
-              <p id="ct-formats" className="mt-2 text-sm text-ink/55">
+              <p id="ct-formats" className="mt-2 text-sm text-ink-soft">
                 JPG, PNG or WebP
               </p>
             </div>
@@ -149,19 +158,19 @@ export default function UploadForm({
                 <p className="truncate text-sm font-medium" title={selection.file.name}>
                   {selection.file.name}
                 </p>
-                <p className="text-xs text-ink/55">{Math.max(1, Math.round(selection.file.size / 1024))} KB · will be compressed before upload</p>
+                <p className="text-xs text-ink-soft">{Math.max(1, Math.round(selection.file.size / 1024))} KB · will be compressed before upload</p>
                 <div className="mt-2 flex gap-3 text-sm">
                   <button
                     type="button"
                     onClick={() => inputRef.current?.click()}
-                    className="min-h-[32px] font-medium text-signal underline underline-offset-2"
+                    className="min-h-[44px] font-medium text-signal-ink underline underline-offset-2"
                   >
                     Replace
                   </button>
                   <button
                     type="button"
                     onClick={onRemove}
-                    className="min-h-[32px] font-medium text-ink/60 underline underline-offset-2 hover:text-ink"
+                    className="min-h-[44px] font-medium text-ink-soft underline underline-offset-2 hover:text-ink"
                   >
                     Remove
                   </button>
@@ -202,9 +211,15 @@ export default function UploadForm({
               onChange={(e) => onClaimChange(e.target.value)}
               placeholder="E.g. “This shows a recent incident in my city.”"
               aria-describedby="ct-claim-help"
-              className="mt-2 w-full resize-y rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15 placeholder:text-ink/40"
+              // The example keeps the `ink-soft` token, which measures 6.98:1 on
+              // this composited field. `ink/40` measured 2.58:1 here — an enabled
+              // 16px field, not the disabled-button exemption — so the example
+              // was unreadable while the field was waiting for input. The
+              // persistent label above and the entered value (`ink`) still
+              // separate label, example and content.
+              className="mt-2 w-full resize-y rounded-xl bg-white/70 px-4 py-3 text-[16px] text-ink ring-1 ring-ink/15 placeholder:text-ink-soft"
             />
-            <div className="mt-1 flex items-center justify-between text-xs text-ink/55">
+            <div className="mt-1 flex items-center justify-between text-xs text-ink-soft">
               <p id="ct-claim-help">Leave blank to trace the image&apos;s history.</p>
               <p aria-label={`${CLAIM_MAX - claim.length} characters remaining`}>
                 {claim.length}/{CLAIM_MAX}
@@ -231,12 +246,12 @@ export default function UploadForm({
             )}
           </button>
           {!selection && !preparing ? (
-            <p id="ct-submit-hint" className="mt-2 text-center text-xs text-ink/55">
+            <p id="ct-submit-hint" className="mt-2 text-center text-xs text-ink-soft">
               Select an image to begin.
             </p>
           ) : null}
 
-          <p className="mt-4 flex items-start justify-center gap-2 text-center text-xs leading-relaxed text-ink/60">
+          <p className="mt-4 flex items-start justify-center gap-2 text-center text-xs leading-relaxed text-ink-soft">
             <span aria-hidden="true">🔒</span>
             <span>
               Your image is sent to SerpApi / Google Lens for visual search. ContextTrail does not

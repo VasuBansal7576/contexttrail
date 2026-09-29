@@ -4,11 +4,15 @@
  * Dark immersive layout: stage list left, progressive evidence right. Renders
  * only values actually received in this investigation — real counts, real
  * cards, real failures. No percentage-complete meter, no simulated progress.
+ * In DOM and on mobile, the compact current-stage summary comes first, then
+ * arriving evidence, then the full stage list.
  */
 "use client";
 
 import { motion, useReducedMotion } from "framer-motion";
+import { useEffect, useState } from "react";
 import { KNOWN_STAGES, STAGE_LABELS, str, type JsonRecord } from "@/lib/stream/events";
+import { progressRelationshipNote } from "@/components/result/evidence-display";
 import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge, StatusDot } from "@/components/ui";
 import { cn } from "@/components/cn";
@@ -51,10 +55,7 @@ export function mergeStageList(seen: StageState[]): StageState[] {
 }
 
 function relationshipNote(evidence: JsonRecord): { label: string; tone: "info" | "neutral" } {
-  const rel = (str(evidence, "mediaRelationship") ?? str(evidence, "relationship") ?? "").toUpperCase();
-  if (rel.includes("EXACT")) return { label: "Exact match · reported by Google Lens", tone: "info" };
-  if (rel.includes("NEAR")) return { label: "Near match · locally verified", tone: "info" };
-  return { label: "Visual lead · not verified", tone: "neutral" };
+  return progressRelationshipNote(evidence);
 }
 
 interface InvestigationViewProps {
@@ -68,8 +69,22 @@ interface InvestigationViewProps {
 export default function InvestigationView({ stages, searchCounts, evidence, error, onCancel }: InvestigationViewProps) {
   const reduce = useReducedMotion();
   const fullStages = mergeStageList(stages);
+  // Mounted flag (U2): SSR and reduced-motion render the visible final
+  // state; hidden initial states apply only after mount with motion allowed.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const domains = new Set(evidence.map((e) => str(e, "domain")).filter((d): d is string => d !== null));
+
+  // Compact current-work summary for narrow screens: the running stage, else
+  // the most recently completed one, else the next waiting stage.
+  const currentStage =
+    fullStages.find((s) => s.status === "running") ??
+    [...fullStages].reverse().find((s) => s.status === "completed") ??
+    fullStages.find((s) => s.status === "waiting") ??
+    null;
 
   return (
     <div className="min-h-screen bg-deep text-white">
@@ -106,8 +121,74 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
         ) : null}
 
         <div className="mt-10 grid gap-10 lg:grid-cols-[40%_60%]">
-          {/* Stage list */}
-          <section aria-label="Investigation stages">
+          {/* Compact current-stage summary first on mobile; full list below evidence. */}
+          {currentStage ? (
+            <p aria-live="polite" className="rounded-xl bg-white/5 px-4 py-3 text-sm text-white/80 ring-1 ring-white/10 lg:hidden">
+              <StatusDot kind={stageTone(currentStage.status)} label={`${currentStage.label}: ${stageStateLabel(currentStage.status)}`} />
+              {currentStage.detail ? (
+                <span className="mt-1 block truncate text-white/55" title={currentStage.detail}>
+                  {currentStage.detail}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
+
+          {/* Progressive evidence — first in DOM and on mobile, right column on desktop. */}
+          <section aria-label="Evidence arriving live" aria-live="polite" className="lg:order-2">
+            {evidence.length === 0 ? (
+              <p className="rounded-xl bg-white/5 p-8 text-center text-sm text-white/55 ring-1 ring-white/10">
+                Waiting for the first evidence from this investigation…
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-white/60">
+                  {evidence.length} {evidence.length === 1 ? "candidate" : "candidates"} found ·{" "}
+                  {domains.size} {domains.size === 1 ? "source domain" : "source domains"} · preliminary, may
+                  change after page reading or classification
+                </p>
+                <ul className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {evidence.map((item, i) => {
+                    const note = relationshipNote(item);
+                    const title = str(item, "title");
+                    const domain = str(item, "domain");
+                    const image = str(item, "imageUrl") ?? str(item, "thumbnailUrl");
+                    const key = str(item, "id") ?? `evidence-${i}`;
+                    return (
+                      <motion.li
+                        key={key}
+                        initial={mounted && !reduce ? { opacity: 0, y: 16 } : false}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: mounted && !reduce ? 0.35 : 0 }}
+                        className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10"
+                      >
+                        {image ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={image} alt="" className="aspect-video w-full object-cover" loading="lazy" />
+                        ) : null}
+                        <div className="p-4">
+                          <Badge
+                            tone={note.tone}
+                            className={
+                              note.tone === "neutral"
+                                ? "bg-white/10 text-white/85 ring-white/20"
+                                : undefined
+                            }
+                          >
+                            {note.label}
+                          </Badge>
+                          <p className="mt-2 line-clamp-2 text-sm font-medium">{title ?? "Untitled result"}</p>
+                          {domain ? <p className="mt-1 text-xs text-white/55">{domain}</p> : null}
+                        </div>
+                      </motion.li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </section>
+
+          {/* Stage list — below evidence in DOM and on mobile, left column on desktop. */}
+          <section aria-label="Investigation stages" className="lg:order-1">
             <ol className="space-y-1">
               {fullStages.map((stage) => (
                 <li
@@ -141,54 +222,9 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                 ))}
               </ul>
             ) : null}
-            <p className="mt-6 text-xs leading-relaxed text-white/40">
+            <p className="mt-6 text-xs leading-relaxed text-white/60">
               Canceling stops new work where possible. Requests already sent may still consume provider credits.
             </p>
-          </section>
-
-          {/* Progressive evidence */}
-          <section aria-label="Evidence arriving live" aria-live="polite">
-            {evidence.length === 0 ? (
-              <p className="rounded-xl bg-white/5 p-8 text-center text-sm text-white/55 ring-1 ring-white/10">
-                Waiting for the first evidence from this investigation…
-              </p>
-            ) : (
-              <>
-                <p className="text-sm text-white/60">
-                  {evidence.length} {evidence.length === 1 ? "candidate" : "candidates"} found ·{" "}
-                  {domains.size} {domains.size === 1 ? "source domain" : "source domains"} · preliminary, may
-                  change after page reading or classification
-                </p>
-                <ul className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {evidence.map((item, i) => {
-                    const note = relationshipNote(item);
-                    const title = str(item, "title");
-                    const domain = str(item, "domain");
-                    const image = str(item, "imageUrl") ?? str(item, "thumbnailUrl");
-                    const key = str(item, "id") ?? `evidence-${i}`;
-                    return (
-                      <motion.li
-                        key={key}
-                        initial={reduce ? false : { opacity: 0, y: 16 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.35 }}
-                        className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10"
-                      >
-                        {image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={image} alt="" className="aspect-video w-full object-cover" loading="lazy" />
-                        ) : null}
-                        <div className="p-4">
-                          <Badge tone={note.tone}>{note.label}</Badge>
-                          <p className="mt-2 line-clamp-2 text-sm font-medium">{title ?? "Untitled result"}</p>
-                          {domain ? <p className="mt-1 text-xs text-white/55">{domain}</p> : null}
-                        </div>
-                      </motion.li>
-                    );
-                  })}
-                </ul>
-              </>
-            )}
           </section>
         </div>
       </main>

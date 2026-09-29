@@ -76,7 +76,9 @@ export function getMetrics(result: JsonRecord | null): ResultMetrics {
     num(metrics, "sourceDomains") ?? num(result, "sourceDomains") ?? num(result, "sourceDomainCount");
 
   let observedContexts: ResultMetrics["observedContexts"] = null;
-  const rawContexts = metrics?.["observedContexts"] ?? result["observedContexts"];
+  // `contextSegmentCount` is the contract field; null means unresolved.
+  const rawContexts =
+    metrics?.["observedContexts"] ?? result["observedContexts"] ?? result["contextSegmentCount"];
   if (typeof rawContexts === "number" && Number.isFinite(rawContexts)) {
     observedContexts = rawContexts;
   } else if (typeof rawContexts === "string" && /unresolv/i.test(rawContexts)) {
@@ -86,11 +88,15 @@ export function getMetrics(result: JsonRecord | null): ResultMetrics {
     observedContexts = "unresolved";
   }
 
+  // The contract exposes `earliestObservedOccurrence` as an ISO date string;
+  // wrap it so date selectors render it like any occurrence date.
+  const earliestString =
+    str(result, "earliestObservedOccurrence") ?? str(metrics, "earliestObservedOccurrence");
   const earliest =
     rec(metrics, "earliestObserved") ??
     rec(result, "earliestObserved") ??
     rec(result, "earliest") ??
-    null;
+    (earliestString !== null ? ({ date: earliestString } satisfies JsonRecord) : null);
 
   return { sourceDomains, observedContexts, earliest };
 }
@@ -102,13 +108,25 @@ export interface Takeaway {
   evidenceIds: string[];
 }
 
+/** §33 — fixed copy per deterministic takeaway code. */
+export const TAKEAWAY_COPY: Record<string, string> = {
+  temporal_conflict:
+    "Matching media was found before the date asserted in the claim.",
+  location_conflict:
+    "Matching media is associated with a different location in retrieved evidence.",
+  historical_reuse:
+    "Retrieved sources show this media being used historically before the submitted claim.",
+  no_current_media_corroboration:
+    "No qualifying current media corroboration was found for the submitted claim.",
+};
+
 export function getTakeaways(result: JsonRecord | null): Takeaway[] {
   if (!result) return [];
   const raw = arr(result, "takeaways") ?? arr(rec(result, "summary"), "takeaways") ?? [];
   return raw.slice(0, 3).flatMap((item) => {
     const r = asRecord(item);
     if (!r) return [];
-    const text = str(r, "text");
+    const text = str(r, "text") ?? (str(r, "code") ? (TAKEAWAY_COPY[str(r, "code")!] ?? null) : null);
     if (!text) return [];
     const ids = arr(r, "evidenceIds") ?? arr(r, "evidence") ?? [];
     return [
@@ -122,10 +140,33 @@ export function getTakeaways(result: JsonRecord | null): Takeaway[] {
 
 /* ---------------- limitations (spec 3.8 "Evidence limits") ---------------- */
 
+/** §3.8 / §29 — fixed copy for deterministic limitation codes. */
+export const LIMITATION_COPY: Record<string, string> = {
+  exact_match_retrieval_unavailable: "Exact-match retrieval was unavailable.",
+  no_exact_occurrences_returned: "No exact occurrences were returned.",
+  web_context_unavailable: "Web context search was unavailable.",
+  news_unavailable: "News search was unavailable.",
+  about_this_image_unavailable: "About This Image context was unavailable.",
+  semantic_classification_unavailable: "Semantic evidence classification was unavailable.",
+  semantic_classification_partial: "Semantic classification failed for some evidence.",
+  reporting_origins_unresolved: "Reporting origins are unresolved for some evidence.",
+  unverified_visual_leads_present: "Unverified visual leads are shown as leads only.",
+  near_match_verifier_disabled: "Near-match verification is disabled; hash-only matches stay visual leads.",
+  page_fetch_partial_failure: "Some source pages could not be fetched.",
+  analysis_time_limit_reached: "Analysis stopped at the investigation's time limit; findings use the evidence retained before the cutoff.",
+  insufficient_dated_occurrences: "Fewer than two dated core occurrences were found.",
+  comparison_coverage_incomplete: "Context comparison coverage was incomplete.",
+  claim_date_unresolved: "No usable date was found in the claim.",
+  disputed_dates_present: "Some evidence has disputed dates.",
+  unknown_dates_present: "Some evidence has unknown dates.",
+};
+
 export function getLimitations(result: JsonRecord | null): string[] {
   if (!result) return [];
   const raw = arr(result, "limitations") ?? arr(result, "evidenceLimits") ?? arr(rec(result, "summary"), "limitations") ?? [];
-  return raw.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return raw
+    .filter((item): item is string => typeof item === "string" && item.length > 0)
+    .map((item) => LIMITATION_COPY[item] ?? item);
 }
 
 /* ---------------- timeline occurrences (spec 3.11) ---------------- */
@@ -133,9 +174,23 @@ export function getLimitations(result: JsonRecord | null): string[] {
 export function getTimeline(result: JsonRecord | null): { dated: JsonRecord[]; unknownDate: JsonRecord[] } {
   const empty = { dated: [] as JsonRecord[], unknownDate: [] as JsonRecord[] };
   if (!result) return empty;
-  const timeline = rec(result, "timeline") ?? rec(result, "provenance");
-  const datedRaw = (timeline ? arr(timeline, "dated") ?? arr(timeline, "occurrences") : null) ?? arr(result, "occurrences") ?? [];
-  const unknownRaw = (timeline ? arr(timeline, "unknownDate") ?? arr(timeline, "dateUnknown") : null) ?? arr(result, "unknownDateEvidence") ?? [];
+  // Contract shape: `timeline` is a TimelineItem[]; `undatedEvidence` holds
+  // the rest. Older/alternate shapes ({timeline:{dated}}, `occurrences`)
+  // stay tolerated.
+  const timelineValue = result["timeline"];
+  const timelineObj = asRecord(timelineValue);
+  const timelineArr = Array.isArray(timelineValue) ? timelineValue : null;
+  const datedRaw =
+    timelineArr ??
+    (timelineObj ? arr(timelineObj, "dated") ?? arr(timelineObj, "occurrences") : null) ??
+    arr(rec(result, "provenance"), "dated") ??
+    arr(result, "occurrences") ??
+    [];
+  const unknownRaw =
+    arr(result, "undatedEvidence") ??
+    (timelineObj ? arr(timelineObj, "unknownDate") ?? arr(timelineObj, "dateUnknown") : null) ??
+    arr(result, "unknownDateEvidence") ??
+    [];
 
   const clean = (items: typeof datedRaw) =>
     items.map((i) => asRecord(i)).filter((i): i is JsonRecord => i !== null);
@@ -144,11 +199,11 @@ export function getTimeline(result: JsonRecord | null): { dated: JsonRecord[]; u
 }
 
 export function occurrenceId(o: JsonRecord, fallback: string): string {
-  return str(o, "id") ?? fallback;
+  return str(o, "id") ?? str(o, "occurrenceId") ?? fallback;
 }
 
 export function occurrenceDate(o: JsonRecord): string | null {
-  return str(o, "date") ?? str(o, "publishedDate") ?? str(o, "observedDate");
+  return str(o, "date") ?? str(o, "observedAt") ?? str(o, "publishedDate") ?? str(o, "observedDate");
 }
 
 export function occurrenceDatePrecision(o: JsonRecord): string | null {
@@ -156,7 +211,23 @@ export function occurrenceDatePrecision(o: JsonRecord): string | null {
 }
 
 export function occurrenceDateSource(o: JsonRecord): string | null {
-  return str(o, "dateSource") ?? str(o, "publicationDateSource");
+  const raw = str(o, "dateSource") ?? str(o, "publicationDateSource") ?? str(o, "publishedAtSource");
+  if (raw === null) return null;
+  const labels: Record<string, string> = {
+    page_json_ld: "Page structured data (JSON-LD)",
+    page_meta: "Page metadata",
+    page_time: "Page time element",
+    serpapi: "Search result metadata",
+  };
+  return labels[raw] ?? raw;
+}
+
+/** Numeric result position as displayable text. */
+export function occurrencePosition(o: JsonRecord): string | null {
+  const s = str(o, "position") ?? str(o, "resultPosition");
+  if (s !== null) return s;
+  const n = num(o, "serpPosition") ?? num(o, "position");
+  return n !== null ? String(n) : null;
 }
 
 export function occurrenceExcerpt(o: JsonRecord): { text: string | null; source: string | null } {

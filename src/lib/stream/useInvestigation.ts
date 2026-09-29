@@ -93,6 +93,56 @@ const INITIAL_SNAPSHOT: InvestigationSnapshot = {
 
 const RESULT_CACHE_KEY = "contexttrail.latest-result";
 
+/** Sentinel abort reason distinguishing the client watchdog from an
+ *  explicit user cancellation — the caught stream error does not reliably
+ *  preserve it (native body cancellation surfaces a bare AbortError). */
+const WATCHDOG_REASON = "watchdog";
+
+/**
+ * Reduce an aborted/failed stream read to the honest failure state
+ * (spec §4.8, §29). Classification reads the owned controller's abort
+ * *reason*, never the thrown error's message: watchdog → timed_out
+ * (failed, partial evidence preserved); user abort → cancelled; a
+ * non-aborted transport failure → failed, with copy that distinguishes
+ * interruption after evidence from failure before any arrived.
+ */
+export function classifyStreamFailure(
+  snapshot: InvestigationSnapshot,
+  signal: AbortSignal,
+): InvestigationSnapshot {
+  if (snapshot.phase !== "streaming" && snapshot.phase !== "preparing") {
+    return snapshot;
+  }
+  const partial = snapshot.evidence.length > 0;
+  if (signal.aborted) {
+    const timedOut =
+      signal.reason instanceof Error && signal.reason.message === WATCHDOG_REASON;
+    return {
+      ...snapshot,
+      phase: timedOut ? "failed" : "cancelled",
+      error: timedOut
+        ? {
+            code: "timed_out",
+            message:
+              "The investigation timed out waiting for the service. Partial evidence, if any, is shown below.",
+            partial,
+          }
+        : snapshot.error,
+    };
+  }
+  return {
+    ...snapshot,
+    phase: "failed",
+    error: {
+      code: "network_error",
+      message: partial
+        ? "The connection to the investigation service was interrupted. The evidence retrieved so far is shown below."
+        : "Could not reach the investigation service. Check your connection and try again — no evidence was retrieved.",
+      partial,
+    },
+  };
+}
+
 function stageLabel(name: string): string {
   return STAGE_LABELS[name] ?? name;
 }
@@ -105,11 +155,14 @@ function orderStages(stages: StageState[]): StageState[] {
   return [...stages].sort((a, b) => rank(a.name) - rank(b.name));
 }
 
-function applyEvent(snapshot: InvestigationSnapshot, event: InvestigationEvent): InvestigationSnapshot {
+/** Exported for focused reducer tests. */
+export function applyEvent(snapshot: InvestigationSnapshot, event: InvestigationEvent): InvestigationSnapshot {
   switch (event.type) {
     case "investigation.started": {
       const id = typeof event.investigationId === "string" ? event.investigationId : null;
-      return { ...snapshot, investigationId: id };
+      // A snapshot belongs to one investigation: a later "started" event may
+      // fill an unset id but never relabel an adopted one.
+      return { ...snapshot, investigationId: snapshot.investigationId ?? id };
     }
     case "stage.started": {
       const name = String(event.stage);
@@ -140,6 +193,15 @@ function applyEvent(snapshot: InvestigationSnapshot, event: InvestigationEvent):
     case "evidence.discovered": {
       const evidence = asRecord(event.evidence);
       if (!evidence) return snapshot;
+      // One entry per evidence id — a repeated discovery enriches the
+      // existing row rather than duplicating it (unique React keys).
+      const id = str(evidence, "id");
+      if (id !== null && snapshot.evidence.some((e) => str(e, "id") === id)) {
+        return {
+          ...snapshot,
+          evidence: snapshot.evidence.map((e) => (str(e, "id") === id ? { ...e, ...evidence } : e)),
+        };
+      }
       return { ...snapshot, evidence: [...snapshot.evidence, evidence] };
     }
     case "evidence.classified": {
@@ -268,17 +330,26 @@ export function useInvestigation() {
       clearWatchdog();
       const controller = new AbortController();
       abortRef.current = controller;
+      // This async body outlives its own run: cancel, reset, or a later
+      // start supersedes it while a read is still pending. Ownership is the
+      // controller token — every write to the shared snapshot and watchdog
+      // below is gated on it so a stale stream cannot touch its successor.
+      const ownsRun = () => abortRef.current === controller;
 
       setSnapshot({ ...INITIAL_SNAPSHOT, phase: "preparing" });
-      watchdogRef.current = setTimeout(() => controller.abort(new Error("watchdog")), STREAM_WATCHDOG_MS);
+      watchdogRef.current = setTimeout(() => controller.abort(new Error(WATCHDOG_REASON)), STREAM_WATCHDOG_MS);
 
       const fail = (code: string, message: string, partial = false) => {
+        if (!ownsRun()) return;
         clearWatchdog();
-        setSnapshot((prev) => ({
-          ...prev,
-          phase: prev.phase === "cancelled" ? prev.phase : "failed",
-          error: { code, message, partial: partial || prev.evidence.length > 0 },
-        }));
+        setSnapshot((prev) => {
+          if (!ownsRun()) return prev;
+          return {
+            ...prev,
+            phase: prev.phase === "cancelled" ? prev.phase : "failed",
+            error: { code, message, partial: partial || prev.evidence.length > 0 },
+          };
+        });
       };
 
       try {
@@ -326,57 +397,42 @@ export function useInvestigation() {
         }
 
         for await (const event of readNdjsonStream(response.body, controller.signal)) {
+          if (!ownsRun()) break;
           setSnapshot((prev) => {
-            if (prev.phase !== "streaming") return prev;
+            if (prev.phase !== "streaming" || !ownsRun()) return prev;
             return applyEvent(prev, event);
           });
         }
 
-        clearWatchdog();
-        setSnapshot((prev) => {
-          if (prev.phase !== "streaming") return prev;
-          // Stream ended without a terminal event: honest failure, keep evidence.
-          if (prev.error) return { ...prev, phase: "failed" };
-          if (!prev.result) {
-            return {
-              ...prev,
-              phase: "failed",
-              error: {
-                code: "stream_terminated",
-                message:
-                  "The investigation stream ended before a result arrived. Whatever evidence arrived is shown below; nothing was fabricated to fill the gap.",
-                partial: prev.evidence.length > 0,
-              },
-            };
-          }
-          return prev;
-        });
-      } catch (err) {
-        if (controller.signal.aborted) {
+        if (ownsRun()) {
+          clearWatchdog();
+          setSnapshot((prev) => {
+            if (prev.phase !== "streaming" || !ownsRun()) return prev;
+            // Stream ended without a terminal event: honest failure, keep evidence.
+            if (prev.error) return { ...prev, phase: "failed" };
+            if (!prev.result) {
+              return {
+                ...prev,
+                phase: "failed",
+                error: {
+                  code: "stream_terminated",
+                  message:
+                    "The investigation stream ended before a result arrived. Whatever evidence arrived is shown below; nothing was fabricated to fill the gap.",
+                  partial: prev.evidence.length > 0,
+                },
+              };
+            }
+            return prev;
+          });
+        }
+      } catch {
+        if (ownsRun()) {
           clearWatchdog();
           setSnapshot((prev) =>
-            prev.phase === "streaming" || prev.phase === "preparing"
-              ? {
-                  ...prev,
-                  phase: err instanceof Error && err.message === "watchdog" ? "failed" : "cancelled",
-                  error:
-                    err instanceof Error && err.message === "watchdog"
-                      ? {
-                          code: "timed_out",
-                          message:
-                            "The investigation timed out waiting for the service. Partial evidence, if any, is shown below.",
-                          partial: prev.evidence.length > 0,
-                        }
-                      : prev.error,
-                }
-              : prev,
+            ownsRun() ? classifyStreamFailure(prev, controller.signal) : prev,
           );
-          return;
         }
-        fail(
-          "network_error",
-          "Could not reach the investigation service. Check your connection and try again — no evidence was retrieved.",
-        );
+        return;
       }
     },
     [clearWatchdog],

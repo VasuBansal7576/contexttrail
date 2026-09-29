@@ -1,0 +1,1562 @@
+{
+ "mapFile": "fixtures/a8-expected-case-map.json",
+ "mapSha256": "6721d89b33f01157baedc7aaf99e8dc3f56c8b9d6b5ea3703d5a4019c9455b48",
+ "acceptedAppPin": "7b18c16f953aeed397030f51b5239f8d51fee2a5",
+ "fixtureSubsetPin": "26528b6ee6345c019f016e909d4d17490c3db7eb",
+ "releaseSeal": "f5435095b89132ea2ce3120b2de42311677267d8f7bbe41e38052a93077600a0",
+ "runner": "cli/control-contexttrail.mjs",
+ "recipes": [
+  {
+   "caseId": "a8-controlled-conflict",
+   "fixture": "controlled-conflict",
+   "fixtureSha256": "c1d26b2b5203541367827ba2efc342b3feb863f3ac6e5a2c024b39a561c1252b",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "A controlled claim used to drive a corroborated context conflict.",
+   "expectedStatus": "CONTEXT_CONFLICT",
+   "streamSha256": "c1d26b2b5203541367827ba2efc342b3feb863f3ac6e5a2c024b39a561c1252b",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-conflict",
+      "--view",
+      "overview",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated context conflict."
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-conflict",
+      "--view",
+      "timeline",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated context conflict."
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-conflict",
+      "--view",
+      "sources",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated context conflict."
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-conflict",
+      "--view",
+      "analysis",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated context conflict."
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-conflict",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated context conflict."
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id",
+    "--claim-text"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-no-conflict",
+   "fixture": "controlled-no-conflict",
+   "fixtureSha256": "298a866c1e27eb9b432de935e0184ed3e3a752ddfd2b9cfb1a7eb009d1634e75",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "A controlled claim used to drive a corroborated no-conflict result.",
+   "expectedStatus": "NO_CONFLICT_FOUND",
+   "streamSha256": "298a866c1e27eb9b432de935e0184ed3e3a752ddfd2b9cfb1a7eb009d1634e75",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-no-conflict",
+      "--view",
+      "overview",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated no-conflict result."
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-no-conflict",
+      "--view",
+      "timeline",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated no-conflict result."
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-no-conflict",
+      "--view",
+      "sources",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated no-conflict result."
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-no-conflict",
+      "--view",
+      "analysis",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated no-conflict result."
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-no-conflict",
+      "--claim-text",
+      "A controlled claim used to drive a corroborated no-conflict result."
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id",
+    "--claim-text"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-claim",
+   "fixture": "controlled-claim",
+   "fixtureSha256": "6252d62e4db466e08b50c99a2c0ecf66bf43c7a289fd46f0e109accaa4381c73",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "expectedStatus": "POSSIBLE_CONTEXT_CONFLICT",
+   "streamSha256": "6252d62e4db466e08b50c99a2c0ecf66bf43c7a289fd46f0e109accaa4381c73",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-claim",
+      "--view",
+      "overview",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-claim",
+      "--view",
+      "timeline",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-claim",
+      "--view",
+      "sources",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-claim",
+      "--view",
+      "analysis",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-claim",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id",
+    "--claim-text"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-insufficient",
+   "fixture": "controlled-insufficient",
+   "fixtureSha256": "31d9b756a67fe327ba79148b966f11ddae4a1d1e7f314f44cba8f5750637a752",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "expectedStatus": "INSUFFICIENT_EVIDENCE",
+   "streamSha256": "31d9b756a67fe327ba79148b966f11ddae4a1d1e7f314f44cba8f5750637a752",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline-empty-state",
+    "Sources"
+   ],
+   "negativeFamily": "F3",
+   "negativeRole": "REUSE-zero-selection-empty-state",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-insufficient",
+      "--view",
+      "overview",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-insufficient",
+      "--view",
+      "timeline",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-insufficient",
+      "--view",
+      "sources",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-insufficient",
+      "--view",
+      "analysis",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id",
+    "--claim-text"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-pair",
+   "fixture": "controlled-pair",
+   "fixtureSha256": "0b3e6684712b58551ac0289d330b5e57bb810392507f3f7eb1aec3cdc59b66a0",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "expectedStatus": "POSSIBLE_CONTEXT_CONFLICT",
+   "streamSha256": "0b3e6684712b58551ac0289d330b5e57bb810392507f3f7eb1aec3cdc59b66a0",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F5",
+   "negativeRole": "OWNER",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-pair",
+      "--view",
+      "overview",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-pair",
+      "--view",
+      "timeline",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-pair",
+      "--view",
+      "sources",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-pair",
+      "--view",
+      "analysis",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-pair",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id",
+    "--claim-text"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-viewer",
+   "fixture": "controlled-viewer",
+   "fixtureSha256": "44fef83aceef0112d00a262942f84d3bd255d300f129146a4e71c3ddadd47b43",
+   "entryTier": 1,
+   "entryMode": "claim_check",
+   "claimSubmitted": "This controlled claim describes a fictional event today.",
+   "expectedStatus": "POSSIBLE_CONTEXT_CONFLICT",
+   "streamSha256": "44fef83aceef0112d00a262942f84d3bd255d300f129146a4e71c3ddadd47b43",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-viewer",
+      "--view",
+      "overview",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-viewer",
+      "--view",
+      "timeline",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-viewer",
+      "--view",
+      "sources",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-viewer",
+      "--view",
+      "analysis",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-viewer",
+      "--claim-text",
+      "This controlled claim describes a fictional event today."
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id",
+    "--claim-text"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-strong",
+   "fixture": "controlled-trace-strong",
+   "fixtureSha256": "83b8b024961721b932e3a6b69ff4e015e07857b11f7818d7a1b24a0dafaabffe",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "83b8b024961721b932e3a6b69ff4e015e07857b11f7818d7a1b24a0dafaabffe",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-strong",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-strong",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-strong",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-strong",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-strong"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-limited",
+   "fixture": "controlled-trace-limited",
+   "fixtureSha256": "5268ee04305b2c03a8f32671c11a78844c27231e9baac34bbff0a2574f8976ae",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "5268ee04305b2c03a8f32671c11a78844c27231e9baac34bbff0a2574f8976ae",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-limited",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-limited",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-limited",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-limited",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-limited"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-no-dated",
+   "fixture": "controlled-trace-no-dated",
+   "fixtureSha256": "7be32b34e3d8f720b54fb4b9016cfaa8359ee8a304f35af527b38dfc9a1fc92d",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "7be32b34e3d8f720b54fb4b9016cfaa8359ee8a304f35af527b38dfc9a1fc92d",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline-empty-state",
+    "Sources"
+   ],
+   "negativeFamily": "F3",
+   "negativeRole": "REUSE-zero-selection-empty-state",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-no-dated",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-no-dated",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-no-dated",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-no-dated",
+      "--view",
+      "analysis"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-divergent",
+   "fixture": "controlled-trace-divergent",
+   "fixtureSha256": "737790850d83cf886b93139c68fbe5c05f820813a15d26aa070498b1ce4a47d3",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "737790850d83cf886b93139c68fbe5c05f820813a15d26aa070498b1ce4a47d3",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F5",
+   "negativeRole": "OWNER",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-divergent",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-divergent",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-divergent",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-divergent",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-divergent"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-uncertain-transition",
+   "fixture": "controlled-trace-uncertain-transition",
+   "fixtureSha256": "14a6b3ddb87b9632932c297b3d46bbb6fdfe4f35f6025037c8e6071fb50662e0",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "14a6b3ddb87b9632932c297b3d46bbb6fdfe4f35f6025037c8e6071fb50662e0",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F2",
+   "negativeRole": "OWNER",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-uncertain-transition",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-uncertain-transition",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-uncertain-transition",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-uncertain-transition",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-uncertain-transition"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-dated-core-merged",
+   "fixture": "controlled-trace-dated-core-merged",
+   "fixtureSha256": "40eba8124a849cc5a9646daa50acdb6fc7fc45ea8761d659de0386a539ffb62c",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "40eba8124a849cc5a9646daa50acdb6fc7fc45ea8761d659de0386a539ffb62c",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-merged",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-merged",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-merged",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-merged",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-dated-core-merged"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-dated-core-ceiling",
+   "fixture": "controlled-trace-dated-core-ceiling",
+   "fixtureSha256": "3683df29d41268099d5d23feba315734437cfe178d7c67e04578b831a49588d0",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "3683df29d41268099d5d23feba315734437cfe178d7c67e04578b831a49588d0",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "none",
+   "negativeRole": "READ-ONLY",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-ceiling",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-ceiling",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-ceiling",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-dated-core-ceiling",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-dated-core-ceiling"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-coverage-gap",
+   "fixture": "controlled-trace-coverage-gap",
+   "fixtureSha256": "370291d61ee0944f578c16f0dab3ca79a1cd7b034e7cfdd7f2b878f1ea5155fd",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "370291d61ee0944f578c16f0dab3ca79a1cd7b034e7cfdd7f2b878f1ea5155fd",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F3",
+   "negativeRole": "OWNER",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-coverage-gap",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-coverage-gap",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-coverage-gap",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-coverage-gap",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-coverage-gap"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace-unresolved-origin",
+   "fixture": "controlled-trace-unresolved-origin",
+   "fixtureSha256": "3914b0ab9e47f579c2bcceece982697215d8fab51df2d824a97597a95426dd8e",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "3914b0ab9e47f579c2bcceece982697215d8fab51df2d824a97597a95426dd8e",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F4b",
+   "negativeRole": "OWNER-unresolved-list",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-unresolved-origin",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-unresolved-origin",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-unresolved-origin",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace-unresolved-origin",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace-unresolved-origin"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-placement-disputed-vs-unknown",
+   "fixture": "controlled-placement-disputed-vs-unknown",
+   "fixtureSha256": "6fefb484a78510ab432dd7e792e64c0db222fe946ddc5015a2d686ff2adfcd78",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "6fefb484a78510ab432dd7e792e64c0db222fe946ddc5015a2d686ff2adfcd78",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F1",
+   "negativeRole": "OWNER",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-placement-disputed-vs-unknown",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-placement-disputed-vs-unknown",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-placement-disputed-vs-unknown",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-placement-disputed-vs-unknown",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-placement-disputed-vs-unknown"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  },
+  {
+   "caseId": "a8-controlled-trace",
+   "fixture": "controlled-trace",
+   "fixtureSha256": "4525793a0ec0697efdc877a947e0be182a3f36c05fd33466b5ea930b9f0c6186",
+   "entryTier": 1,
+   "entryMode": "trace",
+   "claimSubmitted": null,
+   "expectedStatus": null,
+   "streamSha256": "4525793a0ec0697efdc877a947e0be182a3f36c05fd33466b5ea930b9f0c6186",
+   "views": [
+    "Overview",
+    "Analysis",
+    "Timeline",
+    "Sources",
+    "viewer:Inspect evidence (dated timeline occurrences only)"
+   ],
+   "negativeFamily": "F4a",
+   "negativeRole": "OWNER-shared-group",
+   "commands": [
+    {
+     "purpose": "result view overview",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace",
+      "--view",
+      "overview"
+     ]
+    },
+    {
+     "purpose": "result view timeline",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace",
+      "--view",
+      "timeline"
+     ]
+    },
+    {
+     "purpose": "result view sources",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace",
+      "--view",
+      "sources"
+     ]
+    },
+    {
+     "purpose": "result view analysis",
+     "args": [
+      "drive",
+      "result",
+      "--run-id",
+      "<run-id>",
+      "--case",
+      "controlled-trace",
+      "--view",
+      "analysis"
+     ]
+    },
+    {
+     "purpose": "viewer Inspect evidence (dated timeline occurrences)",
+     "args": [
+      "drive",
+      "viewer",
+      "--run-id",
+      "<run-id>",
+      "--entry",
+      "timeline",
+      "--case",
+      "controlled-trace"
+     ]
+    }
+   ],
+   "requiredFlags": [
+    "--run-id"
+   ]
+  }
+ ],
+ "runnerSha256": "70ece745de5642594f9396cdf699dc2cf61acf17ff1d6a3a3789b65e8642bb48",
+ "recipeDigest": "f835830eeaea7a0da95f05cb3abeb0273f916e0a2fb96db8ac3ce1420fd106ba",
+ "note": "recipeDigest covers {mapFile,mapSha256,acceptedAppPin,fixtureSubsetPin,releaseSeal,runner,recipes} only; runnerSha256 is recorded evidence, not a digest input"
+}

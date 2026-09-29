@@ -1,0 +1,44 @@
+[
+  {
+    "name": "review-absent",
+    "derivedFrom": "controlled-insufficient",
+    "mutation": "delete comparisonCoverage",
+    "sha256": "6f3b6219f331bf889027d4e8087259e445675a2d823afdcea448cdc9a1aae5c7"
+  },
+  {
+    "name": "review-absent-phantom",
+    "derivedFrom": "controlled-insufficient",
+    "mutation": "delete comparisonCoverage; insert phantom performed pair",
+    "sha256": "4cc836ef8e0a878f5ea1672c96c01ad2661e052c0bf5359e368872ed3656f377"
+  },
+  {
+    "name": "review-present-pairs",
+    "derivedFrom": "controlled-pair",
+    "mutation": "add performed comparisons with real displayed endpoints; no distributions",
+    "sha256": "57b3be9bc0ae0c55b3f67ee2fdfc9be3cc5e0ef6a52a80ed2a4c7b17fab2b65b"
+  },
+  {
+    "name": "review-empty-real-pairs",
+    "derivedFrom": "review-present-pairs",
+    "mutation": "coverage says none eligible/selected/compared, but performed pairs remain",
+    "sha256": "eae0efa69ee05fe81ac4ed501b0d5fe1d1fdfa84d9ae520042c76df84a65825e"
+  },
+  {
+    "name": "review-impossible-adjacency",
+    "derivedFrom": "controlled-pair",
+    "mutation": "two selected occurrences but two compared pairs",
+    "sha256": "bd46257148373e8a78874b67e18818758baf26aa1137da27d5ec68543671d557"
+  },
+  {
+    "name": "review-contrary-count",
+    "derivedFrom": "controlled-insufficient",
+    "mutation": "two comparisons with zero selected/eligible",
+    "sha256": "3fe8e0bf9f731bcfd2fb0bd07d6bc6addd41585ab1fc0ea4520b51a55b668e1a"
+  },
+  {
+    "name": "review-current-pairs",
+    "derivedFrom": "actual ea1b production orchestrator via generate.ts controlled transports",
+    "mutation": "none; real additive distributions and comparison fields",
+    "sha256": "97848fe844adcf5b8cd0c09ab72505da2d8aff81647fad87d06e9b24c814547a"
+  }
+]
