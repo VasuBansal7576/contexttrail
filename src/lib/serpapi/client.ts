@@ -25,8 +25,8 @@ export const SERPAPI_SEARCH_URL = "https://serpapi.com/search.json";
 export const SERPAPI_IMAGE_UPLOAD_URL = "https://serpapi.com/image";
 
 /** SerpApi JSON responses are bounded defensively. */
-const SEARCH_MAX_BYTES = 4 * 1024 * 1024;
-const UPLOAD_MAX_BYTES = 64 * 1024;
+export const SEARCH_MAX_BYTES = 4 * 1024 * 1024;
+export const UPLOAD_MAX_BYTES = 64 * 1024;
 
 export type SerpapiParams = Record<string, string>;
 

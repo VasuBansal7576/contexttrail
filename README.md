@@ -45,38 +45,25 @@ observed evidence relationships and states its limits next to its conclusions.
 
 ## Status
 
-This is a working live vertical slice — real upload, real SerpApi retrieval, bounded
-classification, streamed progress, and a result you can inspect down to individual sources.
-It is not finished.
+The image-investigation core was merged in [PR #1](https://github.com/VasuBansal7576/contexttrail/pull/1)
+on September 29, 2026. The integrated public source is `main` commit
+`6976173ecab12ec4bcef4f6d7c910957ffe10e0a`.
 
-An independent audit of the integration returned **NO-GO** against the project's own
-definition of done: **18 findings (8 P1, 10 P2, no P0)**, and grouped PRD coverage of
-**23 PASS / 61 PARTIAL / 26 FAIL / 4 NOT VERIFIED** across 114 requirement rows. The
-central promise — a reliable, inspectable history of the *same* image with defensible context
-changes — has **not yet been demonstrated on a strong live case**. Several evidence-integrity
-defects were reproduced with controlled inputs.
+A fresh offline check of that exact commit on September 30 passed **692 tests across
+27 files**, with **17 intentionally gated fixture-generation tests skipped**. Earlier
+143/161/228-test totals in the historical reports belong to older revisions. They are not
+current totals. Run the commands below for the revision you are using.
 
-What does pass today — **unit and contract checks only**:
+The central release gate remains open: a strong live image-history case and a strong live
+claim conflict have not yet been demonstrated by the retained evidence. Historical live
+runs returned limited history or insufficient evidence. Those are valid conservative results,
+but they do not prove the flagship context-change workflow.
 
-| Check | Command | Result |
-| --- | --- | --- |
-| Unit / contract tests | `npm test` | Green and fully offline — no external API calls. Independently re-run: **baseline 143 passed / 20 files**; **backend repair head 161 passed + 2 skipped / 22 files (163 collected)**. |
-| Types | `npm run typecheck` | clean (`tsc --noEmit`) at both heads |
-| Production build | `npm run build` | succeeds at both heads |
-
-Those numbers are *not* acceptance. They do not include integrated browser verification, and
-they do not include any gated live run. Those are separate gates, listed in
-[`docs/release.md`](docs/release.md).
-
-**Which revision these docs describe:** the release candidate — the audited baseline plus the
-backend repair head. Behavior statements below are written against that candidate; where a
-number differs between the two heads, both are given above so nothing is silently rounded up.
-If your checkout predates the repair, expect the baseline counts.
-
-Backend repairs for the evidence-integrity findings (F01–F03, F05–F11) have landed, and the
-regression gates that were written to *reproduce* those defects now pass. That is repair
-progress, **not** release acceptance: only four of the nine verification-map drives exist, and
-the remaining findings, the strong live milestone cases and deployment are all still open.
+The repository includes all nine mapped verification areas, controlled browser fixtures,
+and detailed evidence-policy tests. Fresh browser verification, live-provider acceptance,
+demo capture and deployment are separate gates. **A passing fixture or build does not prove
+live provenance accuracy.** See [the release checklist](docs/release.md) and
+[the latest work index](https://github.com/VasuBansal7576/contexttrail/issues/2).
 
 ---
 
@@ -98,8 +85,12 @@ the remaining findings, the strong live milestone cases and deployment are all s
 npm ci
 ```
 
-Then create `.env.local` in the repository root (this file is gitignored via the `.env*.local`
-rule — never commit it):
+For a keyless preview, no provider configuration is needed. Live use is disabled by default.
+Before any live setup, read [live usage and zero-budget operation](docs/live-usage.md).
+Keys alone do not enable live investigations.
+
+Only after the free-allocation and persistent-storage checks are satisfied, place authorized
+server credentials in `.env.local` (gitignored; never commit it):
 
 ```bash
 # .env.local — server-only. Never prefix any of these with NEXT_PUBLIC_.
@@ -120,8 +111,9 @@ screenshots, recordings or bug reports. Leave the two key values as placeholders
 are about to run a live investigation.
 
 If `.env.local` is absent or a key is empty, the app still runs — the investigation ends in an
-honest configuration failure (`SERPAPI_API_KEY is not configured`) instead of falling back to
-fixtures, and no search request is dispatched.
+honest disabled/configuration failure instead of falling back to fixtures, and no provider
+request is dispatched. Live admission rejects before an investigation starts when the gate
+is disabled or its configuration is unavailable.
 
 ---
 
@@ -204,19 +196,18 @@ npm run typecheck  # tsc --noEmit
 npm run build      # production build
 ```
 
-Browser walkthroughs are also zero-credit when `.env.local` is absent: with no
-`SERPAPI_API_KEY` the server reports an honest configuration failure before any search is
-dispatched, so you can exercise upload, validation, streaming, error recovery and layout
-without spending anything. The verification harness's normal (non-`--live`) drives are
-zero-credit for the same reason.
+Browser walkthroughs are zero-credit with live mode disabled. You can exercise upload,
+validation and error recovery without contacting providers. Controlled public-contract
+fixtures cover result rendering separately and must remain labeled as controlled evidence.
 
 ### Gated live verification (spends credits)
 
 Live runs are for integration work, milestone verification, demo rehearsal and pre-submission
 checks — never for routine testing or CI.
 
-- Requires a real `.env.local`. Run **one case at a time, sequentially**, inside the budgets
-  above.
+- Requires explicit live admission and a verified free allocation, as described in
+  [live usage](docs/live-usage.md). A credential file alone is insufficient. Run **one case at
+  a time, sequentially**, inside both per-run and persistent allocation limits.
 - The credit gate is explicit in the harness: `--live` refuses to run unless `RUN_LIVE_TESTS=1`
   is set in the environment. That gate lives in the harness CLI, **not** in `npm test` — no
   test in `npm test` can reach a provider.
@@ -345,13 +336,13 @@ plain newline-delimited JSON — capture the response body to replay or diff it.
 
 ## Illustrative assets, credits and attribution
 
-- The landing hero uses **abstract placeholder motifs, not photographs**, and is labeled
-  *"Illustrative example — not retrieved evidence."* The static walkthrough below it is
-  explicitly marked illustrative, uses generic sample labels rather than real publisher names,
-  and states that it runs no investigation and implies no live API calls.
-- **No third-party photographs, publisher logos or licensed artwork are bundled in the
-  application.** The only assets the app ships are `src/app/icon.svg` and
-  `src/app/favicon.ico`.
+- The landing hero repeats `public/illustrative-earthrise.jpg`, labeled in the interface as
+  NASA's Apollo 8 Earthrise photograph, December 24, 1968. Its context cards and static
+  walkthrough are explicitly illustrative; they are not retrieved investigation evidence.
+  Source and reuse details are recorded in [asset credits](docs/assets.md).
+- The application also bundles its icon, favicon and local Instrument Serif / Geist Sans
+  font files. Review their source and license records together with the image assets before
+  redistribution. No publisher logos or customer testimonials are used as product proof.
 - **Design boards — credit: AI-generated.** `contexttrail-designs/screen-designs.png` was
   produced from `contexttrail-designs/design-prompt.txt`, which is recorded as an
   *"Initial design prompt (built-in image-generation tool)"*. The prompt itself forbids real
@@ -361,7 +352,7 @@ plain newline-delimited JSON — capture the response body to replay or diff it.
   "supplied image" the design prompt refers to as a visual reference; it carries no embedded
   credit, license or source text, and no attribution file exists for it. **Do not redistribute
   it as a project asset until its source and license are established.**
-- **No LICENSE file and no third-party asset attribution document exist in this revision.**
+- **No LICENSE file has been selected.** [Asset credits](docs/assets.md) records the image source and remaining font/reference checks.
   Any photograph, illustration or borrowed visual added later must be committed together with
   its license and attribution record — do not ship an unattributed image.
 
@@ -369,20 +360,14 @@ plain newline-delimited JSON — capture the response body to replay or diff it.
 
 ## Deployment (Vercel)
 
-The specification targets Vercel with the Node runtime, and the code already matches it:
-`src/app/api/investigate/route.ts` exports `runtime = "nodejs"` and `maxDuration = 60`.
+The original specification targets Vercel's Node runtime. The zero-budget safety gate
+currently disables live operation on Vercel and other known serverless environments because
+a local filesystem ledger cannot enforce a global persistent allowance there.
 
-To deploy your own instance:
+A keyless preview may be deployed after normal review, but it cannot prove live investigation
+utility. Do not add provider keys to an unrestricted public endpoint. Hosted live operation
+requires a reviewed shared atomic quota store and verified provider billing controls first.
+For an authorized local live demo, follow [live usage](docs/live-usage.md).
 
-1. Create a Vercel project from this repository and select the **Node** runtime (the default
-   for this Next.js app).
-2. Add the same three environment variables in the project's environment settings —
-   `SERPAPI_API_KEY`, `TYPESAFE_API_KEY`, `TYPESAFE_MODEL` — **without** `NEXT_PUBLIC_`
-   prefixes.
-3. Deploy. Client preprocessing already keeps request bodies far under the platform's payload
-   limit (≤ 450 KB processed, ≤ 500 KB upstream).
-
-This revision has **not** been deployed, and this document makes no hosting, account or
-publication promise — no login is performed and no deployment is configured here. Deployment
-is a product-acceptance goal, **not** a submission requirement; the hackathon asks for a demo
-video of the project running **locally**. See [`docs/release.md`](docs/release.md).
+No deployment is claimed. The hackathon's local-demo requirement and the remaining product
+acceptance work are recorded in [the release checklist](docs/release.md).

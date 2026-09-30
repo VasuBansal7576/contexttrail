@@ -141,7 +141,8 @@ function logProviderFailure(surface: string, err: unknown): void {
 
 /**
  * §18 — choose up to 5 pages for deep reading in the frozen order:
- * earliest dated core, strongest conflict from another domain with
+ * earliest dated core (or strongest judged undated core if none is dated),
+ * strongest conflict from another domain with
  * unresolved origin, strongest same-context/support, strongest fact-check,
  * strongest current-reporting candidate.
  */
@@ -166,9 +167,16 @@ export function selectDeepReadCandidates(
     );
 
   const datedCore = datedCoreOccurrences(candidates);
-  take(datedCore[0]);
+  // Sparse exact-match metadata often has no date. Preserve one opportunity
+  // to read that image occurrence before higher-scoring contextual pages
+  // consume the five-page cap. Selection acquires evidence; it does not
+  // change relevance, identity, dates, origins, or final-policy thresholds.
+  const coreAnchor = datedCore[0] ?? byRel(
+    coreOccurrences(candidates).filter((c) => c.judgment !== null),
+  )[0];
+  take(coreAnchor);
 
-  const firstDomain = datedCore[0]?.registrableDomain;
+  const firstDomain = coreAnchor?.registrableDomain;
   const conflicts = byRel(
     candidates.filter(
       (c) =>

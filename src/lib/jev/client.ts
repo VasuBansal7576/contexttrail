@@ -26,7 +26,7 @@ import {
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 /** §15.1 — pinned production model. Never a moving alias. */
 export const JEV_MODEL = "jev-1.13.0";
-const JEV_MAX_BYTES = 1 * 1024 * 1024;
+export const JEV_MAX_BYTES = 1 * 1024 * 1024;
 
 /**
  * Assumed number of decimal places retained in a provider probability.

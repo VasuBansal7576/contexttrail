@@ -26,6 +26,21 @@ site and Rules — confirm them there; they are deliberately not restated as fac
 
 ## 2. Where the product actually stands
 
+### September 30 source check
+
+[PR #1](https://github.com/VasuBansal7576/contexttrail/pull/1) merged September 29.
+The fresh baseline is `main` at `6976173ecab12ec4bcef4f6d7c910957ffe10e0a`:
+**692 offline tests passed, 17 gated generation tests skipped, 27 test files passed**.
+The retained location-parser failure is already repaired in this commit; the exact
+Katrina/Gulf Coast claim and its regression suite pass. The undated-core page-selection
+limitation is handled by the explicit Section 18 clarification in the PRD.
+
+The following audit and earlier test totals are historical records. They do not certify
+this revision. Live utility, complete browser coverage, final video and deployment remain
+unverified. The latest source/status index is [issue #2](https://github.com/VasuBansal7576/contexttrail/issues/2).
+
+### Historical audit
+
 An independent audit of the integration returned **NO-GO** against the project's own
 definition of done:
 
@@ -51,10 +66,10 @@ Three different things get called "tests pass". Keep them apart:
 | --- | --- | --- | --- |
 | **Baseline checks** — the audited baseline this documentation was drafted against | `npm test`, `npm run typecheck`, `npm run build` | **143 tests / 20 files**, typecheck clean, build succeeds (independently re-run) | browser behavior, live providers, any release gate |
 | **Backend repair head** — reported by the backend lane and independently re-run here | the same three commands plus the Phase 0 regression gates | **161 passed + 2 skipped / 22 files (163 collected)**, typecheck clean, build succeeds | browser behavior, live providers; backend full-suite validation still in progress |
-| **Current integration head** — this branch (`fm/ct-api-v1`) after Jev provenance wiring, the additive inspection contract and the UI cherry-picks | the same three commands plus all regression gates | **228 passed + 4 skipped / 23 files (232 collected)**, typecheck clean, build succeeds | live providers; full-suite live validation still pending |
+| **Historical integration head** — `fm/ct-api-v1` after Jev provenance wiring, the additive inspection contract and the UI cherry-picks | the same three commands plus all regression gates | **228 passed + 4 skipped / 23 files (232 collected)**, typecheck clean, build succeeds | live providers; full-suite live validation still pending |
 | **Integrated browser + gated live acceptance** | the project harness driving a built app in a real browser, then gated live runs against real providers | controlled-fixture browser pass run (`p4-002`, zero provider credit); **gated live runs not run** | live providers, strong milestone cases |
 
-Only the third tier could ever support a release claim, and it has not happened.
+Only combined current-source browser verification and genuine live acceptance can support a release claim. Neither unit counts nor historical passes close that gate.
 
 ### Current blockers
 
@@ -66,9 +81,9 @@ Only the third tier could ever support a release claim, and it has not happened.
 | **Verification harness** | All nine mapped features are executable (`landing`, `upload`, `investigation`, `result`, `viewer`, `session`, `accessibility` plus evidence/cleanup); unsupported entries/cases/views fail closed with exit 2 before browser launch. Latest controlled run: `p4-002`, 118 artifacts preserved. |
 | **Observability** | Structured sanitized success telemetry now lands per stage and at run end (`[investigate] telemetry` JSON records); failure warnings stay sanitized. |
 | **Browsers** | Chrome only. Edge, Safari, Firefox and real mobile engines are unverified. |
-| **Asset credits / licensing** | No `LICENSE` and no attribution document exist. `contexttrail-designs/screen-designs.png` is AI-generated and credited in the README; `contexttrail-designs/original-reference.png` has **no recorded provenance or license** and must not be redistributed until that is established. |
-| **Account / auth for deployment** | Vercel CLI is not installed, there is no stored Vercel login state, and this repository is not linked to a Vercel project. Deployment prerequisites are unmet — this says nothing about whether an account exists. No login is performed from this repository or this document. |
-| **Publication / merge** | The public repository exists and is seeded; product branches are still local-only and the merge into `main` is pending. |
+| **Asset credits / licensing** | No `LICENSE` has been selected. [Asset credits](assets.md) documents the NASA image and unresolved font/reference checks. `contexttrail-designs/screen-designs.png` is AI-generated and credited in the README; `contexttrail-designs/original-reference.png` has **no recorded provenance or license** and must not be redistributed until that is established. |
+| **Account / auth for deployment** | No deployed build has been verified. Account, project linking and credentials must be checked in the actual deployment environment. This document does not infer that an account is absent. |
+| **Publication / merge** | PR #1 merged into public `main` on September 29 at `6976173`. Historical lane branches are preserved. Any later local fixes require separate review and publication; no newer remote revision is claimed here. |
 
 ---
 
@@ -82,7 +97,7 @@ Only the third tier could ever support a release claim, and it has not happened.
 **Conflict, stated plainly:** the blog announcement gives **October 5, 2026, 11:59 PM IST**,
 which is earlier than the official site's Oct 10. The official site is authoritative and its
 Oct 10 date already matches the PRD, so **Oct 5 is treated as the internal freeze margin, not a
-second deadline**. Re-both-check before submitting; if the official site ever moves to Oct 5,
+second deadline**. Recheck both sources before submitting; if the official site ever moves to Oct 5,
 the freeze buffer disappears entirely.
 
 ---
