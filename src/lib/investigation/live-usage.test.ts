@@ -97,6 +97,17 @@ describe("server-only opt-in configuration", () => {
 });
 
 describe("durable whole-run admission", () => {
+  it("preserves public-image reservations across restart and refuses a second trial without resetting", async () => {
+    config.allowance = liveRunAllocation("claim", true);
+    await initialize();
+    const first = await reserveLiveRun(config, "claim", undefined, true);
+    await first.release();
+    const before = await readFile(config.ledgerPath, "utf8");
+    vi.resetModules();
+    const restarted = await import("./live-usage");
+    await expect(restarted.reserveLiveRun(config, "claim", undefined, true)).rejects.toThrow("cannot cover");
+    expect(await readFile(config.ledgerPath, "utf8")).toBe(before);
+  });
   it("offline initializer produces the exact runtime format and never resets it", async () => {
     const script = resolve("scripts/init-live-usage-ledger.mjs");
     const result = await exec(process.execPath, [script], { env });

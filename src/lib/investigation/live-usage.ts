@@ -131,6 +131,12 @@ function sameAllowance(a: LiveAllowance, b: LiveAllowance): boolean {
   return ALLOWANCE_KEYS.every((key) => a[key] === b[key]);
 }
 
+function validRunAllocation(value: unknown): value is LiveAllowance {
+  return validAllowance(value) &&
+    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true)]
+      .some((allocation) => sameAllowance(value, allocation));
+}
+
 function parseLedger(raw: string, config: LiveUsageConfig): LiveAllowance {
   if (!raw.endsWith("\n")) throw new LiveUsageError(STORAGE_ERROR);
   const lines = raw.slice(0, -1).split("\n");
@@ -147,8 +153,7 @@ function parseLedger(raw: string, config: LiveUsageConfig): LiveAllowance {
     const entry: unknown = JSON.parse(line);
     if (!isRecord(entry) || Object.keys(entry).length !== 3 || entry.type !== "reserve" ||
       typeof entry.id !== "string" || !/^[0-9a-f-]{36}$/.test(entry.id) || ids.has(entry.id) ||
-      !validAllowance(entry.allocation) ||
-      !(sameAllowance(entry.allocation, liveRunAllocation(null)) || sameAllowance(entry.allocation, liveRunAllocation("claim")))) {
+      !validRunAllocation(entry.allocation)) {
       throw new LiveUsageError(STORAGE_ERROR);
     }
     ids.add(entry.id);
