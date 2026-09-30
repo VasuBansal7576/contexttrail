@@ -4,7 +4,7 @@ import { encodeEvent, type InvestigationEvent } from "./contracts/events";
 import { runInvestigation, type RunDeps } from "./run";
 import { JevClient, JEV_MODEL } from "../jev/client";
 import { SerpapiClient } from "../serpapi/client";
-import { fetchPageHtml } from "../pages/fetch";
+import { fetchPageHtml, validatePublicImageUrl } from "../pages/fetch";
 import { LiveUsageError, readLiveUsageConfig, reserveLiveRun } from "./live-usage";
 import { isPublicImageId } from "../media/public-images";
 
@@ -24,7 +24,14 @@ export async function productionDeps(input: InvestigationInput, externalSignal?:
   if (!serpapiKey || !jevKey) {
     throw new LiveUsageError("Live investigations require server-only SerpApi and TypeSafe keys. No provider requests were made.");
   }
-  const lease = await reserveLiveRun(config, input.claim, externalSignal, input.publicImageId !== undefined);
+  if (input.publicImageId && input.publicImageUrl) throw new LiveUsageError("Choose one public image input.");
+  const lease = await reserveLiveRun(config, input.claim, externalSignal, input.publicImageId !== undefined || input.publicImageUrl !== undefined);
+  try {
+    if (input.publicImageUrl) input.publicImageUrl = await validatePublicImageUrl(input.publicImageUrl, externalSignal);
+  } catch {
+    await lease.release();
+    throw new LiveUsageError("The public image could not be safely read. Use an accessible public JPEG, PNG or WebP. No provider requests were made.");
+  }
   return {
     deps: {
       serpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor("serpapi") }),

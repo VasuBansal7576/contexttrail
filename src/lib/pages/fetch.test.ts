@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { IncomingMessage, request as httpRequest, RequestOptions } from "node:http";
 import type { LookupFunction } from "node:net";
-import { fetchPageHtml, isPublicPageAddress, type PageFetchDeps } from "./fetch";
+import { fetchPageHtml, validatePublicImageUrl, isPublicPageAddress, type PageFetchDeps } from "./fetch";
 import { pinnedPageRequest } from "./pinned-http";
 import { PAGE_FETCH_MAX_BYTES, TIMEOUTS } from "../investigation/limits";
 
@@ -11,6 +11,24 @@ const publicAnswer = { address: "93.184.216.34", family: 4 };
 const html = () => new Response("<html>public synthetic source</html>", { headers: { "content-type": "text/html" } });
 const harness = () => ({ resolve: vi.fn<NonNullable<PageFetchDeps["resolve"]>>(async () => [publicAnswer]), request: vi.fn<NonNullable<PageFetchDeps["request"]>>(async () => html()) });
 afterEach(() => vi.useRealTimers());
+
+describe("public image admission", () => {
+  it("pins public DNS and accepts a bounded supported image without upload", async () => {
+    const deps=harness();deps.request.mockResolvedValue(new Response(new Uint8Array([255,216,255]),{headers:{"content-type":"image/jpeg"}}));
+    expect(await validatePublicImageUrl("https://PUBLIC.EXAMPLE./image.jpg",undefined,deps)).toBe("https://public.example/image.jpg");
+    expect(deps.request.mock.calls[0]?.[1]).toEqual(publicAnswer);
+  });
+  it.each(["https://localhost./a.jpg","https://127.1/a.jpg","https://public.example/a.jpg?token=secret","http://public.example/a.jpg","https://public.example:8080/a.jpg"])("rejects unsafe %s before lookup",async url=>{
+    const deps=harness();await expect(validatePublicImageUrl(url,undefined,deps)).rejects.toThrow();expect(deps.request).not.toHaveBeenCalled();
+  });
+  it("rejects private DNS and private redirects without dispatching to them",async()=>{
+    const deps=harness();deps.resolve.mockResolvedValue([{address:"127.0.0.1",family:4}]);await expect(validatePublicImageUrl("https://public.example/a.jpg",undefined,deps)).rejects.toThrow();expect(deps.request).not.toHaveBeenCalled();
+    deps.resolve.mockResolvedValue([publicAnswer]);deps.request.mockResolvedValue(new Response(null,{status:302,headers:{location:"https://localhost./a.jpg"}}));await expect(validatePublicImageUrl("https://public.example/a.jpg",undefined,deps)).rejects.toThrow();expect(deps.request).toHaveBeenCalledOnce();
+  });
+  it("rejects HTML masquerading as a URL image and cancels its body",async()=>{
+    const deps=harness(),cancel=vi.fn();deps.request.mockResolvedValue(new Response(new ReadableStream({cancel}),{headers:{"content-type":"text/html"}}));await expect(validatePublicImageUrl("https://public.example/a.jpg",undefined,deps)).rejects.toThrow();expect(cancel).toHaveBeenCalledOnce();
+  });
+});
 
 describe("canonical destination validation", () => {
   it.each([

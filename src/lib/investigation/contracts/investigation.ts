@@ -458,6 +458,8 @@ export interface InvestigationInput {
   media: Uint8Array;
   /** Reviewed public-media catalogue ID; never an arbitrary remote URL. */
   publicImageId?: import("../../media/public-images").PublicImageId;
+  /** Already-public HTTPS image; server validates public DNS and every redirect. */
+  publicImageUrl?: string;
 }
 
 export function modeForInput(input: Pick<InvestigationInput, "claim">): InvestigationMode {

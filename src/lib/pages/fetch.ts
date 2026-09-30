@@ -45,7 +45,7 @@ export function isPublicPageAddress(address: string): boolean {
     : family === 6 && globalV6.check(address, "ipv6") && !blocked.check(address, "ipv6");
 }
 
-function validatedHttpUrl(raw: string): URL | null {
+export function validatedHttpUrl(raw: string): URL | null {
   let url: URL;
   try { url = new URL(raw); } catch { return null; }
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
@@ -102,10 +102,11 @@ async function resolvePublicAddress(url: URL, signal: AbortSignal, deps: PageFet
  * Fetch one page safely. Throws ProviderError (sanitized) on any failure —
  * callers treat failure as non-fatal (§29).
  */
-export async function fetchPageHtml(
+async function fetchPublicResource(
   rawUrl: string,
   signal?: AbortSignal,
   deps: PageFetchDeps = {},
+  image = false,
 ): Promise<FetchedPage> {
   let url = validatedHttpUrl(rawUrl);
   if (url === null) {
@@ -123,7 +124,7 @@ export async function fetchPageHtml(
           throw new ProviderError("http", `page fetch stopped after ${redirects} redirects`, res.status);
         }
         const next = validatedHttpUrl(new URL(loc, url).toString());
-        if (next === null) {
+        if (next === null || (image && (next.protocol !== "https:" || next.search || next.port))) {
           throw new ProviderError("malformed", "page redirect destination rejected");
         }
         url = next;
@@ -134,9 +135,9 @@ export async function fetchPageHtml(
         throw new ProviderError("http", `page fetch failed (HTTP ${res.status})`, res.status);
       }
       const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (!contentType.includes("text/html")) {
+      if (image ? !/^(image\/jpeg|image\/png|image\/webp)(;|$)/.test(contentType) : !contentType.includes("text/html")) {
         await res.body?.cancel().catch(() => undefined);
-        throw new ProviderError("malformed", "page response was not text/html");
+        throw new ProviderError("malformed", image ? "public image content type rejected" : "page response was not text/html");
       }
       const encoding = res.headers.get("content-encoding");
       if (encoding && encoding.toLowerCase() !== "identity") {
@@ -156,4 +157,22 @@ export async function fetchPageHtml(
   } finally {
     cancel();
   }
+}
+
+export async function fetchPageHtml(rawUrl: string, signal?: AbortSignal, deps: PageFetchDeps = {}): Promise<FetchedPage> {
+  return fetchPublicResource(rawUrl, signal, deps);
+}
+
+/** Validate a public image using the same pinned DNS/redirect/body boundary.
+ * The provider later fetches the public URL on its own infrastructure; this
+ * pins only ContextTrail's connection. No image is uploaded to a provider. */
+export async function validatePublicImageUrl(rawUrl: string, signal?: AbortSignal, deps: PageFetchDeps = {}): Promise<string> {
+  const url = validatedHttpUrl(rawUrl);
+  if (!url || rawUrl.length > 2048 || url.protocol !== "https:" || url.search || url.port) {
+    throw new ProviderError("malformed", "Use an already public HTTPS image URL without login, tokens, query parameters or a custom port");
+  }
+  const resource = await fetchPublicResource(url.toString(), signal, deps, true);
+  const final = validatedHttpUrl(resource.url);
+  if (!final || final.protocol !== "https:" || final.search || final.port) throw new ProviderError("malformed", "public image redirect rejected");
+  return final.toString();
 }

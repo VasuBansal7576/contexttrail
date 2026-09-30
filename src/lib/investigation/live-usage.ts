@@ -131,6 +131,10 @@ function sameAllowance(a: LiveAllowance, b: LiveAllowance): boolean {
   return ALLOWANCE_KEYS.every((key) => a[key] === b[key]);
 }
 
+function withinAllowance(a: LiveAllowance, b: LiveAllowance): boolean {
+  return ALLOWANCE_KEYS.every((key) => a[key] <= b[key]);
+}
+
 function validRunAllocation(value: unknown): value is LiveAllowance {
   return validAllowance(value) &&
     [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true)]
@@ -144,13 +148,27 @@ function parseLedger(raw: string, config: LiveUsageConfig): LiveAllowance {
   if (!isRecord(header) || Object.keys(header).length !== 5 ||
     header.type !== "contexttrail-live-usage" || header.version !== 1 ||
     header.model !== JEV_MODEL || header.period !== config.period ||
-    !validAllowance(header.allowance) || !sameAllowance(header.allowance, config.allowance)) {
+    !validAllowance(header.allowance) || !withinAllowance(header.allowance, config.allowance)) {
     throw new LiveUsageError(STORAGE_ERROR);
   }
   const total: LiveAllowance = { searches: 0, uploads: 0, jevRequests: 0, jevQuestions: 0 };
+  const effective = { ...header.allowance };
   const ids = new Set<string>();
   for (const line of lines.slice(1)) {
     const entry: unknown = JSON.parse(line);
+    if (isRecord(entry) && entry.type === "grant") {
+      if (Object.keys(entry).length !== 4 || typeof entry.id !== "string" || !/^[0-9a-f-]{36}$/.test(entry.id) || ids.has(entry.id) ||
+          typeof entry.reason !== "string" || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(entry.reason) || !validAllowance(entry.allocation) ||
+          ![liveRunAllocation(null, true),liveRunAllocation("claim", true)].some((a) => sameAllowance(a, entry.allocation as LiveAllowance))) {
+        throw new LiveUsageError(STORAGE_ERROR);
+      }
+      ids.add(entry.id);
+      for (const key of ALLOWANCE_KEYS) {
+        effective[key] += entry.allocation[key];
+        if (!Number.isSafeInteger(effective[key]) || effective[key] > config.allowance[key]) throw new LiveUsageError(STORAGE_ERROR);
+      }
+      continue;
+    }
     if (!isRecord(entry) || Object.keys(entry).length !== 3 || entry.type !== "reserve" ||
       typeof entry.id !== "string" || !/^[0-9a-f-]{36}$/.test(entry.id) || ids.has(entry.id) ||
       !validRunAllocation(entry.allocation)) {
@@ -159,11 +177,12 @@ function parseLedger(raw: string, config: LiveUsageConfig): LiveAllowance {
     ids.add(entry.id);
     for (const key of ALLOWANCE_KEYS) {
       total[key] += entry.allocation[key];
-      if (!Number.isSafeInteger(total[key]) || total[key] > config.allowance[key]) {
+      if (!Number.isSafeInteger(total[key]) || total[key] > effective[key]) {
         throw new LiveUsageError(STORAGE_ERROR);
       }
     }
   }
+  if (!sameAllowance(effective, config.allowance)) throw new LiveUsageError(STORAGE_ERROR);
   return total;
 }
 

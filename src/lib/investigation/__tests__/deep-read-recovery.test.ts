@@ -28,6 +28,18 @@ const contextualPages = () =>
   );
 
 describe("undated core deep-read recovery", () => {
+  it("uses remaining slots for independent undated image occurrences before contextual filler", () => {
+    const first=weakCore("first-core",0.4,1);
+    const second=weakCore("second-core",0.3,2);
+    second.registrableDomain="other.example.org";
+    const third=weakCore("third-core",0.2,3);
+    third.registrableDomain="third.example.org";
+    const picked=selectDeepReadCandidates([...contextualPages(),third,second,first]);
+    expect(picked).toHaveLength(5);
+    expect(picked).toEqual(expect.arrayContaining([first,second,third]));
+    expect(picked[0]).toBe(first);
+    expect(first.publishedAt).toBeNull();
+  });
   it("reserves one page for the strongest judged core when contextual results would occupy all five slots", () => {
     const core = weakCore("undated-core");
     const picked = selectDeepReadCandidates([...contextualPages(), core]);

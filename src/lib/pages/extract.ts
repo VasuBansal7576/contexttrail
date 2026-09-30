@@ -362,6 +362,15 @@ function tokens(s: string): Set<string> {
   );
 }
 
+/** A useful verbatim page paragraph, never a title/snippet composite. */
+export function selectDisplayQuote(input: { title: string | null; claim: string | null; paragraphs: string[] }): string | null {
+  const query = tokens(`${input.title ?? ""} ${input.claim ?? ""}`);
+  const ranked = input.paragraphs.filter((p) => p.trim().length > 0).map((p, i) => ({
+    p, i, overlap: [...tokens(p)].filter((t) => query.has(t)).length,
+  })).sort((a, b) => b.overlap - a.overlap || a.i - b.i);
+  return ranked[0]?.p.slice(0, EXCERPT_MAX_CHARS) ?? null;
+}
+
 /**
  * Compose an excerpt: title, SERP snippet, first two useful paragraphs, then
  * the highest-overlap paragraphs against claim/title tokens. Deterministic;

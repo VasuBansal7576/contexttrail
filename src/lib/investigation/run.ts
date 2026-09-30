@@ -73,7 +73,7 @@ import {
 } from "../jev/questions";
 import { createLimiter, ProviderError } from "../providers/http";
 import type { FetchedPage } from "../pages/fetch";
-import { buildExcerpt, extractPage } from "../pages/extract";
+import { buildExcerpt, extractPage, selectDisplayQuote } from "../pages/extract";
 import {
   normalizeAboutThisImageResponse,
   normalizeExactMatchesResponse,
@@ -212,6 +212,22 @@ export function selectDeepReadCandidates(
       ),
     )[0],
   );
+
+  // When dates are missing, use unclaimed slots to inspect additional image
+  // occurrences before contextual filler. A failed anchor must not be the
+  // only opportunity to acquire source-bound dates. Fixed priorities above
+  // and the five-page ceiling stay intact; selection does not promote evidence.
+  if (datedCore.length === 0) {
+    const unreadCore = byRel(coreOccurrences(candidates).filter((c) => c.judgment !== null && !seen.has(c.id)));
+    const domains = new Set(picked.map((c) => c.registrableDomain));
+    for (const c of unreadCore) {
+      if (!domains.has(c.registrableDomain)) {
+        take(c);
+        domains.add(c.registrableDomain);
+      }
+    }
+    for (const c of unreadCore) take(c);
+  }
 
   // Fill any remaining budget with the strongest unseen judged candidates —
   // the frozen categories pick one winner each and must not leave slots
@@ -460,7 +476,8 @@ export async function runInvestigation(
   ): Promise<SearchJobResult> => {
     const params: SerpapiParams = { ...choice.params };
     if (choice.slot === "adaptive_lens_refined") {
-      if (input.publicImageId) params.url = PUBLIC_IMAGES[input.publicImageId].url;
+      if (input.publicImageUrl) params.url = input.publicImageUrl;
+      else if (input.publicImageId) params.url = PUBLIC_IMAGES[input.publicImageId].url;
       else if (imageIdForLens !== null) params.image_id = imageIdForLens;
     }
     const t0 = now();
@@ -676,13 +693,13 @@ export async function runInvestigation(
     };
 
     const uploadAndLens = async (): Promise<void> => {
-      if (deps.serpapi === null || (!input.publicImageId && !budget.tryReserveUpload())) {
+      if (deps.serpapi === null || (!input.publicImageId && !input.publicImageUrl && !budget.tryReserveUpload())) {
         uploadFailed = deps.serpapi !== null;
         for (const res of failedLensJobs()) processResult(res);
         return;
       }
       try {
-        if (!input.publicImageId) imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
+        if (!input.publicImageId && !input.publicImageUrl) imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
       } catch (err) {
         logProviderFailure("serpapi image upload", err);
         uploadFailed = true;
@@ -691,7 +708,7 @@ export async function runInvestigation(
       }
       // Supported Lens calls settle independently. A reviewed public URL avoids
       // Image API upload entirely; private uploads retain their original path.
-      const imageParams: SerpapiParams = input.publicImageId
+      const imageParams: SerpapiParams = input.publicImageUrl ? { url: input.publicImageUrl } : input.publicImageId
         ? { url: PUBLIC_IMAGES[input.publicImageId].url }
         : { image_id: imageId! };
       await Promise.all([
@@ -937,7 +954,7 @@ export async function runInvestigation(
             // The composite (Title:/Snippet:/paragraphs) is model input —
             // the displayed quote must be verbatim page text. Only when a
             // real paragraph exists may the excerpt be labeled page_text.
-            const quote = ex.paragraphs[0] ?? null;
+            const quote = selectDisplayQuote({ title: c.title, claim, paragraphs: ex.paragraphs });
             if (quote !== null) {
               displayExcerpts.set(c.id, quote.slice(0, EXCERPT_MAX_CHARS));
               c.excerptSource = "page_text";

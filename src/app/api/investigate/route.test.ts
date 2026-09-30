@@ -31,6 +31,20 @@ async function readNdjson(res: Response): Promise<Array<Record<string, unknown>>
 }
 
 describe("POST /api/investigate — multipart validation", () => {
+  it("accepts a separate public HTTPS URL field while live-off makes no network request", async () => {
+    const network=vi.spyOn(globalThis,"fetch");
+    const form=formWith();form.set("public_image_url","https://public.example/photo.jpg");
+    const res=await POST(await req(form));expect(res.status).toBe(200);
+    expect((await readNdjson(res))[0]).toMatchObject({type:"investigation.error"});
+    expect(network).not.toHaveBeenCalled();network.mockRestore();
+  });
+  it.each(["https://localhost./photo.jpg","https://127.1/photo.jpg","https://public.example/photo.jpg?token=secret","http://public.example/photo.jpg"])("rejects unsafe public URL %s",async url=>{
+    const form=formWith();form.set("public_image_url",url);expect((await POST(await req(form))).status).toBe(400);
+  });
+  it("rejects duplicate public URLs and combining public input with an upload",async()=>{
+    const duplicate=formWith();duplicate.append("public_image_url","https://public.example/a.jpg");duplicate.append("public_image_url","https://public.example/b.jpg");expect((await POST(await req(duplicate))).status).toBe(400);
+    const mixed=formWith(new Blob([PNG],{type:"image/png"}));mixed.set("public_image_url","https://public.example/a.jpg");expect((await POST(await req(mixed))).status).toBe(400);
+  });
   it("accepts only the reviewed public image and preserves default live-off behavior", async () => {
     const form=formWith();form.set("public_image","nasa-earthrise");
     const res=await POST(await req(form));expect(res.status).toBe(200);

@@ -97,6 +97,24 @@ describe("server-only opt-in configuration", () => {
 });
 
 describe("durable whole-run admission", () => {
+  it("appends one explicit offline grant, preserves prior reservations, and never authorizes a third run", async () => {
+    config.allowance=liveRunAllocation("claim",true);
+    await initialize();
+    const first=await reserveLiveRun(config,"claim",undefined,true);await first.release();
+    const before=await readFile(config.ledgerPath,"utf8");
+    const expanded={...config,allowance:{searches:12,uploads:0,jevRequests:120,jevQuestions:544}};
+    const grantEnv={...env,CONTEXTTRAIL_LIVE_ENABLED:"false",CONTEXTTRAIL_FREE_SERPAPI_SEARCHES:"12",CONTEXTTRAIL_FREE_SERPAPI_UPLOADS:"0",CONTEXTTRAIL_FREE_JEV_REQUESTS:"120",CONTEXTTRAIL_FREE_JEV_QUESTIONS:"544",CONTEXTTRAIL_ALLOWANCE_GRANT:JSON.stringify(liveRunAllocation("claim",true)),CONTEXTTRAIL_ALLOWANCE_GRANT_REASON:"explicit-second-test"};
+    await exec(process.execPath,[resolve("scripts/grant-live-allowance.mjs")],{env:grantEnv});
+    const granted=await readFile(config.ledgerPath,"utf8");expect(granted.startsWith(before)).toBe(true);
+    await expect(exec(process.execPath,[resolve("scripts/grant-live-allowance.mjs")],{env:grantEnv})).rejects.toThrow();
+    expect(await readFile(config.ledgerPath,"utf8")).toBe(granted);
+    const second=await reserveLiveRun(expanded,"claim",undefined,true);await second.release();
+    await expect(reserveLiveRun(expanded,"claim",undefined,true)).rejects.toThrow("cannot cover");
+    const completed=await readFile(config.ledgerPath,"utf8");expect(completed.startsWith(before)).toBe(true);
+    const rows=completed.trim().split("\n");
+    await writeFile(config.ledgerPath,[rows[0],rows[1],rows[3],rows[2]].join("\n")+"\n");
+    await expect(reserveLiveRun(expanded,"claim",undefined,true)).rejects.toThrow("storage");
+  });
   it("preserves public-image reservations across restart and refuses a second trial without resetting", async () => {
     config.allowance = liveRunAllocation("claim", true);
     await initialize();

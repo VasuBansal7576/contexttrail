@@ -22,6 +22,8 @@ export interface UploadSelection {
 interface UploadFormProps {
   selection: UploadSelection | null;
   publicImageId?: PublicImageId | null;
+  publicImageUrl?: string | null;
+  onSelectPublicImageUrl?: (url: string) => void;
   onSelectPublicImage?: (id: PublicImageId) => void;
   claim: string;
   preparing: boolean;
@@ -35,6 +37,8 @@ interface UploadFormProps {
 export default function UploadForm({
   selection,
   publicImageId,
+  publicImageUrl,
+  onSelectPublicImageUrl,
   onSelectPublicImage,
   claim,
   preparing,
@@ -46,6 +50,7 @@ export default function UploadForm({
 }: UploadFormProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [urlDraft, setUrlDraft] = useState("");
   const dragCount = useRef(0);
 
   const acceptFile = useCallback(
@@ -65,7 +70,7 @@ export default function UploadForm({
     return () => window.removeEventListener("paste", onPaste);
   }, [acceptFile]);
 
-  const canSubmit = (selection !== null || Boolean(publicImageId)) && !preparing;
+  const canSubmit = (selection !== null || Boolean(publicImageId) || Boolean(publicImageUrl)) && !preparing;
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -114,6 +119,13 @@ export default function UploadForm({
               </div>
               <p className="mt-3 text-xs text-ink-soft">{PUBLIC_IMAGES[publicImageId].credit}</p>
               <a href={PUBLIC_IMAGES[publicImageId].sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center text-xs text-signal-ink underline">View NASA source and credit ↗</a>
+            </div>
+          ) : publicImageUrl ? (
+            <div className="rounded-2xl bg-white/70 p-4 ring-1 ring-ink/10">
+              <p className="font-medium">Public image URL</p>
+              <p className="mt-2 break-all text-sm text-ink-soft">{publicImageUrl}</p>
+              <p className="mt-2 text-xs text-ink-soft">Already public · no upload. The server checks public DNS, redirects, image type and size before provider search.</p>
+              <button type="button" onClick={onRemove} className="mt-2 min-h-[44px] text-sm text-signal-ink underline">Remove</button>
             </div>
           ) : !selection ? (
             <div
@@ -209,10 +221,19 @@ export default function UploadForm({
             </div>
           )}
 
-          {!selection && !publicImageId && onSelectPublicImage ? (
+          {!selection && !publicImageId && !publicImageUrl && onSelectPublicImage ? (
             <button type="button" onClick={() => onSelectPublicImage("nasa-earthrise")} className="mt-3 flex min-h-[48px] w-full items-center justify-center rounded-xl bg-white/70 px-4 text-sm font-medium ring-1 ring-ink/15 transition hover:ring-ink/40">
               Try NASA&apos;s public Earthrise image →
             </button>
+          ) : null}
+
+          {!selection && !publicImageId && !publicImageUrl && onSelectPublicImageUrl ? (
+            <div className="mt-4">
+              <label htmlFor="ct-public-url" className="text-sm font-medium">Already-public image URL</label>
+              <input id="ct-public-url" type="url" value={urlDraft} onChange={(e) => setUrlDraft(e.target.value)} maxLength={2048} placeholder="https://example.org/public-photo.jpg" aria-describedby="ct-public-url-help" className="mt-2 w-full rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15" />
+              <p id="ct-public-url-help" className="mt-2 text-xs text-ink-soft">Use a public HTTPS JPEG, PNG or WebP, without login, tokens or query parameters. Do not publish a private image to use this option.</p>
+              <button type="button" disabled={!urlDraft.trim()} onClick={() => onSelectPublicImageUrl(urlDraft.trim())} className="mt-2 min-h-[44px] text-sm font-medium text-signal-ink underline disabled:opacity-40">Use public image URL →</button>
+            </div>
           ) : null}
 
           {error ? (
@@ -255,7 +276,7 @@ export default function UploadForm({
           <button
             type="submit"
             disabled={!canSubmit}
-            aria-describedby={!selection && !publicImageId ? "ct-submit-hint" : undefined}
+            aria-describedby={!selection && !publicImageId && !publicImageUrl ? "ct-submit-hint" : undefined}
             className={cn(
               "mt-6 flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full text-base font-medium transition",
               canSubmit ? "bg-ink text-white hover:bg-black" : "cursor-not-allowed bg-ink/15 text-ink/45",
@@ -270,7 +291,7 @@ export default function UploadForm({
               <>Start investigation <span aria-hidden="true">→</span></>
             )}
           </button>
-          {!selection && !publicImageId && !preparing ? (
+          {!selection && !publicImageId && !publicImageUrl && !preparing ? (
             <p id="ct-submit-hint" className="mt-2 text-center text-xs text-ink-soft">
               Select an image to begin.
             </p>
@@ -279,7 +300,7 @@ export default function UploadForm({
           <p className="mt-4 flex items-start justify-center gap-2 text-center text-xs leading-relaxed text-ink-soft">
             <span aria-hidden="true">🔒</span>
             <span>
-              {publicImageId ? "NASA's public image URL is sent to SerpApi / Google Lens. No image is uploaded by ContextTrail." : "Your image is sent to SerpApi / Google Lens for visual search. ContextTrail does not persist your image."}
+              {publicImageId || publicImageUrl ? "The public image URL is sent to SerpApi / Google Lens. No image is uploaded by ContextTrail." : "Your image is sent to SerpApi / Google Lens for visual search. ContextTrail does not persist your image."}
             </span>
           </p>
         </form>

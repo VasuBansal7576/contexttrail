@@ -10,6 +10,7 @@
 import type { InvestigationInput } from "@/lib/investigation/contracts/investigation";
 import { createInvestigationResponse } from "@/lib/investigation/server";
 import { isPublicImageId } from "@/lib/media/public-images";
+import { validatedHttpUrl } from "@/lib/pages/fetch";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -70,11 +71,19 @@ export async function POST(req: Request): Promise<Response> {
 
   const mediaField = form.get("media");
   const publicImageRaw = form.get("public_image");
+  const urlRaw = form.get("public_image_url");
+  const publicImageUrl = typeof urlRaw === "string" ? urlRaw.trim() : undefined;
+  const parsedUrl = publicImageUrl ? validatedHttpUrl(publicImageUrl) : null;
+  if (urlRaw !== null && (typeof urlRaw !== "string" || !parsedUrl || publicImageUrl!.length > 2048 ||
+      parsedUrl.protocol !== "https:" || parsedUrl.search || parsedUrl.port || form.getAll("public_image_url").length !== 1 ||
+      publicImageRaw !== null || mediaField !== null)) {
+    return httpError(400, "Choose one already-public HTTPS image URL without login, tokens, query parameters or a custom port.");
+  }
   if (publicImageRaw !== null && (!isPublicImageId(publicImageRaw) || mediaField !== null || form.getAll("public_image").length !== 1)) {
     return httpError(400, "Choose one reviewed public image or one upload.");
   }
   const publicImageId = isPublicImageId(publicImageRaw) ? publicImageRaw : undefined;
-  if (!publicImageId && !(mediaField instanceof Blob)) {
+  if (!publicImageId && !publicImageUrl && !(mediaField instanceof Blob)) {
     return httpError(400, "Missing required image field 'media'.");
   }
   if (mediaField instanceof Blob && mediaField.size === 0) {
@@ -106,7 +115,7 @@ export async function POST(req: Request): Promise<Response> {
       : "en";
 
   const media = mediaField instanceof Blob ? new Uint8Array(await mediaField.arrayBuffer()) : new Uint8Array();
-  const input: InvestigationInput = { claim, timezone, locale, media, ...(publicImageId ? { publicImageId } : {}) };
+  const input: InvestigationInput = { claim, timezone, locale, media, ...(publicImageId ? { publicImageId } : {}), ...(publicImageUrl ? { publicImageUrl } : {}) };
 
   // The request's own signal is linked into the shared investigation
   // controller inside createInvestigationResponse.

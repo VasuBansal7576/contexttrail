@@ -41,6 +41,7 @@ const RESTORED_NOTICE =
 export default function InvestigatePage() {
   const [selection, setSelection] = useState<UploadSelection | null>(null);
   const [publicImageId, setPublicImageId] = useState<PublicImageId | null>(null);
+  const [publicImageUrl, setPublicImageUrl] = useState<string | null>(null);
   const [claim, setClaim] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [preprocessing, setPreprocessing] = useState(false);
@@ -71,6 +72,7 @@ export default function InvestigatePage() {
       }
       setUploadError(null);
       setPublicImageId(null);
+      setPublicImageUrl(null);
       setSelection((prev) => {
         if (prev) URL.revokeObjectURL(prev.previewUrl);
         return { file, previewUrl: URL.createObjectURL(file) };
@@ -81,6 +83,7 @@ export default function InvestigatePage() {
 
   const handleRemove = useCallback(() => {
     setPublicImageId(null);
+    setPublicImageUrl(null);
     setSelection((prev) => {
       if (prev) URL.revokeObjectURL(prev.previewUrl);
       return null;
@@ -89,13 +92,13 @@ export default function InvestigatePage() {
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if ((!selection && !publicImageId) || preprocessing) return;
+    if ((!selection && !publicImageId && !publicImageUrl) || preprocessing) return;
     setUploadError(null);
     setPreprocessing(true);
     try {
       const processed = selection ? await preprocessImage(selection.file) : null;
       await inv.start({
-        ...(publicImageId ? { publicImageId } : { media: processed!.blob }),
+        ...(publicImageId ? { publicImageId } : publicImageUrl ? { publicImageUrl } : { media: processed!.blob }),
         claim: claim.trim().length > 0 ? claim.trim() : null,
       });
     } catch (err) {
@@ -109,7 +112,7 @@ export default function InvestigatePage() {
       setPreprocessing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selection, publicImageId, claim, preprocessing]);
+  }, [selection, publicImageId, publicImageUrl, claim, preprocessing]);
 
   const handleNewInvestigation = useCallback(() => {
     inv.reset();
@@ -166,7 +169,7 @@ export default function InvestigatePage() {
     return (
       <ResultView
         result={inv.result}
-        submittedImageUrl={publicImageId ? PUBLIC_IMAGES[publicImageId].previewUrl : selection?.previewUrl ?? null}
+        submittedImageUrl={publicImageId ? PUBLIC_IMAGES[publicImageId].previewUrl : publicImageUrl ?? selection?.previewUrl ?? null}
         claim={claim.trim().length > 0 ? claim.trim() : null}
         searchCounts={inv.searchCounts}
         stages={inv.stages}
@@ -283,6 +286,8 @@ export default function InvestigatePage() {
       <UploadForm
         selection={selection}
         publicImageId={publicImageId}
+        publicImageUrl={publicImageUrl}
+        onSelectPublicImageUrl={(url) => { handleRemove(); setPublicImageUrl(url); }}
         onSelectPublicImage={(id) => { handleRemove(); setPublicImageId(id); }}
         claim={claim}
         preparing={preprocessing}
