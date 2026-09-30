@@ -15,6 +15,8 @@ export const maxDuration = 60;
 
 /** §6.2 — SerpApi Image API upstream limit. */
 const MAX_MEDIA_BYTES = 500 * 1024;
+/** Includes all multipart framing and ignored fields; enforced before parsing. */
+const MAX_REQUEST_BYTES = 600 * 1024;
 const MAX_CLAIM_CHARS = 500;
 const ACCEPTED_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -23,9 +25,44 @@ function httpError(status: number, message: string): Response {
 }
 
 export async function POST(req: Request): Promise<Response> {
+  const tooLarge = () => httpError(413, "The complete request exceeds the 600 KB upload limit.");
+  const declared = req.headers.get("content-length");
+  if (declared !== null && /^\d+$/.test(declared) && Number(declared) > MAX_REQUEST_BYTES) {
+    await req.body?.cancel().catch(() => undefined);
+    return tooLarge();
+  }
+  if (!req.body) return httpError(400, "Missing multipart body.");
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const onAbort = () => { void reader.cancel().catch(() => undefined); };
+  req.signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    req.signal.throwIfAborted();
+    for (;;) {
+      const { done, value } = await reader.read();
+      req.signal.throwIfAborted();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_REQUEST_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return tooLarge();
+      }
+      chunks.push(value);
+    }
+  } catch {
+    await reader.cancel().catch(() => undefined);
+    return httpError(400, "The upload body could not be read.");
+  } finally {
+    req.signal.removeEventListener("abort", onAbort);
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
   let form: FormData;
   try {
-    form = await req.formData();
+    form = await new Response(bytes, { headers: { "content-type": req.headers.get("content-type") ?? "" } }).formData();
   } catch {
     return httpError(400, "Expected multipart/form-data with media, claim, timezone, locale.");
   }

@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { fetchPageHtml, type FetchedPage } from "../../pages/fetch";
+import { fetchPageHtml, type PageFetchDeps, type FetchedPage } from "../../pages/fetch";
 import { extractPage } from "../../pages/extract";
 import {
   classifyStreamFailure,
@@ -42,6 +42,11 @@ const GOOD_ANSWERS = {
   },
 };
 
+const pageDeps = (fake: typeof fetch): PageFetchDeps => ({
+  resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+  request: (url, _address, signal) => fake(url.toString(), { signal, redirect: "manual" }),
+});
+
 /* ---------------------------------- S1 ---------------------------------- */
 
 describe("S1 — private IPv6 / mapped-IPv4 literals never reach transport", () => {
@@ -67,7 +72,7 @@ describe("S1 — private IPv6 / mapped-IPv4 literals never reach transport", () 
     "http://[::ffff:7f00:1]/x",
   ])("rejects %s before dispatch", async (url) => {
     const { dispatched, fake } = harness();
-    await expect(fetchPageHtml(url, undefined, fake)).rejects.toThrow();
+    await expect(fetchPageHtml(url, undefined, pageDeps(fake))).rejects.toThrow();
     expect(dispatched).toHaveLength(0);
   });
 
@@ -87,14 +92,14 @@ describe("S1 — private IPv6 / mapped-IPv4 literals never reach transport", () 
       });
     }) as unknown as typeof fetch;
     await expect(
-      fetchPageHtml("https://public.example.org/page", undefined, fake),
+      fetchPageHtml("https://public.example.org/page", undefined, pageDeps(fake)),
     ).rejects.toThrow();
     expect(dispatched).toEqual(["https://public.example.org/page"]);
   });
 
   it("positive control — a public http destination still dispatches", async () => {
     const { dispatched, fake } = harness();
-    await fetchPageHtml("https://public.example.org/page", undefined, fake);
+    await fetchPageHtml("https://public.example.org/page", undefined, pageDeps(fake));
     expect(dispatched).toEqual(["https://public.example.org/page"]);
   });
 });
