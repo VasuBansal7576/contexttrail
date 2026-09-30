@@ -4,8 +4,13 @@
 
 The upload screen also offers **Try NASA's public Earthrise image**. This
 reviewed catalogue choice searches NASA's existing image URL; it never calls
-the Image API and never publishes a private upload. Arbitrary URLs are not
-accepted. Public-image runs reserve zero upload attempts; setting the approved
+the Image API and never publishes a private upload. An **Already-public image URL**
+input also accepts HTTPS JPEG, PNG and WebP URLs without credentials, query
+parameters or custom ports. Before provider search, ContextTrail reads the
+image through the same public-IP/DNS validation, pinned connection, redirect,
+five-second deadline and 2 MB boundary as source-page reads. Google fetches the
+public URL on its own infrastructure; ContextTrail cannot pin Google's socket.
+Public-image runs reserve zero upload attempts; setting the approved
 upload cap to zero also prevents an uploaded-image run from being admitted.
 Search, Jev request/question, deep-read and adaptive ceilings stay unchanged.
 
@@ -81,9 +86,21 @@ API keys and makes no network request. It does not create a provider account,
 verify a balance or enable billing.
 
 There is no automatic reset, rollover, refund or stale-lock cleanup. An
-existing ledger must match the exact configured period, model and caps.
+existing ledger must match the exact configured period, model and effective caps.
 Changing those settings cannot reset the recorded usage. Missing, malformed,
 partial or inconsistent state prevents provider calls.
+
+An explicitly authorized additional public-image trial can extend the same
+ledger without resetting its reservations. Keep live access off, verify the
+additional free allowance, set the **cumulative** caps, and set
+`CONTEXTTRAIL_ALLOWANCE_GRANT` to the additional public claim allocation
+`{"searches":6,"uploads":0,"jevRequests":60,"jevQuestions":272}` (or public trace
+`{"searches":4,"uploads":0,"jevRequests":60,"jevQuestions":113}`). Set
+`CONTEXTTRAIL_ALLOWANCE_GRANT_REASON` to a short audit identifier and run
+`node scripts/grant-live-allowance.mjs`. It acquires the shared lock, validates
+the old journal, and appends one grant. The original header and every spent
+reservation remain unchanged; rerunning the same grant fails rather than
+raising caps again. This script never contacts providers or enables live use.
 
 ## Conservative reservation
 
