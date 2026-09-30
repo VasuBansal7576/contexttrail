@@ -31,6 +31,20 @@ async function readNdjson(res: Response): Promise<Array<Record<string, unknown>>
 }
 
 describe("POST /api/investigate — multipart validation", () => {
+  it("accepts only the reviewed public image and preserves default live-off behavior", async () => {
+    const form=formWith();form.set("public_image","nasa-earthrise");
+    const res=await POST(await req(form));expect(res.status).toBe(200);
+    const events=await readNdjson(res);
+    expect(events[0]).toMatchObject({type:"investigation.error"});
+  });
+  it("rejects arbitrary public URLs, duplicate IDs, and mixing URL media with uploads", async () => {
+    const arbitrary=formWith();arbitrary.set("public_image","https://private.invalid/image.jpg");
+    expect((await POST(await req(arbitrary))).status).toBe(400);
+    const duplicate=formWith();duplicate.append("public_image","nasa-earthrise");duplicate.append("public_image","nasa-earthrise");
+    expect((await POST(await req(duplicate))).status).toBe(400);
+    const mixed=formWith(new Blob([PNG],{type:"image/png"}));mixed.set("public_image","nasa-earthrise");
+    expect((await POST(await req(mixed))).status).toBe(400);
+  });
   it("caps the complete multipart including ignored fields before parsing", async () => {
     const form = formWith(new Blob([PNG], { type: "image/png" }));
     form.set("ignored", new Blob([new Uint8Array(2 * 1024 * 1024)]), "extra.bin");

@@ -56,6 +56,15 @@ afterEach(async () => {
 });
 
 describe("server-only opt-in configuration", () => {
+  it("reserves no upload for reviewed public media while preserving search and Jev ceilings", async () => {
+    expect(liveRunAllocation("a claim",true)).toEqual({...liveRunAllocation("a claim"),uploads:0});
+    config.allowance.uploads=0;
+    await initialize();
+    const value=await reserveLiveRun(config,"a claim",undefined,true);leases.push(value);
+    const transport=vi.fn();
+    await expect(value.fetchFor("serpapi",transport)(SERPAPI_IMAGE_UPLOAD_URL,{method:"POST"})).rejects.toThrow();
+    expect(transport).not.toHaveBeenCalled();
+  });
   it("defaults to keyless, no-network preview even with provider keys", () => {
     expect(() => readLiveUsageConfig({ SERPAPI_API_KEY: "test", TYPESAFE_API_KEY: "test" })).toThrow("disabled");
     expect(() => readLiveUsageConfig({ NEXT_PUBLIC_CONTEXTTRAIL_LIVE_ENABLED: "true" })).toThrow("disabled");

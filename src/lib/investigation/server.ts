@@ -6,6 +6,7 @@ import { JevClient, JEV_MODEL } from "../jev/client";
 import { SerpapiClient } from "../serpapi/client";
 import { fetchPageHtml } from "../pages/fetch";
 import { LiveUsageError, readLiveUsageConfig, reserveLiveRun } from "./live-usage";
+import { isPublicImageId } from "../media/public-images";
 
 export const NDJSON_CONTENT_TYPE = "application/x-ndjson; charset=utf-8";
 
@@ -15,12 +16,15 @@ export async function productionDeps(input: InvestigationInput, externalSignal?:
   release: () => Promise<void>;
 }> {
   const config = readLiveUsageConfig(process.env);
+  if (input.publicImageId !== undefined && !isPublicImageId(input.publicImageId)) {
+    throw new LiveUsageError("The public image is not in the reviewed catalogue. No provider requests were made.");
+  }
   const serpapiKey = process.env.SERPAPI_API_KEY?.trim();
   const jevKey = process.env.TYPESAFE_API_KEY?.trim();
   if (!serpapiKey || !jevKey) {
     throw new LiveUsageError("Live investigations require server-only SerpApi and TypeSafe keys. No provider requests were made.");
   }
-  const lease = await reserveLiveRun(config, input.claim, externalSignal);
+  const lease = await reserveLiveRun(config, input.claim, externalSignal, input.publicImageId !== undefined);
   return {
     deps: {
       serpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor("serpapi") }),

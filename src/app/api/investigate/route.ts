@@ -9,6 +9,7 @@
 
 import type { InvestigationInput } from "@/lib/investigation/contracts/investigation";
 import { createInvestigationResponse } from "@/lib/investigation/server";
+import { isPublicImageId } from "@/lib/media/public-images";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -68,16 +69,21 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const mediaField = form.get("media");
-  if (!(mediaField instanceof Blob)) {
+  const publicImageRaw = form.get("public_image");
+  if (publicImageRaw !== null && (!isPublicImageId(publicImageRaw) || mediaField !== null || form.getAll("public_image").length !== 1)) {
+    return httpError(400, "Choose one reviewed public image or one upload.");
+  }
+  const publicImageId = isPublicImageId(publicImageRaw) ? publicImageRaw : undefined;
+  if (!publicImageId && !(mediaField instanceof Blob)) {
     return httpError(400, "Missing required image field 'media'.");
   }
-  if (mediaField.size === 0) {
+  if (mediaField instanceof Blob && mediaField.size === 0) {
     return httpError(400, "The submitted image is empty.");
   }
-  if (mediaField.size > MAX_MEDIA_BYTES) {
+  if (mediaField instanceof Blob && mediaField.size > MAX_MEDIA_BYTES) {
     return httpError(413, "The processed image exceeds the 500 KB upload limit.");
   }
-  const mediaType = mediaField.type.toLowerCase();
+  const mediaType = mediaField instanceof Blob ? mediaField.type.toLowerCase() : "";
   if (mediaType !== "" && !ACCEPTED_MEDIA_TYPES.has(mediaType)) {
     return httpError(400, `Unsupported image type '${mediaType}'. Use JPEG, PNG, or WebP.`);
   }
@@ -99,8 +105,8 @@ export async function POST(req: Request): Promise<Response> {
       ? localeRaw.trim().slice(0, 35)
       : "en";
 
-  const media = new Uint8Array(await mediaField.arrayBuffer());
-  const input: InvestigationInput = { claim, timezone, locale, media };
+  const media = mediaField instanceof Blob ? new Uint8Array(await mediaField.arrayBuffer()) : new Uint8Array();
+  const input: InvestigationInput = { claim, timezone, locale, media, ...(publicImageId ? { publicImageId } : {}) };
 
   // The request's own signal is linked into the shared investigation
   // controller inside createInvestigationResponse.

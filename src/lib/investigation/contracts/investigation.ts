@@ -456,6 +456,8 @@ export interface InvestigationInput {
   locale: string;
   /** Client-preprocessed image bytes (<= ~450 KB client target). */
   media: Uint8Array;
+  /** Reviewed public-media catalogue ID; never an arbitrary remote URL. */
+  publicImageId?: import("../../media/public-images").PublicImageId;
 }
 
 export function modeForInput(input: Pick<InvestigationInput, "claim">): InvestigationMode {

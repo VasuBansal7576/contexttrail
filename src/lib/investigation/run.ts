@@ -26,6 +26,7 @@ import type {
   Takeaway,
 } from "./contracts/investigation";
 import { modeForInput, toPublicCandidate } from "./contracts/investigation";
+import { PUBLIC_IMAGES } from "../media/public-images";
 import type { PairwiseContextJudgment } from "./contracts/judgment";
 import { SearchBudget, type BaseSearchSlot, type SearchTicket } from "./budget";
 import { dedupeByCanonicalUrl, applyRetentionCaps, selectForClassification } from "./candidates";
@@ -238,7 +239,7 @@ export async function runInvestigation(
   const now = deps.now ?? (() => Date.now());
   const mode = modeForInput(input);
   const claim = mode === "claim_check" ? input.claim!.trim() : null;
-  const budget = new SearchBudget(mode);
+  const budget = new SearchBudget(mode, false);
   const startedAt = now();
   const deadlineAt = startedAt + TIMEOUTS.investigationDeadlineMs;
   const retrievedAt = new Date(startedAt).toISOString();
@@ -458,8 +459,9 @@ export async function runInvestigation(
     imageIdForLens: string | null,
   ): Promise<SearchJobResult> => {
     const params: SerpapiParams = { ...choice.params };
-    if (choice.slot === "adaptive_lens_refined" && imageIdForLens !== null) {
-      params.image_id = imageIdForLens;
+    if (choice.slot === "adaptive_lens_refined") {
+      if (input.publicImageId) params.url = PUBLIC_IMAGES[input.publicImageId].url;
+      else if (imageIdForLens !== null) params.image_id = imageIdForLens;
     }
     const t0 = now();
     try {
@@ -601,6 +603,8 @@ export async function runInvestigation(
 
     /* ------------------------- INITIAL_RETRIEVAL ------------------------- */
     stage("INITIAL_RETRIEVAL", "started");
+    // Google discontinued this surface; never spend credit on its unsupported type.
+    limitations.add("about_this_image_unavailable");
     const jobs: Promise<void>[] = [];
 
     /**
@@ -664,7 +668,6 @@ export async function runInvestigation(
       const slots: Array<[BaseSearchSlot, string]> = [
         ["lens_all", "google_lens"],
         ["lens_exact_matches", "google_lens_exact_matches"],
-        ["lens_about_this_image", "google_lens_about_this_image"],
       ];
       return slots.map(([slot, engineLabel]) => {
         budget.reserveBase(slot)?.fail();
@@ -673,41 +676,36 @@ export async function runInvestigation(
     };
 
     const uploadAndLens = async (): Promise<void> => {
-      if (deps.serpapi === null || !budget.tryReserveUpload()) {
+      if (deps.serpapi === null || (!input.publicImageId && !budget.tryReserveUpload())) {
         uploadFailed = deps.serpapi !== null;
         for (const res of failedLensJobs()) processResult(res);
         return;
       }
       try {
-        imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
+        if (!input.publicImageId) imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
       } catch (err) {
         logProviderFailure("serpapi image upload", err);
         uploadFailed = true;
         for (const res of failedLensJobs()) processResult(res);
         return;
       }
-      // The three Lens calls fan out concurrently AND settle
-      // independently (§6.3, §9.1): each job's evidence is discovered as
-      // soon as it resolves — a slow About-this-image call can never
-      // hold back fast exact-match results.
+      // Supported Lens calls settle independently. A reviewed public URL avoids
+      // Image API upload entirely; private uploads retain their original path.
+      const imageParams: SerpapiParams = input.publicImageId
+        ? { url: PUBLIC_IMAGES[input.publicImageId].url }
+        : { image_id: imageId! };
       await Promise.all([
         runSearch(
           "lens_all",
           "google_lens",
-          { engine: "google_lens", type: "all", image_id: imageId },
+          { engine: "google_lens", type: "all", ...imageParams },
           (j) => normalizeLensAllResponse(j, { retrievedAt }),
         ).then(processResult),
         runSearch(
           "lens_exact_matches",
           "google_lens_exact_matches",
-          { engine: "google_lens", type: "exact_matches", image_id: imageId },
+          { engine: "google_lens", type: "exact_matches", ...imageParams },
           (j) => normalizeExactMatchesResponse(j, { requestFailed: false, retrievedAt }),
-        ).then(processResult),
-        runSearch(
-          "lens_about_this_image",
-          "google_lens_about_this_image",
-          { engine: "google_lens", type: "about_this_image", image_id: imageId },
-          (j) => normalizeAboutThisImageResponse(j, { retrievedAt }),
         ).then(processResult),
       ]);
     };

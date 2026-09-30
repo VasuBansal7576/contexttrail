@@ -2,6 +2,25 @@
 
 ## Default behavior
 
+The upload screen also offers **Try NASA's public Earthrise image**. This
+reviewed catalogue choice searches NASA's existing image URL; it never calls
+the Image API and never publishes a private upload. Arbitrary URLs are not
+accepted. Public-image runs reserve zero upload attempts; setting the approved
+upload cap to zero also prevents an uploaded-image run from being admitted.
+Search, Jev request/question, deep-read and adaptive ceilings stay unchanged.
+
+Google discontinued Lens `about_this_image`; ContextTrail no longer dispatches
+that request. Supported Lens all/exact results, claim web/news searches,
+optional bounded expansion and inspected source pages still feed the evidence
+timeline. The result explicitly reports this lost surface. Dates are observed
+source dates, not proof of the original photograph's publication.
+
+The [supported Lens parameters](https://serpapi.com/google-lens-api),
+[NASA source and credit](https://www.nasa.gov/image-article/earthrise-by-nasa-astronaut-bill-anders/),
+and [NASA media guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+document this public route. The local preview is a resized reproduction of the
+same photograph; the provider searches NASA's original public asset.
+
 Live investigations are disabled unless the server is explicitly enabled.
 A keyless preview can show the interface and honest configuration failures.
 Normal tests use controlled transports and do not contact providers.
@@ -75,6 +94,34 @@ worst-case allowance:
 | --- | ---: | ---: | ---: | ---: |
 | Trace | 4 | 1 | 60 | 113 |
 | Claim-check | 6 | 1 | 60 | 272 |
+
+For the reviewed public image, uploads are **0**, with all other columns
+unchanged. The retired About This Image slot is never repurposed or billed as
+an attempt, and there is still at most one adaptive search. These remain
+conservative maxima, not a promise that all historical occurrences can be found.
+
+## Private existing-key setup and harmless verification
+
+Run `node scripts/local-key-setup.mjs`. It binds an unused loopback port and
+prints the form URL. The operator personally enters existing SerpApi and
+TypeSafe keys in masked fields. Strict Host/Origin/nonce checks protect the
+form; it streams a 16 KB body cap, writes an ignored `.env.local` exclusively
+with mode 600, never displays/logs values, and leaves live use and allowance
+acknowledgement false. It refuses to overwrite existing configuration.
+
+After saving, `node --env-file=.env.local scripts/check-provider-auth.mjs`
+uses only the documented SerpApi free Account GET and TypeSafe Models GET.
+It prints individual authentication status and a whitelist of nonsecret plan
+counters; never raw responses, keys, or credential-bearing URLs. This is not
+a search/upload/inference test or a substitute for billing evidence.
+
+Current [pinned Jev documentation](https://docs.typesafe.ai/models) specifies
+$0.042 per million input tokens, output free and 64k context tokens/request.
+Sixty accepted maximum-size requests therefore debit at most $0.16128 of
+existing credit under that documented model contract. Verify account credit,
+expiry, no auto-recharge and no paid overage before a trial; future pricing or
+model changes invalidate this calculation. Never enlarge caps or replenish a
+ledger merely to retry a demo.
 
 The Jev ceiling covers up to 24 initial classifications, 24 adaptive
 re-attempts of admitted candidates with missing judgments, five source-page

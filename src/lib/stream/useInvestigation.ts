@@ -286,7 +286,8 @@ function httpErrorMessage(status: number): { code: string; message: string } {
 const STREAM_WATCHDOG_MS = 90_000;
 
 export interface StartInvestigationInput {
-  media: Blob;
+  media?: Blob;
+  publicImageId?: import("../media/public-images").PublicImageId;
   claim: string | null;
 }
 
@@ -354,7 +355,9 @@ export function useInvestigation() {
 
       try {
         const form = new FormData();
-        form.set("media", input.media, "investigation-image");
+        if (input.publicImageId) form.set("public_image", input.publicImageId);
+        else if (input.media) form.set("media", input.media, "investigation-image");
+        else throw new Error("An image is required.");
         if (input.claim && input.claim.trim().length > 0) {
           form.set("claim", input.claim.trim());
         }

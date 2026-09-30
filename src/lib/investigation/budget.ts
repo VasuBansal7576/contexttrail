@@ -85,12 +85,13 @@ export class SearchBudget {
   private uploadAttempts = 0;
   private adaptiveConsumed = false;
 
-  constructor(mode: InvestigationMode) {
+  constructor(mode: InvestigationMode, aboutThisImageAvailable = true) {
     this.mode = mode;
     this.maxSearches =
       mode === "claim_check" ? CLAIM_MAX_SEARCHES : TRACE_MAX_SEARCHES;
     this.baseSlots = new Set(
-      mode === "claim_check" ? CLAIM_BASE_SLOTS : TRACE_BASE_SLOTS,
+      (mode === "claim_check" ? CLAIM_BASE_SLOTS : TRACE_BASE_SLOTS)
+        .filter(slot => aboutThisImageAvailable || slot !== "lens_about_this_image"),
     );
     this.adaptiveSlots = new Set(
       mode === "claim_check" ? CLAIM_ADAPTIVE_SLOTS : TRACE_ADAPTIVE_SLOTS,

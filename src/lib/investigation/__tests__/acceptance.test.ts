@@ -211,9 +211,9 @@ describe("I1 — §14 distinct-candidate allowance survives expansion (§14)", (
     expect(states.length).toBeGreaterThan(distinct.size);
     // Disconfirming controls preserved: 6 searches, exactly one exact and
     // one About attempt.
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(5);
     expect(calls.filter((c) => c.type === "exact_matches")).toHaveLength(1);
-    expect(calls.filter((c) => c.type === "about_this_image")).toHaveLength(1);
+    expect(calls.filter((c) => c.type === "about_this_image")).toHaveLength(0);
   });
 
   it("failed first classifications still consume a candidate's slot", async () => {
@@ -271,25 +271,6 @@ describe("I2 — deduped URLs keep every source-bound date (§11, §19.2)", () =
               ],
             };
           }
-          if (p.type === "about_this_image") {
-            return {
-              search_metadata: { status: "Success", id: "serp-about" },
-              about_this_image: {
-                sections: [
-                  {
-                    page_results: [
-                      {
-                        position: 1,
-                        title: "About",
-                        link: "https://same.com/item",
-                        date: aboutDate,
-                      },
-                    ],
-                  },
-                ],
-              },
-            };
-          }
           if (p.engine === "google") {
             return {
               search_metadata: { status: "Success", id: "serp-search" },
@@ -309,7 +290,7 @@ describe("I2 — deduped URLs keep every source-bound date (§11, §19.2)", () =
           if (p.engine === "google_news") {
             return {
               search_metadata: { status: "Success", id: "serp-news" },
-              news_results: [],
+              news_results: [{position: 1, title: "Dated news context", link: "https://same.com/item", date: aboutDate}],
             };
           }
           return {
@@ -324,7 +305,7 @@ describe("I2 — deduped URLs keep every source-bound date (§11, §19.2)", () =
   it("a valid merged provider date survives an undated deep read", async () => {
     const { provider } = serpapiWithDates("Jan 5, 2020", null);
     const { events, promise } = run(
-      { claim: null, timezone: "UTC", locale: "en", media: MEDIA },
+      { claim: "A controlled claim", timezone: "UTC", locale: "en", media: MEDIA },
       {
         serpapi: provider,
         jev: makeJev().client,
@@ -347,7 +328,7 @@ describe("I2 — deduped URLs keep every source-bound date (§11, §19.2)", () =
   it("a valid structured page date overrides the merged provider date", async () => {
     const { provider } = serpapiWithDates("Jan 5, 2020", null);
     const { events, promise } = run(
-      { claim: null, timezone: "UTC", locale: "en", media: MEDIA },
+      { claim: "A controlled claim", timezone: "UTC", locale: "en", media: MEDIA },
       {
         serpapi: provider,
         jev: makeJev().client,
@@ -402,7 +383,7 @@ describe("I2 — deduped URLs keep every source-bound date (§11, §19.2)", () =
   it("a merged month-precision provider date is never promoted to a day", async () => {
     const { provider } = serpapiWithDates("March 2020", null);
     const { events, promise } = run(
-      { claim: null, timezone: "UTC", locale: "en", media: MEDIA },
+      { claim: "A controlled claim", timezone: "UTC", locale: "en", media: MEDIA },
       {
         serpapi: provider,
         jev: makeJev().client,
@@ -682,7 +663,7 @@ describe("bounded dispatch controls (§7, §14, §18, §27)", () => {
     };
   };
 
-  it("conclusive preliminary coverage spends zero adaptive calls", async () => {
+  it("missing dates from the retired surface do not imply conclusive preliminary coverage", async () => {
     const { calls, provider } = serpapiExact([
       "https://a.example.org/i",
       "https://b.example.net/i",
@@ -697,15 +678,17 @@ describe("bounded dispatch controls (§7, §14, §18, §27)", () => {
     );
     await promise;
     expect(events.some((e) => e.type === "investigation.completed")).toBe(true);
-    // Coverage met → the optional adaptive slot is never spent.
+    // Exact identities alone do not fabricate dates. The single supported
+    // related-query expansion may run, then bounded page reads recover dates.
     expect(calls).toHaveLength(3);
-    expect(calls.every((c) => c.engine !== "google")).toBe(true);
+    expect(calls.filter(c => c.engine === "google")).toHaveLength(1);
+    expect(calls.some(c => c.type === "about_this_image")).toBe(false);
     const detail = events.find(
       (e) =>
         e.type === "stage.completed" &&
         (e as { stage: string }).stage === "EXPAND_IF_NEEDED",
     ) as { detail?: string } | undefined;
-    expect(detail?.detail).toBe("skipped (already_conclusive)");
+    expect(detail?.detail).not.toBe("skipped (already_conclusive)");
   });
 
   it("a mixed-failure adaptive attempt is counted once and the run completes", async () => {
@@ -769,7 +752,7 @@ describe("bounded dispatch controls (§7, §14, §18, §27)", () => {
       (c) => c.engine === "google_lens" && c.q !== undefined,
     );
     expect(adaptive).toHaveLength(1);
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(5);
     expect(events.some((e) => e.type === "investigation.completed")).toBe(true);
   });
 

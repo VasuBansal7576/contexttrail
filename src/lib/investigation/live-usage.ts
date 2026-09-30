@@ -109,14 +109,14 @@ export function readLiveUsageConfig(env: Readonly<Record<string, string | undefi
  * candidates may be retried), five page refinements, then seven adjacent pairs.
  * The conservative ceiling is 60 requests, not merely 24 distinct candidates.
  */
-export function liveRunAllocation(claim: string | null): LiveAllowance {
+export function liveRunAllocation(claim: string | null, publicImage = false): LiveAllowance {
   const claimMode = claim !== null && claim.trim().length > 0;
   const evidenceCalls = 2 * MAX_JEV_CANDIDATES + MAX_DEEP_READ_PAGES;
   const pairwiseCalls = Math.max(0, MAX_DIVERGENCE_OCCURRENCES - 1);
   const questionsPerEvidence = Object.keys(evidenceQuestions({ claimMode, claimHasLocation: claimMode })).length;
   return {
     searches: claimMode ? CLAIM_MAX_SEARCHES : TRACE_MAX_SEARCHES,
-    uploads: MAX_IMAGE_UPLOAD_ATTEMPTS,
+    uploads: publicImage ? 0 : MAX_IMAGE_UPLOAD_ATTEMPTS,
     jevRequests: evidenceCalls + pairwiseCalls,
     jevQuestions: evidenceCalls * questionsPerEvidence + pairwiseCalls,
   };
@@ -221,11 +221,11 @@ export interface LiveRunLease {
   release(): Promise<void>;
 }
 
-export async function reserveLiveRun(config: LiveUsageConfig, claim: string | null, signal?: AbortSignal): Promise<LiveRunLease> {
+export async function reserveLiveRun(config: LiveUsageConfig, claim: string | null, signal?: AbortSignal, publicImage = false): Promise<LiveRunLease> {
   let lock: OwnedLock | undefined;
   let ledger: FileHandle | undefined;
   let reservationWritten = false;
-  const allocation = liveRunAllocation(claim);
+  const allocation = liveRunAllocation(claim, publicImage);
   try {
     if (signal?.aborted) throw new ProviderError("aborted", "Investigation cancelled before live admission");
     const parent = await persistentLedgerPath(config.ledgerPath);
