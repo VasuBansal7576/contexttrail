@@ -330,6 +330,8 @@ export interface ProvenanceProjection {
 }
 
 export interface SharedResultMetrics {
+  /** Additive report projection; older cached results legitimately omit it. */
+  sourceLinkedReport?: import("../report").SourceLinkedReport;
   /** Earliest usable observed date among core occurrences; never "original". */
   earliestObservedOccurrence: string | null;
   /** Distinct registrable domains among core visual occurrences. Not "independent sources". */

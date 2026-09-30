@@ -155,6 +155,12 @@ describe("undated core deep-read recovery", () => {
     if (terminal.result.mode !== "claim_check") throw new Error("Unexpected trace result");
     expect(terminal.result.status).toBe("INSUFFICIENT_EVIDENCE");
     expect(terminal.result.earliestObservedOccurrence).toBeNull();
+    const audit = terminal.result.sourceLinkedReport!.pageReads;
+    const selected = audit.filter(r => r.selection === 'selected');
+    expect(selected).toHaveLength(5);
+    expect(selected.every(r => r.fetch === (outcome === 'failed page' ? 'failed' : 'succeeded'))).toBe(true);
+    expect(selected.every(r => r.failureCode === (outcome === 'failed page' ? 'unknown' : null))).toBe(true);
+    expect(terminal.result.sourceLinkedReport!.provenanceCompleteness.originalPublication.status).toBe('unknown');
     // Six initial judgments; each of the five successful page reads is
     // reclassified. A failed fetch keeps the measured metadata judgment.
     expect(classifications).toBe(outcome === "negative page" ? 11 : 6);

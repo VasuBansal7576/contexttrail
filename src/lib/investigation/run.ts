@@ -12,6 +12,7 @@
  * forbidden (§40), this seam exists only for that purpose.
  */
 
+import { auditUrl, readFailure, type PageReadOutcome } from "./report";
 import type { EvidenceCandidate, RetrievalKind } from "./contracts/evidence";
 import type {
   InvestigationEvent,
@@ -915,14 +916,23 @@ export async function runInvestigation(
     stage("DEEP_READ", "started");
     const pageLimiter = createLimiter(CONCURRENCY.pageFetch);
     const pages = deadlineHit() ? [] : selectDeepReadCandidates(pool);
+    const selectedPageIds = new Set(pages.map(c => c.id));
+    const pageReads: PageReadOutcome[] = pool.map(c => ({ evidenceId: c.id,
+      requestedUrl: auditUrl(c.sourceUrl), finalUrl: null,
+      selection: selectedPageIds.has(c.id) ? 'selected' : 'not_selected',
+      fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null }));
     let pageFailures = 0;
     await Promise.all(
       pages.map(async (c) => {
+        const read = pageReads.find(r => r.evidenceId === c.id)!;
         telemetry.pagesAttempted += 1;
         try {
           const page = await pageLimiter(() => deps.fetchPage(c.sourceUrl, shared.signal));
+          read.fetch = "succeeded";
+          read.finalUrl = auditUrl(page.url);
           telemetry.pagesSucceeded += 1;
           const ex = extractPage(page.html, page.url);
+          read.extraction = ex.text ? "usable_text" : "empty_text";
           if (ex.text !== null) {
             c.pageText = ex.text;
             pageTexts.set(c.id, ex.text);
@@ -962,7 +972,9 @@ export async function runInvestigation(
               c.excerptSource = "page_composite";
             }
           }
-        } catch {
+        } catch (err) {
+          if (read.fetch === 'succeeded') { read.extraction = 'failed'; read.failureCode = 'extraction_failed'; }
+          else { read.fetch = 'failed'; Object.assign(read, readFailure(err)); }
           pageFailures += 1; // §29: page fetch failure is non-fatal
         }
       }),
@@ -1132,6 +1144,7 @@ export async function runInvestigation(
             webContextAvailable,
             takeaways,
             requestLog,
+            pageReads,
             graph,
           })
         : buildTraceResult({
@@ -1142,6 +1155,7 @@ export async function runInvestigation(
             undatedEvidence: built.undatedEvidence,
             limitations: [...limitations],
             requestLog,
+            pageReads,
             graph,
           });
     // Stage completion precedes the terminal event — a client that stops
