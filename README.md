@@ -382,3 +382,7 @@ For an authorized local live demo, follow [live usage](docs/live-usage.md).
 
 No deployment is claimed. The hackathon's local-demo requirement and the remaining product
 acceptance work are recorded in [the release checklist](docs/release.md).
+
+### Precise retained evidence anchors
+
+The local research service can bind findings to a pixel region in a retained user-supplied PNG or an exact cell in a structured table. Material replacement and source correction require review; withdrawal stays explicitly unavailable. CaseRecord v1 is unchanged. See [formats, limits, v1/v2 compatibility and HTTP examples](docs/precise-evidence-anchors.md). No OCR, automatic truth judgment, image-authenticity assessment, provider call or UI is added.

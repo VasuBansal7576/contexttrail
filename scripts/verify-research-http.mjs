@@ -13,7 +13,7 @@ const checkout = fileURLToPath(new URL('..', import.meta.url));
 const artifacts = resolve(checkout, '.verify', `research-http-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const data = resolve(artifacts, 'data');
 await mkdir(data, { recursive: true });
-const sourceFiles = ['src/lib/research/workflow.ts', 'src/lib/research/service.ts', 'src/app/api/research/route.ts', 'scripts/verify-research-http.mjs'];
+const sourceFiles = ['src/lib/research/workflow.ts', 'src/lib/research/service.ts', 'src/app/api/research/route.ts', 'scripts/verify-research-http.mjs', 'src/lib/inquiries/materials.ts', 'src/lib/inquiries/model.ts', 'src/lib/inquiries/parse.ts', 'src/lib/inquiries/workspace.ts', 'scripts/fixtures/precise-anchors/synthetic.json', 'package-lock.json'];
 const sourceHashes = Object.fromEntries(await Promise.all(sourceFiles.map(async path => [path, createHash('sha256').update(await readFile(resolve(checkout, path))).digest('hex')])));
 const assertions = [];
 const check = (name, actual, expected) => { assert.deepEqual(actual, expected, name); assertions.push({ name, passed: true }); };
@@ -115,6 +115,68 @@ try {
   await post(correction);
   await update({ kind: 'finding', value: finding });
   check('identical finding resubmission does not clear warning', report.findings.find(f => f.finding.id === 'f1').reviewStatus, 'needs_review');
+  // Rights-cleared PNG/table fixtures through the same production HTTP/save path.
+  const anchors = JSON.parse(await readFile(resolve(checkout, 'scripts/fixtures/precise-anchors/synthetic.json'), 'utf8'));
+  const imageEvidence = { ...evidence('image-e'), content: { kind: 'media', assetId: 'image-a', span: { kind: 'whole' } } };
+  const imageAsset = { id: 'image-a', kind: 'image', location: { kind: 'not_retained' }, provenance };
+  const tableEvidence = { ...evidence('table-e'), content: { kind: 'reference' } };
+  await update({ kind: 'evidence', value: imageEvidence, assets: [imageAsset] });
+  await update({ kind: 'evidence', value: tableEvidence, assets: [] });
+  const sourceBinding = evidenceId => report.anchorSources.find(e => e.evidenceId === evidenceId).evidenceDigest;
+  const materialEdit = (id, revision, content) => ({ kind: 'material', value: { kind: 'retain', material: { materialId: id, revision, evidenceId: `${id}-e`, evidenceDigest: sourceBinding(`${id}-e`), capturedAt: '2026-10-01T00:00:00Z', rights: 'user_provided', content } } });
+  const pngContent = base64 => ({ kind: 'image', mimeType: 'image/png', base64 });
+  const originalCase = JSON.stringify(report.document.workspace.collection.cases);
+  const retainImage = await update(materialEdit('image', 1, pngContent(anchors.image.base64)));
+  check('material intake upgrades the inquiry and research envelopes', [report.document.schemaVersion, report.document.workspace.schemaVersion], ['contexttrail-research-v2', 'contexttrail-inquiry-v2']);
+  check('material intake preserves CaseRecord v1 exactly', JSON.stringify(report.document.workspace.collection.cases), originalCase);
+  check('PNG dimensions come from decoded bytes', [report.document.workspace.materials.versions[0].content.width, report.document.workspace.materials.versions[0].content.height], [8, 6]);
+  await post(retainImage);
+  check('material operation replay keeps one retained version', (await get()).document.workspace.materials.versions.length, 1);
+  await update(materialEdit('table', 1, anchors.table));
+  const materialDigest = id => report.document.workspace.materials.heads.find(h => h.materialId === id).digest;
+  const region = { kind: 'image_region', materialId: 'image', materialDigest: materialDigest('image'), x: 2, y: 1, width: 6, height: 5 };
+  const cell = { kind: 'table_cell', materialId: 'table', materialDigest: materialDigest('table'), row: 1, column: 1, value: '18' };
+  const selectedFinding = (id, anchor) => ({ ...finding, id: `${id}-finding`, text: 'A reviewer selected this retained material.', assessment: { ...finding.assessment, kind: 'operator_inference', rationale: 'Supplied selection; truth, image authenticity and table accuracy remain unverified.' }, support: [{ evidenceId: `${id}-e`, relationship: 'context', anchor }] });
+  const regionFinding = selectedFinding('image', region), cellFinding = selectedFinding('table', cell);
+  await update({ kind: 'finding', value: regionFinding });
+  await update({ kind: 'finding', value: cellFinding });
+  const anchorView = id => report.findings.find(f => f.finding.id === `${id}-finding`);
+  check('PNG region and exact table cell are current', ['image', 'table'].map(id => anchorView(id).support[0].status), ['current', 'current']);
+  const retainedMaterial = id => report.document.workspace.materials.versions.find(m => m.digest === anchorView(id).support[0].retainedMaterial.digest);
+  check('cell review resolves complete table context', retainedMaterial('table').content, anchors.table);
+  check('image payload appears once in the review response', JSON.stringify(report).split(anchors.image.base64).length, 2);
+  await stop();
+  await launch(true);
+  check('v2 current anchors survive actual server restart', await get(), report);
+  const invalidAnchors = [
+    selectedFinding('image', { ...region, width: 7 }),
+    selectedFinding('image', { ...region, x: 1.5 }),
+    selectedFinding('table', { ...cell, row: 99 }),
+    selectedFinding('table', { ...cell, value: '18 ' }),
+  ];
+  for (const [i, invalid] of invalidAnchors.entries()) {
+    await post({ kind: 'update', caseId: id, operationId: `bad-retained-anchor-${i}`, expectedRevision: report.document.revision, change: { kind: 'finding', value: { ...invalid, id: `invalid-${i}` } } }, 400);
+  }
+  check('invalid retained anchors leave persisted document untouched', (await get()).document, report.document);
+  const oversizedHeader = Buffer.from(anchors.image.base64, 'base64'); oversizedHeader.writeUInt32BE(0x7fffffff, 16);
+  await post({ kind: 'update', caseId: id, operationId: 'oversized-png', expectedRevision: report.document.revision, change: materialEdit('image', 2, pngContent(oversizedHeader.toString('base64'))) }, 400);
+  check('oversized PNG header rejected without write', (await get()).document, report.document);
+  await update(materialEdit('image', 2, pngContent(anchors.replacement.base64)));
+  check('same-size pixel replacement stales region finding', anchorView('image').support[0].status, 'changed');
+  check('stale region retains its original bytes', retainedMaterial('image').content.base64, anchors.image.base64);
+  await update({ kind: 'finding', value: regionFinding });
+  check('identical region resubmission cannot clear review', anchorView('image').reviewStatus, 'needs_review');
+  const oldTableSource = sourceBinding('table-e');
+  await update({ kind: 'evidence', value: { ...tableEvidence, title: 'Corrected synthetic source' }, assets: [] });
+  check('source correction stales a cell even when its value is unchanged', anchorView('table').support[0].status, 'changed');
+  const oldMaterial = materialEdit('table', 2, anchors.table); oldMaterial.value.material.evidenceDigest = oldTableSource;
+  await post({ kind: 'update', caseId: id, operationId: 'old-material-source', expectedRevision: report.document.revision, change: oldMaterial }, 400);
+  check('cannot attach new material to changed source digest', (await get()).document, report.document);
+  await update(materialEdit('table', 2, { ...anchors.table, rows: [['2025', '12'], ['2026', '19'], ['', '=1+1']] }));
+  check('table replacement preserves the original exact cell', anchorView('table').support[0].anchor.value, '18');
+  await update({ kind: 'material', value: { kind: 'withdraw', materialId: 'image', reason: 'Synthetic reviewer withdrawal' } });
+  check('withdrawal reports missing material with a reason', [anchorView('image').support[0].status, anchorView('image').support[0].reason], ['unavailable', 'Synthetic reviewer withdrawal']);
+  check('withdrawal keeps historical bytes available for review', retainedMaterial('image').content.base64, anchors.image.base64);
   const stale = await post({ kind: 'update', caseId: id, operationId: 'stale', expectedRevision: 1, change: { kind: 'subquestion', value: { kind: 'subquestion', id: 'stale-q', question: 'Old writer?' } } }, 409);
   check('stale request gets explicit conflict', stale.code, 'REVISION_CONFLICT');
   const concurrentBase = report.document.revision;
@@ -135,13 +197,13 @@ try {
   check('case index recovers from disk', index.cases.map(c => [c.caseId, c.revision]), [[id, report.document.revision]]);
   const prefix = resolve(data, createHash('sha256').update(id).digest('hex'));
   await writeFile(`${prefix}.lock`, 'synthetic interrupted writer');
-  const blocked = await post({ kind: 'update', caseId: id, operationId: 'after-interruption', expectedRevision: report.document.revision, change: { kind: 'subquestion', value: { kind: 'subquestion', id: 'blocked', question: 'May this commit?' } } }, 409);
+  const blocked = await post({ kind: 'update', caseId: id, operationId: 'after-interruption', expectedRevision: report.document.revision, change: materialEdit('image', 3, pngContent(anchors.image.base64)) }, 409);
   check('unexplained lock blocks writes', blocked.code, 'CASE_BUSY');
   check('interrupted writer leaves committed case readable', await get(), report);
   check('interrupted lock not silently deleted', await readFile(`${prefix}.lock`, 'utf8'), 'synthetic interrupted writer');
   await rm(`${prefix}.lock`); // This run owns the explicitly synthetic marker.
   await writeFile(`${prefix}.tmp`, 'synthetic interrupted temporary file');
-  const recovery = await post({ kind: 'update', caseId: id, operationId: 'after-temp', expectedRevision: report.document.revision, change: { kind: 'subquestion', value: { kind: 'subquestion', id: 'blocked', question: 'May this commit?' } } }, 409);
+  const recovery = await post({ kind: 'update', caseId: id, operationId: 'after-temp', expectedRevision: report.document.revision, change: materialEdit('image', 3, pngContent(anchors.image.base64)) }, 409);
   check('uncommitted temporary file requires inspection', recovery.code, 'RECOVERY_REQUIRED');
   check('temporary-save interruption preserves committed case', await get(), report);
   check('temporary bytes are preserved', await readFile(`${prefix}.tmp`, 'utf8'), 'synthetic interrupted temporary file');
@@ -164,6 +226,6 @@ try {
 } finally {
   await stop();
   await writeFile(resolve(artifacts, 'server.log'), output);
-  await writeFile(resolve(artifacts, 'report.json'), JSON.stringify({ completed, tier: 'real-local-http-and-disk', sourceHashes, buildId: (await readFile(resolve(checkout, '.next/BUILD_ID'), 'utf8')).trim(), providerEnvironment: 'omitted; no provider operation requested', limits: 'Synthetic supplied evidence. No UI, retrieval, media decoding, entailment analysis or live-source accuracy claim.', assertions }, null, 2));
+  await writeFile(resolve(artifacts, 'report.json'), JSON.stringify({ completed, tier: 'real-local-http-and-disk', sourceHashes, buildId: (await readFile(resolve(checkout, '.next/BUILD_ID'), 'utf8')).trim(), providerEnvironment: 'omitted; no provider operation requested', limits: 'Synthetic supplied evidence. PNG-only bounded decoding and supplied table cells. No UI, retrieval, OCR, audio/video analysis, entailment or authenticity claim.', assertions }, null, 2));
   process.stdout.write(`${JSON.stringify({ completed, assertions: assertions.length, artifacts })}\n`);
 }

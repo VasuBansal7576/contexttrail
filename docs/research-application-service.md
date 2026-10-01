@@ -2,7 +2,7 @@
 
 This service connects the existing inquiry, case, and supplied-source-dependency modules through a persistent HTTP contract. It is ready for a later approved interface. No page, style, control, or visual proposal is added. Existing image investigation routes and result caches are unchanged.
 
-It is a manual, single-user local service. It does not search, fetch a supplied URL, call a provider, analyze a video, transcribe audio, decide truth or entailment, or run monitoring. Supplied image, video and audio records are references. Timed findings preserve a reviewer's supplied millisecond segment; this is not evidence that playback or decoding occurred. Exact image-region and table-cell anchors remain unimplemented.
+It is a manual, single-user local service. It does not search, fetch a supplied URL, call a provider, analyze a video, transcribe audio, decide truth or entailment, or run monitoring. Supplied image, video and audio records are references. Timed findings preserve a reviewer's supplied millisecond segment; this is not evidence that playback or decoding occurred. The v2 extension supports precise regions in bounded retained PNGs and exact cells in supplied structured tables. See [precise evidence anchors](precise-evidence-anchors.md) for formats, bounds and migration.
 
 ## Run
 
@@ -32,12 +32,13 @@ The response is:
 ```ts
 {
   document: {
-    schemaVersion: 'contexttrail-research-v1',
+    schemaVersion: 'contexttrail-research-v1' | 'contexttrail-research-v2',
     revision: number,
     workspace: InquiryWorkspace,
     citations: SuppliedCitation[],
     applied: Array<{ operationId: string; digest: string }>
   },
+  anchorSources: Array<{ evidenceId: string; evidenceDigest: string }>,
   findings: ReturnType<typeof findingViews>,
   dependencies: SourceDependencyReport
 }
@@ -45,7 +46,7 @@ The response is:
 
 `document.revision` is the optimistic-write revision, including citation-only changes. `workspace.revision` and the current CaseRecord's revision retain their existing meanings. Do not substitute either for `document.revision` in an update.
 
-The new outer envelope preserves the existing `contexttrail-inquiry-v1` and `contexttrail-case-v1` contracts unchanged. Questions stay distinct from assertions; creating a question produces an empty claims list. Findings retain their source-statement/operator-inference label, reviewer and rationale. Reports and review status are recomputed from persisted inputs rather than trusted cached display flags.
+Existing `contexttrail-inquiry-v1` and `contexttrail-case-v1` files remain readable without an on-open migration. Retained-material intake upgrades only the inquiry/research envelopes to v2; CaseRecord v1 stays unchanged. Questions stay distinct from assertions; creating a question produces an empty claims list. Findings retain their source-statement/operator-inference label, reviewer and rationale. Reports and review status are recomputed from persisted inputs rather than trusted cached display flags.
 
 ### Start a case
 
@@ -87,9 +88,10 @@ Supported changes use the existing domain types. See the exported `ResearchAppli
 | `hypothesis` | `Hypothesis` | Upsert a candidate explanation bound to the root question or a subquestion |
 | `evidence` | `CaseEvidence`, plus `assets: MediaAsset[]` | Add or replace that evidence ID and supplied asset IDs through a new validated case snapshot; retain previous case history |
 | `finding` | `Finding` | Preserve the exact anchor and assessment; reject missing or nonmatching evidence |
+| `material` | `MaterialEditInput` | Retain a bounded user-supplied PNG/table revision or withdraw its current availability; retain older material for review |
 | `citation` | `SuppliedCitation` | Add or replace a supplied citation ID, save the inputs and recompute dependency flags |
 
-Evidence includes its source URL, retained content or media reference, publication-date observation and provenance. A manual excerpt must keep its actual attribution. Do not relabel a search snippet as a page quote. The service does not fetch any supplied URL. Media bytes are not stored by this endpoint.
+Evidence includes its source URL, retained content or media reference, publication-date observation and provenance. A manual excerpt must keep its actual attribution. Do not relabel a search snippet as a page quote. The service does not fetch any supplied URL. The `evidence` change stores references only. The separate v2 `material` change retains bounded user-supplied PNG bytes or structured table data.
 
 A text finding uses the existing anchor `{ "kind": "text", "start": 0, "quote": "Exact retained wording" }`. Offsets count UTF-16 code units and matching is case-sensitive. The quote must exactly match the retained passage at that offset.
 
@@ -153,7 +155,7 @@ Show these limits next to any future interface display:
 
 To correct retained evidence, submit `evidence` with the same evidence ID and corrected content/provenance. The original case snapshot is preserved in `workspace.collection.caseHistory`. Prior finding anchors remain unchanged. A changed content binding yields `needs_review`, and citation quote checks recompute against the new passage.
 
-Resending an identical finding cannot erase its stale-source warning. A revised finding needs a changed review rationale and an exact anchor in the current evidence. Changes to asset locations, durations or content hashes can also invalidate affected bindings. This service has no delete operation, root-question editor or additional correction-note schema; it preserves the existing contracts rather than inventing those features.
+Resending an identical finding cannot erase its stale-source warning. A revised finding needs a changed review rationale and an exact anchor in the current evidence. Changes to asset locations, durations or content hashes can also invalidate affected bindings. Material withdrawal records a reason and leaves historical bytes available for review. This service has no permanent-delete operation, root-question editor or additional correction-note schema; it preserves the existing contracts rather than inventing those features.
 
 ## Save, retry and interruption behavior
 
