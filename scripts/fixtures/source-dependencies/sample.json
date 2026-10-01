@@ -1,0 +1,245 @@
+{
+  "caseRecord": {
+    "schemaVersion": "contexttrail-case-v1",
+    "id": "synthetic-garden-study",
+    "revision": 1,
+    "createdAt": "2026-10-01T00:00:00Z",
+    "claims": [
+      {
+        "id": "growth",
+        "kind": "text",
+        "text": "Every seed grew.",
+        "language": "en",
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      }
+    ],
+    "assets": [],
+    "occurrences": [],
+    "relations": [],
+    "coverage": {
+      "scope": "retrieved_evidence",
+      "completeness": "partial",
+      "omittedEvidenceCount": 0,
+      "originalPublication": {
+        "status": "unknown",
+        "reason": "Not investigated"
+      },
+      "limitations": [
+        "Entirely synthetic local example"
+      ],
+      "searches": []
+    },
+    "evidence": [
+      {
+        "id": "study",
+        "sourceUrl": "https://study.example/results",
+        "title": "study",
+        "content": {
+          "kind": "text",
+          "text": "Every seed grew. This sentence was the preliminary report.",
+          "attribution": "page_quote"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      },
+      {
+        "id": "syndicated-a",
+        "sourceUrl": "https://news-a.example/garden",
+        "title": "syndicated-a",
+        "content": {
+          "kind": "text",
+          "text": "The supplied study says every seed grew. Shared wire passage.",
+          "attribution": "page_quote"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      },
+      {
+        "id": "syndicated-b",
+        "sourceUrl": "https://news-b.example/garden",
+        "title": "syndicated-b",
+        "content": {
+          "kind": "text",
+          "text": "The supplied study says every seed grew. Shared wire passage.",
+          "attribution": "page_quote"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      },
+      {
+        "id": "same-domain-independent",
+        "sourceUrl": "https://news-a.example/own-experiment",
+        "title": "same-domain-independent",
+        "content": {
+          "kind": "text",
+          "text": "Our separate synthetic experiment recorded two sprouts.",
+          "attribution": "page_quote"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      },
+      {
+        "id": "translation",
+        "sourceUrl": "https://otro.example/jardin",
+        "title": "translation",
+        "content": {
+          "kind": "text",
+          "text": "Todas las semillas germinaron.",
+          "attribution": "page_quote"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      },
+      {
+        "id": "correction",
+        "sourceUrl": "https://study.example/results",
+        "title": "correction",
+        "content": {
+          "kind": "text",
+          "text": "Correction: not every seed grew. The earlier sentence \"Every seed grew.\" is withdrawn.",
+          "attribution": "page_quote"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      },
+      {
+        "id": "reference",
+        "sourceUrl": "https://study.example/appendix",
+        "title": "reference",
+        "content": {
+          "kind": "reference"
+        },
+        "publicationDate": {
+          "status": "unknown",
+          "reason": "Synthetic fixture"
+        },
+        "provenance": {
+          "method": "user_submission",
+          "toolVersion": null,
+          "capturedAt": null,
+          "retrievedAt": null,
+          "rights": "user_provided",
+          "retention": "reference_only",
+          "contentHash": null
+        }
+      }
+    ]
+  },
+  "citations": [
+    {
+      "id": "syndication-a",
+      "fromEvidenceId": "syndicated-a",
+      "targetUrl": "https://study.example/results#data",
+      "targetRole": "primary",
+      "claimId": "growth",
+      "quote": {
+        "text": "Every seed grew.",
+        "start": 0
+      }
+    },
+    {
+      "id": "syndication-b",
+      "fromEvidenceId": "syndicated-b",
+      "targetUrl": "https://study.example/results",
+      "targetRole": "primary",
+      "claimId": "growth",
+      "quote": {
+        "text": "Every seed grew.",
+        "start": null
+      }
+    },
+    {
+      "id": "appendix",
+      "fromEvidenceId": "same-domain-independent",
+      "targetUrl": "https://study.example/appendix",
+      "targetRole": "primary",
+      "claimId": "growth",
+      "quote": {
+        "text": "Every seed grew.",
+        "start": null
+      }
+    },
+    {
+      "id": "missing",
+      "fromEvidenceId": "translation",
+      "targetUrl": "https://unavailable.example/study",
+      "targetRole": "primary",
+      "claimId": "growth",
+      "quote": null
+    }
+  ]
+}
