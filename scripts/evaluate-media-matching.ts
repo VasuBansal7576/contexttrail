@@ -11,6 +11,7 @@ import { transformPng } from '../src/lib/video/matching/fixtures';
 
 const FROZEN_COMMIT = '7093c027197f967acea6a43e612bd11fb2a2220f';
 const FROZEN_FILES = ['compare.ts'];
+const FROZEN_COMPARISON_SHA256 = 'c755c5c891ee2c79feb99b272772a8e1160783367b942b79f8474f93757b2575';
 const RECORDED_FILES = [...FROZEN_FILES, 'decode.ts', 'prepare.ts', 'model.ts'];
 type Segment = { startMs: number; endMs: number; label: string };
 type Asset = { id: string; file: string; kind: 'image' | 'video'; segments: Segment[]; sha256: string };
@@ -53,8 +54,7 @@ async function main(): Promise<void> {
   // are separately hashed; reruns after a fix are reproducibility checks, not new held-out evidence.
   for (const name of FROZEN_FILES) {
     const path = `src/lib/video/matching/${name}`;
-    const expected = execFileSync('git', ['show', `${FROZEN_COMMIT}:${path}`]);
-    if (!expected.equals(await readFile(path))) throw new Error('Frozen matcher differs; reserve new held-out cases for a changed algorithm');
+    if (hash(await readFile(path)) !== FROZEN_COMPARISON_SHA256) throw new Error('Frozen matcher differs; reserve new held-out cases for a changed algorithm');
   }
   await mkdir(directory, { mode: 0o700 });
   await mkdir(join(directory, 'media'), { mode: 0o700 });
