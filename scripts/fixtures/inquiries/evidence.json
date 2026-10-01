@@ -1,0 +1,212 @@
+{
+  "kind": "update",
+  "operationId": "add-evidence",
+  "expectedRevision": 1,
+  "caseUpdates": {
+    "watchlists": [
+      {
+        "id": "bridge",
+        "scope": {
+          "kind": "incident",
+          "label": "Harbor Bridge reopening",
+          "description": "Public reopening statements on one explicitly selected example source."
+        },
+        "phrases": [
+          "Harbor Bridge"
+        ],
+        "sourceHosts": [
+          "example.org"
+        ]
+      }
+    ],
+    "familyLinks": [
+      {
+        "id": "open-closed",
+        "familyId": "bridge-status",
+        "from": {
+          "caseId": "harbor-bridge",
+          "claimId": "claim-open"
+        },
+        "to": {
+          "caseId": "harbor-bridge",
+          "claimId": "claim-closed"
+        },
+        "relationship": "contradiction",
+        "assessment": {
+          "status": "inferred",
+          "method": "manual comparison",
+          "rationale": "The statements use the same day but may describe different times; review required."
+        },
+        "support": [
+          {
+            "caseId": "harbor-bridge",
+            "evidenceId": "notice"
+          }
+        ]
+      }
+    ],
+    "updates": [
+      {
+        "kind": "snapshot",
+        "caseRecord": {
+          "schemaVersion": "contexttrail-case-v1",
+          "id": "harbor-bridge",
+          "revision": 2,
+          "createdAt": "2026-10-01T00:00:00Z",
+          "claims": [
+            {
+              "id": "claim-open",
+              "kind": "text",
+              "text": "Harbor Bridge reopened on Monday.",
+              "language": "en",
+              "provenance": {
+                "method": "manual",
+                "toolVersion": null,
+                "capturedAt": null,
+                "retrievedAt": "2026-10-01T00:00:00Z",
+                "rights": "public_reference",
+                "retention": "reference_only",
+                "contentHash": null
+              }
+            },
+            {
+              "id": "claim-closed",
+              "kind": "text",
+              "text": "Harbor Bridge remained closed on Monday.",
+              "language": "en",
+              "provenance": {
+                "method": "manual",
+                "toolVersion": null,
+                "capturedAt": null,
+                "retrievedAt": "2026-10-01T00:00:00Z",
+                "rights": "public_reference",
+                "retention": "reference_only",
+                "contentHash": null
+              }
+            }
+          ],
+          "assets": [],
+          "evidence": [
+            {
+              "id": "notice",
+              "sourceUrl": "https://example.org/notice",
+              "title": "Harbor Bridge status",
+              "content": {
+                "kind": "text",
+                "text": "Harbor Bridge reopened on Monday, according to the initial notice.",
+                "attribution": "page_quote"
+              },
+              "publicationDate": {
+                "status": "unknown",
+                "reason": "Publication time unavailable"
+              },
+              "provenance": {
+                "method": "manual",
+                "toolVersion": null,
+                "capturedAt": null,
+                "retrievedAt": "2026-10-01T00:00:00Z",
+                "rights": "public_reference",
+                "retention": "reference_only",
+                "contentHash": null
+              }
+            },
+            {
+              "id": "context",
+              "sourceUrl": "https://example.org/context",
+              "title": "Harbor Bridge context",
+              "content": {
+                "kind": "reference"
+              },
+              "publicationDate": {
+                "status": "unknown",
+                "reason": "Publication time unavailable"
+              },
+              "provenance": {
+                "method": "manual",
+                "toolVersion": null,
+                "capturedAt": null,
+                "retrievedAt": "2026-10-01T00:00:00Z",
+                "rights": "public_reference",
+                "retention": "reference_only",
+                "contentHash": null
+              }
+            }
+          ],
+          "occurrences": [],
+          "relations": [
+            {
+              "id": "supports-open",
+              "kind": "evidence_claim",
+              "evidenceId": "notice",
+              "claimId": "claim-open",
+              "relationship": "supports",
+              "assessment": {
+                "status": "inferred",
+                "evidenceIds": [
+                  "notice"
+                ],
+                "method": "manual reading",
+                "rationale": "Source states reopening but independent verification remains absent."
+              }
+            }
+          ],
+          "coverage": {
+            "scope": "retrieved_evidence",
+            "completeness": "partial",
+            "omittedEvidenceCount": 0,
+            "originalPublication": {
+              "status": "unknown",
+              "reason": "No origin established"
+            },
+            "limitations": [
+              "Synthetic manual fixture; no network retrieval."
+            ],
+            "searches": []
+          }
+        },
+        "removal": {
+          "status": "not_confirmed"
+        }
+      }
+    ]
+  },
+  "subquestions": [
+    {
+      "kind": "subquestion",
+      "id": "timing",
+      "question": "Do these notices distinguish the same day from the same time?"
+    }
+  ],
+  "hypotheses": [
+    {
+      "kind": "hypothesis",
+      "id": "different-times",
+      "questionId": "timing",
+      "explanation": "The accounts might describe different times; supplied material does not establish this."
+    }
+  ],
+  "findings": [
+    {
+      "kind": "finding",
+      "id": "initial-statement",
+      "questionId": "question",
+      "text": "The initial supplied notice says the bridge reopened Monday. Independent verification is absent.",
+      "assessment": {
+        "kind": "source_statement",
+        "reviewer": "Synthetic fixture author",
+        "rationale": "Recorded what the supplied notice states, without adopting its claim as fact."
+      },
+      "support": [
+        {
+          "evidenceId": "notice",
+          "relationship": "supports",
+          "anchor": {
+            "kind": "text",
+            "start": 0,
+            "quote": "Harbor Bridge reopened on Monday"
+          }
+        }
+      ]
+    }
+  ]
+}

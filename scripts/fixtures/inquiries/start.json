@@ -1,0 +1,11 @@
+{
+  "kind": "start",
+  "operationId": "start-example",
+  "inquiry": {
+    "kind": "inquiry",
+    "id": "question",
+    "caseId": "harbor-bridge",
+    "question": "What do the supplied notices establish about when Harbor Bridge reopened, and what remains uncertain?"
+  },
+  "createdAt": "2026-10-01T00:00:00Z"
+}
