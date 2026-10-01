@@ -386,3 +386,10 @@ acceptance work are recorded in [the release checklist](docs/release.md).
 ### Precise retained evidence anchors
 
 The local research service can bind findings to a pixel region in a retained user-supplied PNG or an exact cell in a structured table. Material replacement and source correction require review; withdrawal stays explicitly unavailable. CaseRecord v1 is unchanged. See [formats, limits, v1/v2 compatibility and HTTP examples](docs/precise-evidence-anchors.md). No OCR, automatic truth judgment, image-authenticity assessment, provider call or UI is added.
+
+### Local sampled-frame comparison
+
+The local CLI compares rights-cleared supplied videos and images and retains candidate
+sampled-frame overlaps with timestamps, hashes, approximate crop regions, raw scores
+and sampling limits. It does not change case contracts or make truth/identity findings.
+See [local media matching](docs/local-media-matching.md).

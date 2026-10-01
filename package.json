@@ -2,7 +2,7 @@
   "name": "contexttrail",
   "version": "0.1.0",
   "private": true,
-  "description": "ContextTrail \u2014 reconstruct the web history of an image. Image-first v1 frontend.",
+  "description": "ContextTrail — reconstruct the web history of an image. Image-first v1 frontend.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -13,7 +13,8 @@
     "watchlists": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .watchlists-build scripts/watchlists.ts && node .watchlists-build/scripts/watchlists.js",
     "inquiries": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .inquiries-build scripts/inquiries.ts && node .inquiries-build/scripts/inquiries.js",
     "source-dependencies": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .source-dependencies-build scripts/source-dependencies.ts && node .source-dependencies-build/scripts/source-dependencies.js",
-    "research:verify": "node scripts/verify-research-http.mjs"
+    "research:verify": "node scripts/verify-research-http.mjs",
+    "media:match": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/match-media.ts && node .media-match-build/scripts/match-media.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
