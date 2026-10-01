@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sample from '../../../scripts/fixtures/source-dependencies/sample.json';
@@ -101,6 +101,20 @@ describe('source dependency inspection on synthetic held-out evidence', () => {
       execFileSync('node_modules/.bin/tsc', ['--module', 'commonjs', '--moduleResolution', 'node', '--target', 'ES2020', '--esModuleInterop', '--skipLibCheck', '--strict', '--outDir', dir, 'scripts/source-dependencies.ts']);
       const output = execFileSync(process.execPath, [join(dir, 'scripts/source-dependencies.js'), 'scripts/fixtures/source-dependencies/sample.json'], { encoding: 'utf8' });
       expect(JSON.parse(output)).toEqual(sourceDependencyReport(JSON.parse(readFileSync('scripts/fixtures/source-dependencies/sample.json', 'utf8'))));
+      const savedInput = join(dir, 'saved-input.json'), savedReport = join(dir, 'saved-report.json');
+      writeFileSync(savedInput, JSON.stringify(fresh())); writeFileSync(savedReport, output);
+      const restoredOutput = execFileSync(process.execPath, [join(dir, 'scripts/source-dependencies.js'), savedInput], { encoding: 'utf8' });
+      expect(JSON.parse(restoredOutput)).toEqual(JSON.parse(readFileSync(savedReport, 'utf8')));
+      const corrected = fresh();
+      const study = corrected.caseRecord.evidence.find(e => e.id === 'study');
+      if (!study || study.content.kind !== 'text') throw new Error('Missing synthetic study');
+      study.content.text = 'Correction: only one seed grew.'; corrected.caseRecord.revision++;
+      writeFileSync(savedInput, JSON.stringify(corrected));
+      const correctedOutput = execFileSync(process.execPath, [join(dir, 'scripts/source-dependencies.js'), savedInput], { encoding: 'utf8' });
+      expect(JSON.parse(correctedOutput)).toEqual(sourceDependencyReport(corrected));
+      expect(correctedOutput).not.toBe(restoredOutput);
+      // Rechecking a corrected input does not mutate the previously saved report.
+      expect(readFileSync(savedReport, 'utf8')).toBe(output);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 30_000);
 });
