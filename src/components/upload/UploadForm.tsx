@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { CasebookShell, ChapterHeading } from "@/components/casebook/CasebookShell";
 import { cn } from "@/components/cn";
 import { PUBLIC_IMAGES, type PublicImageId } from "@/lib/media/public-images";
 
@@ -73,33 +74,16 @@ export default function UploadForm({
   const canSubmit = (selection !== null || Boolean(publicImageId) || Boolean(publicImageUrl)) && !preparing;
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
-      <header className="mx-auto flex max-w-[1280px] items-center justify-between px-5 py-5 sm:px-8">
-        <p className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-ink" />
-          ContextTrail
-        </p>
-        {/* 44px target: the only interactive control on this screen that had no
-            minimum size, while its Replace/Remove siblings set min-h-[44px] and
-            the submit uses min-h-[48px]. Appearance is unchanged — same text-sm,
-            ink-soft secondary styling, same copy, same destination; only the hit
-            area grows, with the label vertically centred inside it. */}
-        <Link
-          href="/"
-          className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm text-ink-soft hover:text-ink"
-        >
-          ← Back
-        </Link>
-      </header>
-
-      <main className="mx-auto w-full max-w-[560px] px-5 pt-6 pb-20 sm:pt-10">
-        <h1 className="text-center font-serif text-5xl">Trace an image.</h1>
-        <p className="mt-3 text-center text-ink/65">
-          Upload an image to find where it has appeared online and how its context may have changed.
-        </p>
-
+    <CasebookShell chapter="image" dark>
+      <main id="main" tabIndex={-1} className="casebook-main workspace-grid image-workspace">
+        <aside className="workspace-side">
+          <ChapterHeading number="01" label="Image investigation" description="Follow the image on its own, or examine the story attached to it.">Start with<br /><em>what you see.</em></ChapterHeading>
+          <p className="fine-print">This is a real investigation. Running it uses the configured search providers and their existing credit gates. No search begins until you submit.</p>
+          <p className="fine-print">The photograph can stay the same while its caption changes. Earlier retrieved appearances are evidence, not proof of the first upload.</p>
+          <Link href="/casebook" className="text-link">Back to casebook</Link>
+        </aside>
         <form
-          className="mt-8"
+          className="paper-sheet text-ink"
           onSubmit={(e) => {
             e.preventDefault();
             if (canSubmit) onSubmit();
@@ -298,13 +282,13 @@ export default function UploadForm({
           ) : null}
 
           <p className="mt-4 flex items-start justify-center gap-2 text-center text-xs leading-relaxed text-ink-soft">
-            <span aria-hidden="true">🔒</span>
+
             <span>
               {publicImageId || publicImageUrl ? "The public image URL is sent to SerpApi / Google Lens. No image is uploaded by ContextTrail." : "Your image is sent to SerpApi / Google Lens for visual search. ContextTrail does not persist your image."}
             </span>
           </p>
         </form>
       </main>
-    </div>
+    </CasebookShell>
   );
 }
