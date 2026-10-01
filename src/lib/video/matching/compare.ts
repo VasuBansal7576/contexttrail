@@ -1,4 +1,5 @@
-import { MATCH_LIMITS, type FrameMatchReport, type FramePairComparison, type FrameReference, type MatchRegion, type PixelDistance, type PreparedMatchFrame, type PreparedMatchMedia } from './model';
+import { setImmediate } from 'node:timers/promises';
+import { FrameMatchError, MATCH_LIMITS, type FrameMatchReport, type FramePairComparison, type FrameReference, type MatchRegion, type PixelDistance, type PreparedMatchFrame, type PreparedMatchMedia } from './model';
 
 /** Fixed before held-out evaluation. These are heuristic gates, not calibrated probabilities. */
 export const MATCH_PARAMETERS = Object.freeze({ minCropAxisFraction: 0.6, descriptorSide: 24, maxTrimmedRgbError: 0.065, maxMeanRgbError: 0.15, maxEdgeError: 0.07, minInformativeTiles: 8, discardedTileFraction: 0.25 });
@@ -100,13 +101,14 @@ function comparePair(left: PreparedMatchFrame, right: PreparedMatchFrame, l: Int
   return { left: reference(left), right: reference(right), leftRegion: aligned.leftRegion, rightRegion: aligned.rightRegion, status: matches ? 'candidate_visual_overlap' : informative ? 'no_candidate' : 'uninformative', basis: identical ? 'identical_encoded_bytes' : 'bounded_pixel_alignment', distance: d };
 }
 /** Compare only locally prepared bytes. Does not rank sources, infer sequence identity or modify cases. */
-export function comparePreparedMedia(left: PreparedMatchMedia, right: PreparedMatchMedia): FrameMatchReport {
-  const comparisons: FramePairComparison[] = [];
+function* compareFramePairs(left: PreparedMatchMedia, right: PreparedMatchMedia): Generator<FramePairComparison> {
   const rightTables = right.frames.map(frame => integral(frame.pixels));
   for (const l of left.frames) {
     const lTable = integral(l.pixels);
-    for (const [index, r] of right.frames.entries()) comparisons.push(comparePair(l, r, lTable, rightTables[index]));
+    for (const [index, r] of right.frames.entries()) yield comparePair(l, r, lTable, rightTables[index]);
   }
+}
+function report(left: PreparedMatchMedia, right: PreparedMatchMedia, comparisons: FramePairComparison[]): FrameMatchReport {
   const { frames: _leftFrames, ...leftInput } = left, { frames: _rightFrames, ...rightInput } = right;
   return {
     schemaVersion: 1, algorithm: 'bounded-pixel-alignment-v1', inputs: { left: leftInput, right: rightInput }, comparedFramePairs: comparisons.length,
@@ -121,4 +123,22 @@ export function comparePreparedMedia(left: PreparedMatchMedia, right: PreparedMa
       'Local supplied-file comparison only. No web search, retrieval or provider calls. CaseRecord and evidence identity are unchanged.',
     ],
   };
+}
+
+/** Original synchronous CLI behavior and frozen pair order. */
+export function comparePreparedMedia(left: PreparedMatchMedia, right: PreparedMatchMedia): FrameMatchReport {
+  return report(left, right, [...compareFramePairs(left, right)]);
+}
+/** Same comparisons; yield between bounded pairs so the HTTP client can cancel. */
+export async function comparePreparedMediaAsync(left: PreparedMatchMedia, right: PreparedMatchMedia, signal: AbortSignal): Promise<FrameMatchReport> {
+  const comparisons: FramePairComparison[] = [];
+  const pairs = compareFramePairs(left, right);
+  while (true) {
+    await setImmediate();
+    if (signal.aborted) throw new FrameMatchError('cancelled');
+    const next = pairs.next();
+    if (next.done) break;
+    comparisons.push(next.value);
+  }
+  return report(left, right, comparisons);
 }

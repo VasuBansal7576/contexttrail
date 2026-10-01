@@ -89,8 +89,10 @@ results and failures belong beside the raw reports, not hidden by a single succe
 - Actual requested and decoded timestamps, sample count and largest gap are reported; temporal coverage fraction is null because point samples do not establish interval coverage
 - No OCR, transcript, narration, audio, remote retrieval or model processing is performed
 
-The native decoder is not a security sandbox. This slice has no HTTP endpoint. Hosted
-use still needs a patched isolated decoder worker with resource/concurrency admission.
+The native decoder is not a security sandbox. The separately enabled
+[local application bridge](local-media-application.md) adds a loopback-only HTTP
+endpoint with request admission, deadlines and output caps. Hosted use still
+needs a patched isolated decoder worker with resource/concurrency admission.
 It does not add new provider authorization or spend any provider allowance.
 
 ## Integration boundary

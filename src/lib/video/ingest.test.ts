@@ -74,11 +74,19 @@ describe.skipIf(!binariesAvailable)('real local FFmpeg integration (no providers
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30000);
   it('rejects malformed media and playlists and cleans staging directories on failure', async () => {
-    const before = (await readdir(tmpdir())).filter(name => name.startsWith('contexttrail-video-')).sort();
-    for (const content of ['not video', '#EXTM3U\n#EXTINF:2,\nhttp://127.0.0.1/private\n']) {
-      await expect(prepareVideo(Buffer.from(content))).rejects.toMatchObject({ code: 'decode_failed' });
+    // Other media test files can decode concurrently. Inspect only this test's staging.
+    const directory = await mkdtemp(join(tmpdir(), 'contexttrail-ingest-cleanup-'));
+    const originalTmpdir = process.env.TMPDIR;
+    try {
+      process.env.TMPDIR = directory;
+      for (const content of ['not video', '#EXTM3U\n#EXTINF:2,\nhttp://127.0.0.1/private\n']) {
+        await expect(prepareVideo(Buffer.from(content))).rejects.toMatchObject({ code: 'decode_failed' });
+      }
+      expect(await readdir(directory)).toEqual([]);
+    } finally {
+      if (originalTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTmpdir;
+      await rm(directory, { recursive: true, force: true });
     }
-    const after = (await readdir(tmpdir())).filter(name => name.startsWith('contexttrail-video-')).sort();
-    expect(after).toEqual(before);
   });
 });

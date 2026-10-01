@@ -393,3 +393,11 @@ The local CLI compares rights-cleared supplied videos and images and retains can
 sampled-frame overlaps with timestamps, hashes, approximate crop regions, raw scores
 and sampling limits. It does not change case contracts or make truth/identity findings.
 See [local media matching](docs/local-media-matching.md).
+
+### Local media comparison bridge
+
+The optional `/api/media/compare` route connects supplied video/video or still/video
+comparison to the local application. It requires separate decoder opt-in, loopback
+origin checks, bounded uploads and one admitted request. It returns candidate
+sampled-frame overlaps and compared frames; no case evidence or finding is created.
+See [the API contract, limits, save gap and real HTTP verification](docs/local-media-application.md).
