@@ -2,6 +2,8 @@
 
 The inquiry workspace adds an open question and a reviewed evidence ledger around existing version-1 cases. It does not convert a question into a factual assertion or choose a true/false verdict. Every supplied fixture is synthetic and independently authored. No website retrieval, model analysis, scheduling, response advice, or provider call occurs.
 
+The [local research application service](research-application-service.md) connects this same domain workflow to validated HTTP routes, persistent case files and supplied source-dependency reports. It adds no interface or automatic retrieval.
+
 ## Run the complete journey
 
 Use the existing dependencies and Node 20 or newer. Choose a new state filename.

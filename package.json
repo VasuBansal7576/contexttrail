@@ -12,7 +12,8 @@
     "lint": "next lint",
     "watchlists": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .watchlists-build scripts/watchlists.ts && node .watchlists-build/scripts/watchlists.js",
     "inquiries": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .inquiries-build scripts/inquiries.ts && node .inquiries-build/scripts/inquiries.js",
-    "source-dependencies": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .source-dependencies-build scripts/source-dependencies.ts && node .source-dependencies-build/scripts/source-dependencies.js"
+    "source-dependencies": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .source-dependencies-build scripts/source-dependencies.ts && node .source-dependencies-build/scripts/source-dependencies.js",
+    "research:verify": "node scripts/verify-research-http.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

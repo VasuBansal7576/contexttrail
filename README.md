@@ -67,6 +67,17 @@ live provenance accuracy.** See [the release checklist](docs/release.md) and
 
 ---
 
+## Local research application service
+
+An opt-in, loopback-only [research application service](docs/research-application-service.md)
+connects open questions, subquestions, hypotheses, exact text/timed findings, retained evidence
+and supplied source-dependency reports through real HTTP routes and persistent local files.
+It adds no interface or automatic retrieval. Design approval, hosted storage, and provider-backed
+research remain separate work. Run `npm run research:verify` after a production build to
+reproduce the synthetic HTTP, correction, restart and persistence checks.
+
+---
+
 ## Prerequisites
 
 - **Node.js 20 or newer** — declared in `package.json` under `engines.node` (`>=20`).

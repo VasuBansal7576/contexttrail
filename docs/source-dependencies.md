@@ -51,7 +51,7 @@ const report = sourceDependencyReport({
 
 Citation IDs must be unique and evidence/claim references must exist in the supplied case. Invalid inputs throw before a report is returned. A citation is caller-supplied structured data, not proof that a hyperlink exists in the source document. `citationExistence` describes its presence in the supplied input; `documentCitationExistence` stays unknown. Source identity means conservative URL-key equality, not authenticated authorship or original publication.
 
-The inquiry envelope in `src/lib/inquiries/model.ts` remains unchanged. A consumer can pass the inquiry's current case from its collection and maintain citation inputs alongside it. This report does not create findings, modify inquiry state, refresh finding bindings, or certify an existing finding. Citation input persistence and UI integration are not implemented here.
+The inquiry envelope in `src/lib/inquiries/model.ts` remains unchanged. A consumer can pass the inquiry's current case from its collection and maintain citation inputs alongside it. This report does not create findings, modify inquiry state, refresh finding bindings, or certify an existing finding. The [local research application service](research-application-service.md) now persists citation inputs with the inquiry and exposes this report through its HTTP contract. UI integration remains pending design approval.
 
 ### Report fields
 
