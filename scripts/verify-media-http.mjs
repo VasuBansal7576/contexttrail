@@ -14,7 +14,7 @@ const checkout = fileURLToPath(new URL('..', import.meta.url));
 const artifacts = resolve(checkout, '.verify', `media-http-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const data = resolve(artifacts, 'research-data'), staging = resolve(artifacts, 'decoder-tmp');
 await mkdir(data, { recursive: true }); await mkdir(staging);
-const sourceFiles = ['src/app/api/media/compare/route.ts', 'src/lib/research/local-boundary.ts', 'src/lib/video/matching/application.ts', 'src/lib/video/matching/application-contract.ts', 'src/lib/video/matching/prepare.ts', 'src/lib/video/matching/decode.ts', 'src/lib/video/matching/compare.ts', 'src/lib/video/ingest.ts', 'scripts/verify-media-http.mjs', 'package-lock.json'];
+const sourceFiles = ['src/app/api/media/compare/route.ts', 'src/lib/research/local-boundary.ts', 'src/lib/video/matching/application.ts', 'src/lib/video/matching/application-contract.ts', 'src/lib/video/matching/prepare.ts', 'src/lib/video/matching/decode.ts', 'src/lib/video/matching/compare.ts', 'src/lib/video/matching/schedule.ts', 'src/lib/video/ingest.ts', 'scripts/verify-media-http.mjs', 'package-lock.json'];
 const sourceHashes = Object.fromEntries(await Promise.all(sourceFiles.map(async path => [path, createHash('sha256').update(await readFile(resolve(checkout, path))).digest('hex')])));
 const assertions = [], hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const check = (name, actual, expected) => { assert.deepEqual(actual, expected, name); assertions.push({ name, passed: true }); };

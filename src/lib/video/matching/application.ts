@@ -1,7 +1,7 @@
 /** Single-user loopback upload adapter. No case writes, input paths, network or provider calls. */
 import { VIDEO_LIMITS } from '../ingest';
 import { MATCH_LIMITS, type LocalMediaInput, type PreparedMatchFrame } from './model';
-import { comparePreparedMediaAsync } from './compare';
+import { comparePreparedMediaAsync } from './schedule';
 import { prepareMatchMedia } from './prepare';
 import type { LocalComparisonFrame, LocalComparisonResponse } from './application-contract';
 

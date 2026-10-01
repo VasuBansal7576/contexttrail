@@ -95,7 +95,7 @@ Messages do not expose local paths or native decoder diagnostics.
 - Upload deadline 30 seconds, total request deadline 330 seconds
 - Existing decoder subprocess timeouts, output limits, pixel/duration limits, protocol/format restrictions and 64 MiB single-allocation bound remain unchanged
 - At most two minutes and three requested sample points per video, with at most nine sampled-frame pairs
-- Async comparison uses the unchanged pair algorithm and yields between pairs for cancellation; a deadline can be observed after the current bounded pair finishes
+- A separate scheduling adapter calls the byte-for-byte frozen matcher on each frame pair and yields between pairs. One synchronous interval contains one bounded pair comparison; cancellation and deadline handling wait for that pair to finish
 - At most 16 MiB serialized output, including temporary frame payloads
 - Body parsing is in memory after a bounded stream read. It is not streaming native decoding. A single request can occupy several copies of its bounded inputs
 - Video extraction owns private temporary files. Success, decoder failure and cancellation wait for cleanup before releasing the admission slot
@@ -137,3 +137,37 @@ during native decoding, scratch cleanup and unchanged saved cases. It records
 source hashes, assertions and response artifacts under `.verify/media-http-*`.
 These tests prove application behavior on synthetic media, not matching accuracy
 or a security audit.
+
+### Frozen matcher compatibility
+
+The bridge keeps `compare.ts` byte-for-byte at its evaluator-pinned SHA-256,
+`c755c5c891ee2c79feb99b272772a8e1160783367b942b79f8474f93757b2575`.
+Scheduling lives in `schedule.ts`. It calls the original matcher with one pair
+at a time, preserves its report envelope, and joins the resulting ordered pairs.
+The adapter never changes crop search, thresholds, samples or score computation.
+A cancellation cannot interrupt a synchronous pair calculation; it is checked
+at each yield and again after the final pair.
+
+Run the normal frozen evaluation without changing its hash check:
+
+```sh
+npm run media:evaluate -- new-evaluation-directory
+```
+
+For an existing retained evaluation produced by the current preprocessing
+contract, verify complete report and byte equality without regenerating media:
+
+```sh
+npx --no-install tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/verify-media-scheduling.ts
+node .media-match-build/scripts/verify-media-scheduling.js retained-evaluation-directory new-equivalence.json
+```
+
+The verifier requires the original supplied-file hashes, all extracted frame
+hashes, complete frozen/scheduled report equality and exact serialized report
+hashes. The recorded replay covers 17 retained inputs, 43 frames, 16 reports and
+124 pairs. Fresh evaluation regeneration retains the same 43 frame hashes and
+124 timestamp/score/region/status outputs, with 21 true-positive candidates,
+12 misses, 1 false candidate and 90 true negatives. Newly encoded WebM files can
+have different container IDs and file hashes. The retained-byte verification
+avoids that difference and establishes full report-hash equality. These are
+regression checks on the existing observed set, not new held-out evidence.
