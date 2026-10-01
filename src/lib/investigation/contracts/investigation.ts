@@ -330,6 +330,10 @@ export interface ProvenanceProjection {
 }
 
 export interface SharedResultMetrics {
+  /** Versioned multimedia case projection; absent in older completed results. */
+  caseRecord?: import("../../cases/model").CaseRecord;
+  /** A case-only validation failure never suppresses the completed image report. */
+  caseProjectionError?: "invalid_source_result";
   /** Additive report projection; older cached results legitimately omit it. */
   sourceLinkedReport?: import("../report").SourceLinkedReport;
   /** Earliest usable observed date among core occurrences; never "original". */
