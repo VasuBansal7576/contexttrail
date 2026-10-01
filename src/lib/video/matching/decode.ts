@@ -55,17 +55,21 @@ export async function decodeMatchImage(bytes: Uint8Array, signal?: AbortSignal):
   if (bytes.byteLength > MATCH_LIMITS.imageBytes) throw new FrameMatchError('limit_exceeded');
   const snapshot = Buffer.from(bytes), { format, mimeType } = imageFormat(snapshot);
   const inputArgs = ['-max_alloc', '67108864', '-protocol_whitelist', 'pipe', '-f', format, '-i', 'pipe:0'];
-  const metadata = await execute('ffprobe', ['-v', 'error', ...inputArgs, '-show_entries', 'stream=width,height', '-of', 'json'], snapshot, 4096, signal);
+  const metadata = await execute('ffprobe', ['-v', 'error', ...inputArgs, '-show_entries', 'stream=width,height,pix_fmt', '-of', 'json'], snapshot, 4096, signal);
   let raw: unknown;
   try { raw = JSON.parse(metadata.toString('utf8')); } catch { throw new FrameMatchError('invalid_image'); }
   if (typeof raw !== 'object' || raw === null || !('streams' in raw) || !Array.isArray(raw.streams) || raw.streams.length !== 1) throw new FrameMatchError('invalid_image');
   const stream: unknown = raw.streams[0];
-  if (typeof stream !== 'object' || stream === null || !('width' in stream) || !('height' in stream)) throw new FrameMatchError('invalid_image');
+  if (typeof stream !== 'object' || stream === null || !('width' in stream) || !('height' in stream) || !('pix_fmt' in stream) || typeof stream.pix_fmt !== 'string') throw new FrameMatchError('invalid_image');
   const { width, height } = stream;
   if (typeof width !== 'number' || typeof height !== 'number' || !Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1) throw new FrameMatchError('invalid_image');
   if (width * height > MATCH_LIMITS.imagePixels || Math.max(width, height) > 8192) throw new FrameMatchError('limit_exceeded');
   const side = MATCH_LIMITS.rasterSide;
-  const pixels = await execute('ffmpeg', ['-hide_banner', '-nostdin', '-v', 'error', '-threads', '1', '-noautorotate', ...inputArgs, '-an', '-sn', '-dn', '-vf', `scale=${side}:${side}:flags=area`, '-frames:v', '1', '-threads', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'], snapshot, side * side * 3, signal);
+  // Composite alpha-bearing formats before shrinking, so invisible RGB cannot bleed
+  // into visible pixels. Preserve the established opaque decode path exactly.
+  const alpha = /^(?:rgba|bgra|argb|abgr|yuva|gbrap|ya|pal8)/.test(stream.pix_fmt);
+  const filter = `${alpha ? 'format=rgba,premultiply=inplace=1,' : ''}scale=${side}:${side}:flags=area`;
+  const pixels = await execute('ffmpeg', ['-hide_banner', '-nostdin', '-v', 'error', '-threads', '1', '-noautorotate', ...inputArgs, '-an', '-sn', '-dn', '-vf', filter, '-frames:v', '1', '-threads', '1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1'], snapshot, side * side * 3, signal);
   if (pixels.length !== side * side * 3) throw new FrameMatchError('decode_failed');
   return { mimeType, width, height, pixels };
 }

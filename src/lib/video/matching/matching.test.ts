@@ -8,6 +8,7 @@ import { PNG } from 'pngjs';
 import { prepareMatchMedia } from './prepare';
 import { comparePreparedMedia, MATCH_PARAMETERS } from './compare';
 import { MATCH_LIMITS } from './model';
+import { decodeMatchImage } from './decode';
 import { syntheticPng, transformPng } from './fixtures';
 const available = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); execFileSync('ffprobe', ['-version'], { stdio: 'ignore' }); return true; } catch { return false; } })();
 const image = (bytes: Uint8Array) => prepareMatchMedia({ kind: 'image', bytes, rights: 'user_provided' });
@@ -62,6 +63,35 @@ describe.skipIf(!available)('actual local pixel comparison', () => {
       expect(report).not.toHaveProperty('verdict');
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30000);
+  it('composites transparent PNG/WebP pixels onto black before comparison', async () => {
+    const hidden = PNG.sync.read(syntheticPng(777));
+    for (let i = 3; i < hidden.data.length; i += 4) hidden.data[i] = 0;
+    const hiddenBytes = PNG.sync.write(hidden);
+    expect([...((await decodeMatchImage(hiddenBytes)).pixels)].every(value => value === 0)).toBe(true);
+    const opaque = await image(syntheticPng(777));
+    expect(comparePreparedMedia(opaque, await image(hiddenBytes)).candidates).toHaveLength(0);
+    const half = new PNG({ width: 96, height: 96 });
+    for (let i = 0; i < half.data.length; i += 4) { half.data[i] = 255; half.data[i + 3] = 128; }
+    const decoded = await decodeMatchImage(PNG.sync.write(half));
+    expect([...decoded.pixels.subarray(0, 3)]).toEqual([128, 0, 0]);
+    const directory = await mkdtemp(join(tmpdir(), 'contexttrail-alpha-test-'));
+    try {
+      await writeFile(join(directory, 'hidden.png'), hiddenBytes);
+      execFileSync('ffmpeg', ['-v', 'error', '-i', join(directory, 'hidden.png'), '-frames:v', '1', '-threads', '1', '-c:v', 'libwebp', '-lossless', '1', join(directory, 'hidden.webp')], { timeout: 10000 });
+      const webp = await decodeMatchImage(await readFile(join(directory, 'hidden.webp')));
+      expect(webp.mimeType).toBe('image/webp');
+      expect([...webp.pixels].every(value => value === 0)).toBe(true);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it('rejects animated image containers before decoder work and excessive decoded dimensions', async () => {
+    const animatedWebp = Buffer.from('524946461000000057454250414e494d0400000000000000', 'hex');
+    await expect(image(animatedWebp)).rejects.toMatchObject({ code: 'invalid_image' });
+    const source = syntheticPng(99), animationChunk = Buffer.alloc(20);
+    animationChunk.writeUInt32BE(8); animationChunk.write('acTL', 4);
+    await expect(image(Buffer.concat([source.subarray(0, 33), animationChunk, source.subarray(33)]))).rejects.toMatchObject({ code: 'invalid_image' });
+    const huge = new PNG({ width: 4000, height: 2200 });
+    await expect(image(PNG.sync.write(huge))).rejects.toMatchObject({ code: 'limit_exceeded' });
+  });
   it('snapshots caller bytes before decoding and reports missing executables without diagnostics', async () => {
     const bytes = syntheticPng(891), expected = createHash('sha256').update(bytes).digest('hex');
     const pending = image(bytes); bytes.fill(0);

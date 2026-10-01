@@ -46,7 +46,9 @@ The tool uses the existing bounded video extractor, with three requested samples
 zero, one-third and two-thirds of duration. It decodes still images to a 96 × 96 RGB
 working raster and compares 24 × 24 area-averaged descriptors. The square raster is a
 working coordinate system; report rectangles are normalized to the original decoded
-image width and height. Orientation metadata is not applied to still images.
+image width and height. Orientation metadata is not applied to still images. Transparency is composited
+onto a black matte before resizing, so invisible RGB values cannot contribute to
+the comparison. Review transparent originals on the same black background.
 
 For each sampled pair, one full view is compared against axis-aligned crops of the
 other. Both directions are tried. Each crop axis retains at least 60% of the image.
@@ -110,3 +112,6 @@ VIDEO_REQUIRE_FFMPEG=1 npm test
 The real decoder tests cover crops, subtitles, unrelated inputs, blank images,
 MP4/WebM reordering, image-to-video comparison, hashes, timestamps, cancellation and
 missing executables. These are development fixtures, not held-out accuracy evidence.
+
+See [the frozen evaluation and its failures](local-media-matching-evaluation.md) for
+the separate author-run held-out results and how to reproduce the raw artifacts.

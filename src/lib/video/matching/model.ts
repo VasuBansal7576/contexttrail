@@ -22,6 +22,7 @@ export type MediaCoverage =
   | { kind: 'sampled_video'; durationMs: number; requestedTimestampsMs: number[]; decodedTimestampsMs: number[]; sampleCount: number; largestUnsampledGapMs: number; temporalCoverageFraction: null; audioAnalyzed: false };
 export type PreparedMatchMedia = {
   mediaId: string; contentHash: string; coverage: MediaCoverage; frames: PreparedMatchFrame[];
+  rasterPreprocessing: 'encoded_orientation_black_alpha_matte';
 };
 /** Fractions of the decoded image. Not an automatic evidence anchor or exact object boundary. */
 export type MatchRegion = { x: number; y: number; width: number; height: number };

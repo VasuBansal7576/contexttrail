@@ -14,7 +14,7 @@ export async function prepareMatchMedia(input: LocalMediaInput, options: { signa
   if (input.kind === 'image') {
     const decoded = await decodeMatchImage(bytes, options.signal);
     const contentHash = createHash('sha256').update(bytes).digest('hex'), mediaId = `image:sha256:${contentHash}`;
-    return { mediaId, contentHash, coverage: { kind: 'still_image', fullImageDecoded: true }, frames: [{ ...decoded, mediaId, frameId: `${mediaId}:still`, timestampMs: null, contentHash, bytes }] };
+    return { mediaId, contentHash, rasterPreprocessing: 'encoded_orientation_black_alpha_matte', coverage: { kind: 'still_image', fullImageDecoded: true }, frames: [{ ...decoded, mediaId, frameId: `${mediaId}:still`, timestampMs: null, contentHash, bytes }] };
   }
   const video = await prepareVideo(bytes, options), frames = [];
   for (const frame of video.frames) {
@@ -23,7 +23,7 @@ export async function prepareMatchMedia(input: LocalMediaInput, options: { signa
   }
   const times = frames.map(frame => frame.timestampMs), endpoints = [0, ...times, video.durationMs];
   return {
-    mediaId: video.mediaId, contentHash: video.contentHash, frames,
+    mediaId: video.mediaId, contentHash: video.contentHash, frames, rasterPreprocessing: 'encoded_orientation_black_alpha_matte',
     coverage: { kind: 'sampled_video', durationMs: video.durationMs, requestedTimestampsMs: sampleTimes(video.durationMs), decodedTimestampsMs: times, sampleCount: times.length, largestUnsampledGapMs: Math.max(...endpoints.slice(1).map((time, index) => time - endpoints[index])), temporalCoverageFraction: null, audioAnalyzed: false },
   };
 }
