@@ -46,8 +46,11 @@ The tool uses the existing bounded video extractor, with three requested samples
 zero, one-third and two-thirds of duration. It decodes still images to a 96 × 96 RGB
 working raster and compares 24 × 24 area-averaged descriptors. The square raster is a
 working coordinate system; report rectangles are normalized to the original decoded
-image width and height. Orientation metadata is not applied to still images. Transparency is composited
-onto a black matte before resizing, so invisible RGB values cannot contribute to
+image width and height. Orientation metadata is not applied to still images. Video
+extraction follows FFmpeg's display rotation before retaining JPEG frames. Report
+rectangles refer to those retained frames. `rasterPreprocessing` describes the later
+still-image or retained-frame decode, which preserves that image's encoded orientation.
+Transparency is composited onto a black matte before resizing, so invisible RGB values cannot contribute to
 the comparison. Review transparent originals on the same black background.
 
 For each sampled pair, one full view is compared against axis-aligned crops of the
@@ -61,7 +64,9 @@ The descriptor has 16 tiles. A single brightness offset of at most 24 intensity
 levels is removed. The 12 tiles with the smallest RGB errors are retained. Candidate
 gates are trimmed RGB error ≤ 0.065, full mean RGB error ≤ 0.15, edge error ≤ 0.07,
 and at least eight retained informative tiles. An informative tile has luminance
-variance ≥ 64 in both inputs. Distances are normalized to the 0–255 intensity range.
+variance ≥ 64 in both inputs. Errors are divided by 255. Individual tile RGB errors
+can exceed 1 after brightness correction, and opposing edge gradients can produce
+edge errors up to 2. These values are not probabilities or bounded similarity scores.
 Identical encoded frame bytes bypass these heuristic gates, including for blank images.
 
 The omitted quarter of tiles can contain important captions or edits. Their errors

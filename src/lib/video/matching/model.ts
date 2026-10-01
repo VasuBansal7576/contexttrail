@@ -22,12 +22,13 @@ export type MediaCoverage =
   | { kind: 'sampled_video'; durationMs: number; requestedTimestampsMs: number[]; decodedTimestampsMs: number[]; sampleCount: number; largestUnsampledGapMs: number; temporalCoverageFraction: null; audioAnalyzed: false };
 export type PreparedMatchMedia = {
   mediaId: string; contentHash: string; coverage: MediaCoverage; frames: PreparedMatchFrame[];
+  /** Applied to the still image or retained frame; video extraction may already apply display rotation. */
   rasterPreprocessing: 'encoded_orientation_black_alpha_matte';
 };
 /** Fractions of the decoded image. Not an automatic evidence anchor or exact object boundary. */
 export type MatchRegion = { x: number; y: number; width: number; height: number };
 export type PixelDistance = {
-  /** Distances in [0,1], lower is closer. Not a confidence or probability. */
+  /** Errors are divided by 255, not probabilities. Tile RGB may exceed 1 after brightness correction; edge error can reach 2. */
   meanAbsoluteRgbError: number; trimmedAbsoluteRgbError: number; edgeError: number;
   informativeTiles: number; comparedTiles: number; retainedTiles: number;
   tiles: { column: number; row: number; rgbError: number; edgeError: number; informative: boolean; retained: boolean }[];

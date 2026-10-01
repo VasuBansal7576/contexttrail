@@ -42,6 +42,23 @@ describe.skipIf(!available)('actual local pixel comparison', () => {
     expect(comparePreparedMedia(left, await image(second)).comparisons[0].status).toBe('uninformative');
     expect(comparePreparedMedia(left, await image(first)).candidates[0].basis).toBe('identical_encoded_bytes');
   });
+  it('retains opposing edge errors above one in discarded tiles without promoting identity', async () => {
+    const left = new PNG({ width: 96, height: 96 }), right = new PNG({ width: 96, height: 96 });
+    for (let y = 0; y < 96; y++) for (let x = 0; x < 96; x++) {
+      const offset = (y * 96 + x) * 4;
+      const value = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 ? 255 : 0;
+      for (let channel = 0; channel < 3; channel++) {
+        left.data[offset + channel] = value;
+        right.data[offset + channel] = x < 24 && y < 24 ? 255 - value : value;
+      }
+      left.data[offset + 3] = right.data[offset + 3] = 255;
+    }
+    const report = comparePreparedMedia(await image(PNG.sync.write(left)), await image(PNG.sync.write(right)));
+    expect(report.candidates).toHaveLength(1);
+    expect(report.candidates[0].distance).toMatchObject({ meanAbsoluteRgbError: 0.0625, trimmedAbsoluteRgbError: 0, edgeError: 0 });
+    expect(report.candidates[0].distance.tiles.find(tile => tile.column === 0 && tile.row === 0)).toMatchObject({ rgbError: 1, edgeError: 2, retained: false });
+    expect(report).not.toHaveProperty('verdict');
+  });
   it('decodes real MP4/WebM, maps reordered sampled moments and compares image-to-video', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'contexttrail-matching-test-'));
     try {
