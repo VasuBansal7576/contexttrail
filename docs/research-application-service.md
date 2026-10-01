@@ -121,7 +121,23 @@ Findings require at least one support entry and a valid root/subquestion ID. The
 
 ### Supplied dependencies and quote checks
 
-Citations are supplied records, not verified hyperlinks in a retrieved document. The complete shape remains `SuppliedCitation` in `src/lib/source-dependencies/report.ts`, including `fromEvidenceId`, `targetUrl`, caller-supplied `targetRole`, optional `claimId`, and optional exact quote with an optional offset.
+Citations are supplied records, not verified hyperlinks in a retrieved document. The complete shape remains `SuppliedCitation` in `src/lib/source-dependencies/report.ts`, including `fromEvidenceId`, `targetUrl`, and caller-supplied `targetRole`. Every field is required. Use `claimId: null` when no claim is linked and `quote: null` when no exact quote is supplied. If a quote is supplied without a known offset, use `quote: { "text": "Exact retained wording", "start": null }`; do not omit `start`.
+
+For example, this change records a supplied citation with no linked claim or quote:
+
+```json
+{
+  "kind": "citation",
+  "value": {
+    "id": "citation-1",
+    "fromEvidenceId": "<existing evidence ID>",
+    "targetUrl": "https://example.com/supplied-source",
+    "targetRole": "unspecified",
+    "claimId": null,
+    "quote": null
+  }
+}
+```
 
 The response exposes common supplied citation targets, identical retained passages, quote matches or mismatches, retained target context, and the observed/inferred/unknown basis. Citation inputs survive reopen and server restart. Every report is bound to the current case revision and evidence snapshots.
 
