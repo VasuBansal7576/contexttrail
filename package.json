@@ -2,14 +2,15 @@
   "name": "contexttrail",
   "version": "0.1.0",
   "private": true,
-  "description": "ContextTrail — reconstruct the web history of an image. Image-first v1 frontend.",
+  "description": "ContextTrail \u2014 reconstruct the web history of an image. Image-first v1 frontend.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "next lint"
+    "lint": "next lint",
+    "watchlists": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .watchlists-build scripts/watchlists.ts && node .watchlists-build/scripts/watchlists.js"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
