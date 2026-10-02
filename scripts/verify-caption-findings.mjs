@@ -64,6 +64,10 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
     const box = await leads.boundingBox(); assert(box && box.width <= width);
     await page.screenshot({ path: resolve(artifacts, `${mode}-${width}.png`), fullPage: true });
+    if (mode === 'reopened' && width === 320) {
+      await leads.screenshot({ path: resolve(artifacts, 'reopened-caption-leads-320.png') });
+      await cards.nth(0).screenshot({ path: resolve(artifacts, 'reopened-title-lead-320.png') });
+    }
     matrix.push({ mode, width, findings: 3, overflow: false, titleQuote: false, status: 'INSUFFICIENT_EVIDENCE' });
   }
   for (const width of [1440, 390, 320]) await inspect('live', width);
