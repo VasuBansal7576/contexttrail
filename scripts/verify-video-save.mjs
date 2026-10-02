@@ -8,12 +8,20 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 const checkout = fileURLToPath(new URL('..', import.meta.url));
-const artifacts = resolve(checkout, '.verify/video-save');
+const before = process.argv.includes('--before');
+const artifacts = resolve(checkout, '.verify/video-save', before ? 'before' : 'after');
 await mkdir(artifacts, { recursive: true });
 const dataDirectory = await mkdtemp(resolve(artifacts, 'data-'));
 const compiled = spawnSync(process.execPath, [resolve(checkout, 'node_modules/typescript/bin/tsc'), '--module', 'commonjs', '--target', 'ES2020', '--outDir', resolve(artifacts, 'fixture'), 'src/lib/research/video-save-fixture.ts'], { cwd: checkout, encoding: 'utf8' });
 assert.equal(compiled.status, 0, compiled.stdout + compiled.stderr);
-const fixture = createRequire(import.meta.url)(resolve(artifacts, 'fixture/research/video-save-fixture.js')).videoSaveFixture();
+const claimFixture = createRequire(import.meta.url)(resolve(artifacts, 'fixture/research/video-save-fixture.js')).videoSaveFixture();
+const traceFixture = structuredClone(claimFixture);
+traceFixture.caseRecord.id = 'offline-video-save-trace';
+traceFixture.question = 'Where has this sampled video frame appeared, and in what context?';
+traceFixture.frames = traceFixture.frames.map(frame => {
+  const { claim, status, statusBasis, policyReasons, takeaways, ...common } = frame.imageResult;
+  return { ...frame, imageResult: { ...common, mode: 'trace', headline: 'Synthetic sampled-frame trace.' } };
+});
 const probe = createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r));
 const address = probe.address(); assert(address && typeof address === 'object');
 await new Promise(r => probe.close(r)); const base = `http://127.0.0.1:${address.port}`;
@@ -22,14 +30,18 @@ let serverOutput = ''; server.stdout.on('data', v => serverOutput += v); server.
 let browser;
 try {
   for (let attempt = 0; attempt < 100; attempt++) { try { if ((await fetch(`${base}/api/research`)).ok) break; } catch {} await new Promise(r => setTimeout(r, 100)); }
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, executablePath: process.env.CONTEXTTRAIL_TEST_CHROMIUM || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' });
+  const controls = [];
+  for (const [mode, fixture] of [['trace', traceFixture], ['claim_check', claimFixture]]) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  let investigations = 0, lost = false; const saveInputs = [], errors = [];
+  let investigations = 0, lost = false; const saveInputs = [], errors = [], remote = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
-    if (url.origin !== base) return route.abort();
+    if (url.origin !== base) { remote.push(url.origin); return route.abort(); }
     if (url.pathname === '/api/research/investigate') {
+      const submitted = await new Request(url, { method: 'POST', headers: { 'content-type': request.headers()['content-type'] }, body: request.postDataBuffer() }).formData();
+      assert.equal(submitted.get('claim') ?? '', mode === 'trace' ? '' : 'Synthetic archival video.');
       investigations++; return route.fulfill({ status: 200, contentType: 'application/x-ndjson', body: JSON.stringify({ type: 'research.completed', result: fixture }) + '\n' });
     }
     if (url.pathname === '/api/research' && request.method() === 'POST') {
@@ -41,25 +53,47 @@ try {
   await page.goto(`${base}/video`);
   await page.locator('input[type=file]').setInputFiles({ name: 'synthetic.webm', mimeType: 'video/webm', buffer: Buffer.from('Offline fixture. Not decoded or uploaded.') });
   await page.locator('input[type=checkbox]').check();
+  if (mode === 'claim_check') await page.getByRole('textbox', { name: /^Caption or claim to check/ }).fill('Synthetic archival video.');
   await page.getByRole('button', { name: 'Investigate video', exact: true }).click();
+  const save = page.getByRole('region', { name: 'Save investigation', exact: true });
+  await save.waitFor();
+  const description = await save.locator('p').first().innerText();
+  assert.match(description, before ? /completed sampled-frame caption report/ : /completed sampled-frame investigation report/);
+  if (!before) assert.doesNotMatch(description, /caption report/);
+  assert.match(description, /Original video bytes and sampled image bytes are excluded/);
+  assert.match(description, /Reopening runs no retrieval or model assessment/);
+  assert.equal(await page.getByRole('region', { name: 'Sampled-frame caption comparison', exact: true }).count(), mode === 'trace' ? 0 : 1);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await save.screenshot({ path: resolve(artifacts, `${mode}-save-${width}.png`) });
+    assert.equal(await save.locator('p').first().innerText(), description);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: 'Save video report', exact: true }).click();
   await page.getByRole('alert').waitFor();
   await page.getByRole('button', { name: 'Save video report', exact: true }).click();
   await page.getByRole('link', { name: 'Open saved case', exact: true }).click();
   const report = page.getByRole('region', { name: 'Saved video report', exact: true });
-  await report.waitFor(); assert.match(await report.innerText(), /Insufficient evidence/);
+  await report.waitFor();
+  if (mode === 'claim_check') assert.match(await report.innerText(), /Insufficient evidence/);
+  else assert.equal(await report.getByRole('region', { name: 'Sampled-frame caption comparison', exact: true }).count(), 0);
   assert.deepEqual(saveInputs[0], saveInputs[1]); assert.equal(investigations, 1);
   await page.reload(); await report.waitFor(); assert.equal(investigations, 1);
-  await page.screenshot({ path: resolve(artifacts, 'reopened-desktop.png'), fullPage: true });
+  await page.screenshot({ path: resolve(artifacts, `${mode}-reopened-desktop.png`), fullPage: true });
   const original = await (await fetch(`${base}/api/research?caseId=${encodeURIComponent(fixture.caseRecord.id)}`)).json();
   assert.deepEqual(original.document.videoReport.result, fixture);
   const conflict = await fetch(`${base}/api/research`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...saveInputs[0], videoReport: { ...saveInputs[0].videoReport, result: { ...fixture, limitations: ['Changed report'] } } }) }); assert.equal(conflict.status, 409);
   const correction = await fetch(`${base}/api/research`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'update', caseId: fixture.caseRecord.id, operationId: 'offline-source-correction', expectedRevision: 1, change: { kind: 'evidence', value: { ...fixture.caseRecord.evidence[0], title: 'Corrected current source' }, assets: [] } }) }); assert.equal(correction.status, 200);
   const corrected = await correction.json(); assert.equal(corrected.videoReportStatus, 'stale'); assert.deepEqual(corrected.document.videoReport.result, fixture);
   await page.reload(); await report.waitFor(); assert.match(await report.innerText(), /Needs review/); assert.equal(await report.locator('details').first().getAttribute('open'), null);
-  await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: resolve(artifacts, 'corrected-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: resolve(artifacts, `${mode}-corrected-mobile.png`), fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   assert.deepEqual(errors, []);
-  const evidence = { passed: true, fixture: 'synthetic only', investigations, saves: saveInputs.length, responseLossRetry: true, reload: true, changedInputConflict: conflict.status, sourceCorrectionStatus: corrected.videoReportStatus, browserErrors: errors };
+  assert.deepEqual(remote, []);
+  controls.push({ mode, description, investigations, saves: saveInputs.length, responseLossRetry: true, exactArchive: true, reload: true, changedInputConflict: conflict.status, sourceCorrectionStatus: corrected.videoReportStatus, browserErrors: errors, remote });
+  await page.close();
+  }
+  const evidence = { passed: true, before, fixture: 'synthetic only, original media bytes excluded', controls };
   await writeFile(resolve(artifacts, 'evidence.json'), JSON.stringify(evidence, null, 2)); console.log(JSON.stringify(evidence));
 } finally { await browser?.close(); server.kill('SIGTERM'); await writeFile(resolve(artifacts, 'server.log'), serverOutput); }
