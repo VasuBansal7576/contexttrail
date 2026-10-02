@@ -9,20 +9,26 @@ export default function LandingPage() {
           <p className="eyebrow">A place for the question</p>
           <h1>Follow the<br /><em>question.</em></h1>
           <p className="cover-description">From a single frame to a changing story.<br />Follow evidence, keep the details,<br />and return with a better question.</p>
-          <div className="button-row"><Link className="paper-button primary" href="/casebook">Open your casebook</Link><Link className="text-link" href="/investigate">Start with an image</Link></div>
+          <div className="button-row"><Link className="paper-button primary" href="/investigate">Investigate an image <span aria-hidden="true">↗</span></Link><Link className="text-link" href="/casebook">Return to a saved case</Link></div>
           <div className="cover-footnote"><span className="large-number">01</span><div><p className="eyebrow">Your next line of inquiry</p><p>Keep the question open.<br />Let the evidence change the answer.</p></div></div>
         </div>
-        <div className="cover-specimen">
-          <p className="specimen-kicker eyebrow">An illustration of a question</p>
+        <div className="cover-specimen cover-collage">
+          <div className="cover-disc" aria-hidden="true" />
+          <svg className="cover-orbits" viewBox="0 0 600 570" aria-hidden="true"><ellipse cx="301" cy="273" rx="241" ry="238" transform="rotate(-24 301 273)" /><ellipse cx="301" cy="273" rx="265" ry="115" transform="rotate(-33 301 273)" /></svg>
+          <span className="cover-star" aria-hidden="true">✷</span>
           <figure className="cover-photo-sheet">
-            <span className="eyebrow">One photograph / changing context</span>
-            {/* Project-owned NASA reference image. This is never presented as retrieved evidence. */}
+            <span className="eyebrow">A photograph / a question</span>
+            {/* Illustrative reference, never represented as retrieved evidence. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/illustrative-earthrise.jpg" alt="Earthrise above the lunar horizon, photographed on Apollo 8" />
             <figcaption>A view out of time.</figcaption>
-            <span className="eyebrow">What changes when the caption does?</span>
+            <span className="eyebrow">One image / many ways in</span>
           </figure>
-          <p className="specimen-caption">Illustration only · NASA / Bill Anders, Apollo 8, 1968<br />No investigation has run. No NASA endorsement.</p>
+          <span className="cover-strip cover-strip-date">An image with a different date.</span>
+          <span className="cover-strip cover-strip-frame">A moment in a travelling clip.</span>
+          <span className="cover-strip cover-strip-question">What else could explain it?</span>
+          <span className="cover-strip cover-strip-source">A source changes its story.</span>
+          <p className="specimen-caption">Illustrative cover · NASA / Bill Anders, Apollo 8, 1968<br />This photograph is not a completed investigation.</p>
         </div>
       </section>
       <section id="about" className="cover-about">

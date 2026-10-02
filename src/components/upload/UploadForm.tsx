@@ -8,7 +8,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { CasebookShell, ChapterHeading } from "@/components/casebook/CasebookShell";
 import { cn } from "@/components/cn";
 import { PUBLIC_IMAGES, type PublicImageId } from "@/lib/media/public-images";
@@ -76,19 +75,24 @@ export default function UploadForm({
   return (
     <CasebookShell chapter="image" dark>
       <main id="main" tabIndex={-1} className="casebook-main workspace-grid image-workspace">
-        <aside className="workspace-side">
-          <ChapterHeading number="01" label="Image investigation" description="Follow the image on its own, or examine the story attached to it.">Start with<br /><em>what you see.</em></ChapterHeading>
-          <p className="fine-print">This is a real investigation. Running it uses the configured search providers and their existing credit gates. No search begins until you submit.</p>
-          <p className="fine-print">The photograph can stay the same while its caption changes. Earlier retrieved appearances are evidence, not proof of the first upload.</p>
-          <Link href="/casebook" className="text-link">Back to casebook</Link>
+        <aside className="image-specimen-panel">
+          <p className="image-specimen-note">The photograph is still the photograph.</p>
+          <figure className="image-specimen-sheet">
+            {/* Only local previews and the reviewed public catalogue render here. Arbitrary URLs remain server-validated. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={selection?.previewUrl ?? (publicImageId ? PUBLIC_IMAGES[publicImageId].previewUrl : "/illustrative-earthrise.jpg")} alt={selection ? `Your selected image: ${selection.file.name}` : publicImageId ? PUBLIC_IMAGES[publicImageId].title : "Illustrative Earthrise photograph, Apollo 8"} />
+            <figcaption>{selection || publicImageId ? (claim.trim() || "What can this photograph tell us?") : "Start with a photograph. Follow its story."}</figcaption>
+          </figure>
+          <p className="image-specimen-credit">{selection ? "Your selected image · held in this browser tab" : publicImageId ? PUBLIC_IMAGES[publicImageId].credit : "Illustrative reference · NASA / Bill Anders, Apollo 8. Select an image to begin."}</p>
         </aside>
         <form
-          className="paper-sheet text-ink"
+          className="image-investigation-form"
           onSubmit={(e) => {
             e.preventDefault();
             if (canSubmit) onSubmit();
           }}
         >
+          <ChapterHeading number="01" label="Image investigation" description="Follow the image on its own, or examine the story attached to it.">Start with<br /><em>what you see.</em></ChapterHeading>
           {/* Dropzone: a real button-like label so keyboard users get a native file dialog. */}
           {publicImageId ? (
             <div className="rounded-2xl bg-white/70 p-4 ring-1 ring-ink/10">
