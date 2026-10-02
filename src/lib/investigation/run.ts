@@ -14,7 +14,7 @@
 
 import { CaseValidationError } from "../cases/parse";
 import { caseFromImageInvestigation } from "../cases/from-image-investigation";
-import { auditUrl, readFailure, type PageReadOutcome } from "./report";
+import { readFailure, type PageReadOutcome } from "./report";
 import type { EvidenceCandidate, RetrievalKind } from "./contracts/evidence";
 import type {
   InvestigationEvent,
@@ -76,6 +76,8 @@ import {
 } from "../jev/questions";
 import { createLimiter, ProviderError } from "../providers/http";
 import type { FetchedPage } from "../pages/fetch";
+import { bindFetchedSource } from "../pages/source-binding";
+import { retainableSourceUrl } from "../pages/source-reference";
 import { buildExcerpt, extractPage, selectDisplayQuote } from "../pages/extract";
 import {
   normalizeAboutThisImageResponse,
@@ -920,7 +922,7 @@ export async function runInvestigation(
     const pages = deadlineHit() ? [] : selectDeepReadCandidates(pool);
     const selectedPageIds = new Set(pages.map(c => c.id));
     const pageReads: PageReadOutcome[] = pool.map(c => ({ evidenceId: c.id,
-      requestedUrl: auditUrl(c.sourceUrl), finalUrl: null,
+      requestedUrl: retainableSourceUrl(c.sourceUrl), finalUrl: null, sourceBinding: 'not_established',
       selection: selectedPageIds.has(c.id) ? 'selected' : 'not_selected',
       fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null }));
     let pageFailures = 0;
@@ -931,8 +933,14 @@ export async function runInvestigation(
         try {
           const page = await pageLimiter(() => deps.fetchPage(c.sourceUrl, shared.signal));
           read.fetch = "succeeded";
-          read.finalUrl = auditUrl(page.url);
+          read.finalUrl = retainableSourceUrl(page.url);
           telemetry.pagesSucceeded += 1;
+          read.sourceBinding = bindFetchedSource(c.sourceUrl, page.url);
+          if (read.sourceBinding !== 'same_resource' && read.sourceBinding !== 'normalized_resource') {
+            read.failureCode = 'source_binding_rejected';
+            pageFailures += 1;
+            return;
+          }
           const ex = extractPage(page.html, page.url);
           read.extraction = ex.text ? "usable_text" : "empty_text";
           if (ex.text !== null) {
