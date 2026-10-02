@@ -1,6 +1,6 @@
 # Release and submission checklist
 
-Checked against the draft PR #7 source and open issue roster on 2 October 2026.
+Checked against the combined application and issue roster on 2 October 2026.
 This file records gates, not release approval. Historical audits and test counts remain in
 [the investigation report](https://github.com/VasuBansal7576/contexttrail/issues/3),
 [research report](https://github.com/VasuBansal7576/contexttrail/issues/4) and
@@ -8,13 +8,14 @@ This file records gates, not release approval. Historical audits and test counts
 
 ## Source and merge order
 
-The image core is merged through PR #1. The current local research application is proposed
-through draft [#6](https://github.com/VasuBansal7576/contexttrail/pull/6), then draft
-[#7](https://github.com/VasuBansal7576/contexttrail/pull/7). Follow-up issue PRs target #7's
-branch, with further dependencies named in each PR. Review those diffs against their stated
-bases. A follow-up does not authorize merging or deploying its parent.
+The image core came through PR #1. The local research application builds on
+[#6](https://github.com/VasuBansal7576/contexttrail/pull/6), then
+[#7](https://github.com/VasuBansal7576/contexttrail/pull/7). The owner authorized merging the
+reviewed PR stack on 2 October 2026. Merge parents before their children, retarget each child
+to `main` after its parent lands, and check conflicts and CI on the resulting revision.
+Keep merge commits and historical branches so stacked fixes retain their ancestry.
 
-[The follow-up index](issue-followups-20261002.md) accounts for all ten open issues.
+[The follow-up index](issue-followups-20261002.md) accounts for the issue repairs and remaining gates.
 Preserved historical branches are evidence records, not ready-to-merge alternatives.
 In particular, do not merge the entire old evidence branch over the repaired application.
 

@@ -6,10 +6,10 @@ the local casebook preserves sources, exact findings, corrections and saved repo
 
 ## Revision and release status
 
-This branch builds on draft [PR #7](https://github.com/VasuBansal7576/contexttrail/pull/7),
-which builds on draft [PR #6](https://github.com/VasuBansal7576/contexttrail/pull/6).
-Neither draft is merged into `main`. Historical counts and browser records belong to their
-recorded revisions. Run the checks below on the revision you intend to review.
+The research application includes [PR #6](https://github.com/VasuBansal7576/contexttrail/pull/6),
+[PR #7](https://github.com/VasuBansal7576/contexttrail/pull/7), and the repairs recorded in the
+[issue index](docs/issue-followups-20261002.md). Historical counts and browser records belong
+to their recorded revisions. Run the checks below on the revision you intend to review.
 
 Offline verification checks contracts and interface behavior. It does not establish live
 retrieval quality, an original upload, or a strong historical-reuse demonstration.
@@ -121,11 +121,12 @@ Image saves retain a validated evidence projection, not the full provider report
 image bytes. Topic saves retain their report and exact source bindings. Supplied-media comparison
 saves retain checked sampled frames and the comparison report, never original videos.
 
-Unsaved automatic results are lost on reload. Automatic video persistence and missing-current
-historical viewer paths are tracked in [#9](https://github.com/VasuBansal7576/contexttrail/issues/9)
-and [#12](https://github.com/VasuBansal7576/contexttrail/issues/12). Read the relevant follow-up PR's
-retention contract before relying on those paths. Corrections preserve history and require review;
-reopening a saved case does not silently rerun retrieval or renew an earlier finding's review.
+Unsaved automatic results are lost on reload. Explicit video saves retain the complete bounded
+report and its original evidence, excluding video and sampled image bytes. The historical viewer
+opens exact retained text, image regions and table cells when a current source is missing or changed.
+Read the [automatic retention contract](docs/automatic-investigation.md) and
+[casebook documentation](docs/casebook-interface.md). Corrections preserve history and require
+review; reopening does not rerun retrieval or renew an earlier finding's review.
 
 ## Source and design records
 
