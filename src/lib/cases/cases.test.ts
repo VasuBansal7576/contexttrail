@@ -162,14 +162,22 @@ describe('image investigation adapter', () => {
     expect(adapt(legacy).relations).toEqual([]);
     expect(readCaseFromResult(legacy)).toEqual({ status: 'absent' });
   });
-  it('redacts audit URLs and deduplicates evidence across legacy partitions', () => {
+  it('omits credential-bearing URLs without inventing another source reference', () => {
     const legacy = imageResult([makeCandidate({ sourceUrl: 'https://user:secret@example.com/source?token=private#private' })]);
     legacy.supportingEvidence.push(...legacy.undatedEvidence);
     const value = adapt(legacy);
-    expect(value.evidence).toHaveLength(1);
-    expect(value.evidence[0].sourceUrl).toBe('https://example.com/source');
+    expect(value.evidence).toHaveLength(0);
+    expect(value.coverage.omittedEvidenceCount).toBe(1);
     expect(JSON.stringify(value)).not.toContain('secret');
     expect(JSON.stringify(value)).not.toContain('token=');
+  });
+  it('preserves safe query-addressed source and date provenance across duplicate partitions', () => {
+    const legacy = imageResult([makeExact({ sourceUrl: 'https://example.com/article?id=17', publishedAt: '2020-02-01', publishedAtSource: 'page_meta', datePrecision: 'day', dateStatus: 'usable' })]);
+    legacy.supportingEvidence.push(...legacy.timeline);
+    const value = adapt(legacy);
+    expect(value.evidence).toHaveLength(1);
+    expect(value.evidence[0].sourceUrl).toBe('https://example.com/article?id=17');
+    expect(value.evidence[0].publicationDate).toMatchObject({ status: 'observed', observation: { source: { url: 'https://example.com/article?id=17' } } });
   });
   it('normalizes empty titles and reports omitted source references', () => {
     const legacy = imageResult([

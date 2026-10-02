@@ -392,3 +392,20 @@ body {
 .automatic-frame>.fine-print { margin:16px 0; }
 .automatic-cover-links { margin-top:22px; }
 @media(max-width:760px) { .automatic-intake { grid-template-columns:1fr; gap:12px; } .automatic-aside { gap:16px; } .automatic-results>h2 { font-size:34px; } }
+
+/* Claim-scoped automatic report; shared by the result and saved case views. */
+.claim-report { margin-block: 1.5rem; padding: clamp(1rem, 3vw, 2rem); border: 1px solid var(--color-ink, #292723); }
+.claim-report h3, .claim-report h4 { margin-block: 0 0.75rem; }
+.claim-report-input { padding: 1rem; background: rgb(128 110 80 / 8%); margin-block: 1rem; }
+.claim-report-sources { display: grid; gap: 1rem; margin-block: 1.5rem; }
+.claim-report-source { min-width: 0; }
+.claim-report blockquote { margin-inline: 0; }
+.claim-report-scope { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem; margin-block: 1rem; }
+.claim-report-scope dt, .claim-report-probabilities dt { font-size: 0.8rem; font-weight: 600; }
+.claim-report-scope dd, .claim-report-probabilities dd { margin: 0; overflow-wrap: anywhere; }
+.claim-report-probabilities { display: grid; gap: 0.75rem; }
+.claim-report-dependencies, .claim-report-disagreements, .claim-report-limits { border-top: 1px solid rgb(128 110 80 / 30%); padding-top: 1rem; margin-top: 1.5rem; }
+.claim-report-pair { padding-block: 0.75rem; }
+.claim-report .source-url, .claim-report .evidence-passage { overflow-wrap: anywhere; }
+.claim-report summary { cursor: pointer; padding-block: 0.5rem; }
+.claim-report li + li { margin-top: 0.35rem; }

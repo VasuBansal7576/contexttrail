@@ -1,3 +1,4 @@
+import type { ClaimReport } from './claim-report';
 import type { LocalComparisonResponse } from '../video/matching/application-contract';
 /** Single-user, explicitly enabled local application storage. No hosted account boundary. */
 import type { CaseRecord } from '../cases/model';
@@ -10,7 +11,7 @@ import { inquiryCase, parseResearchDocument, researchWorkflow, reviewResearch, t
 export const MAX_RESEARCH_BYTES = 5 * 1024 * 1024;
 export type ResearchApplicationRequest =
   | { kind: 'start'; operationId: string; question: string; createdAt: string }
-  | { kind: 'import_case'; operationId: string; question: string; createdAt: string; caseRecord: CaseRecord }
+  | { kind: 'import_case'; operationId: string; question: string; createdAt: string; caseRecord: CaseRecord; claimReport?: ClaimReport }
   | { kind: 'import_comparison'; operationId: string; question: string; createdAt: string; comparison: LocalComparisonResponse }
   | { kind: 'update'; caseId: string; operationId: string; expectedRevision: number; change: ResearchChange };
 export class ResearchServiceError extends Error {

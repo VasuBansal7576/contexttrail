@@ -1,5 +1,5 @@
 import type { InvestigationResult, TimelineItem } from '../investigation/contracts/investigation';
-import { auditUrl } from '../investigation/report';
+import { retainableSourceUrl } from '../pages/source-reference';
 import { CASE_SCHEMA_VERSION, type CaseEvidence, type CaseRecord, type CaseRelation, type MediaOccurrence, type Provenance, type SourcedDate } from './model';
 import { parseCaseRecord } from './parse';
 
@@ -48,7 +48,7 @@ export function caseFromImageInvestigation(input: {
   for (const item of [...result.timeline, ...result.undatedEvidence, ...result.supportingEvidence, ...result.contextualEvidence]) {
     if (seen.has(item.evidenceId)) continue;
     seen.add(item.evidenceId);
-    const sourceUrl = auditUrl(item.sourceUrl);
+    const sourceUrl = retainableSourceUrl(item.sourceUrl);
     if (sourceUrl === null || sourceUrl.length > 4096) {
       limitations.push('case_reference_omitted_invalid_source');
       omittedEvidenceCount += 1;
@@ -106,7 +106,7 @@ export function caseFromImageInvestigation(input: {
     coverage: {
       scope: 'retrieved_evidence', completeness: 'partial', omittedEvidenceCount,
       originalPublication: { status: 'unknown', reason: 'Earliest retrieved appearance does not establish original publication.' },
-      limitations: [...new Set([...limitations, 'image_investigation_only', 'source_snapshots_not_retained', 'source_urls_redacted', 'capture_times_unknown'])],
+      limitations: [...new Set([...limitations, 'image_investigation_only', 'source_snapshots_not_retained', 'unsafe_source_urls_omitted', 'capture_times_unknown'])],
       searches: result.requestLog.map(({ engine, attempted, returned, retained, searchId }) => ({ engine, attempted, returned, retained, searchId })),
     },
   });

@@ -373,8 +373,19 @@ describe("automatic topic fixed reservation", () => {
     await expect(search(SERPAPI_SEARCH_URL)).rejects.toThrow("allowance");
     await expect(search(SERPAPI_IMAGE_UPLOAD_URL)).rejects.toThrow("allowance");
     const jev = topic.fetchFor("jev", provider);
-    for (let i = 0; i < 8; i++) await jev(JEV_ENDPOINT, jevBody());
+    for (let i = 0; i < 8; i++) await jev(JEV_ENDPOINT, jevBody(5));
     await expect(jev(JEV_ENDPOINT, jevBody())).rejects.toThrow("allowance");
     expect(provider).toHaveBeenCalledTimes(11);
   });
+});
+
+
+it("preserves legacy eight-question topic spending and refuses expanded research without a new allocation", async () => {
+  config.allowance = { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 8 };
+  await initialize();
+  const original = await readFile(config.ledgerPath, "utf8");
+  await writeFile(config.ledgerPath, `${original}${JSON.stringify({ type: "reserve", id: "00000000-0000-4000-8000-000000000017", allocation: config.allowance })}\n`);
+  const spent = await readFile(config.ledgerPath, "utf8");
+  await expect(reserveTopicRun(config)).rejects.toThrow("cannot cover");
+  expect(await readFile(config.ledgerPath, "utf8")).toBe(spent);
 });

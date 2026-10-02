@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { investigateAutomatically, parseAutomaticResearchResult } from './automatic-client';
+import { buildClaimReport } from './claim-report';
 import { CASE_SCHEMA_VERSION, type CaseRecord } from '../cases/model';
 
 const caseRecord: CaseRecord = { schemaVersion: CASE_SCHEMA_VERSION, id: 'test', revision: 1, createdAt: '2026-10-01T00:00:00Z', claims: [], assets: [], evidence: [], occurrences: [], relations: [], coverage: { scope: 'retrieved_evidence', completeness: 'partial', omittedEvidenceCount: 0, originalPublication: { status: 'unknown', reason: 'No original established.' }, limitations: ['Test evidence only.'], searches: [] } };
@@ -52,4 +53,48 @@ describe('automatic research stream boundary', () => {
     expect(parsed.frames[0].imageResult.timeline[0].dateStatus).toBe('unknown');
     expect(() => parseAutomaticResearchResult({ ...result, frames: [{ ...frame, timestampMs: -1 }] })).toThrow();
   });
+});
+
+it('retains only a validated source-bound claim report, rejecting forged or stale output', () => {
+  const claimReport = buildClaimReport(result.question, caseRecord, []);
+  expect(parseAutomaticResearchResult({ ...result, claimReport }).claimReport).toEqual(claimReport);
+  for (const invalid of [null, {}, { ...claimReport, claim: 'Invented claim' }, { ...claimReport, evidenceBinding: 'stale' }, { ...claimReport, limitations: [] }]) {
+    expect(() => parseAutomaticResearchResult({ ...result, claimReport: invalid })).toThrow('invalid or stale claim report');
+  }
+  expect(() => parseAutomaticResearchResult({ ...result, question: 'A changed question?', claimReport })).toThrow('invalid or stale claim report');
+});
+
+it('validates sampled-frame claim status and binds takeaway IDs to safe retained sources', () => {
+  const imageResult = { mode: 'claim_check', claim: 'This clip is current.', status: 'POSSIBLE_CONTEXT_CONFLICT', policyReasons: [{ gate: 'qualifying_conflicts', passed: false, supportIds: ['frame-source'] }], timeline: [{ evidenceId: 'frame-source', sourceUrl: 'https://example.com/frame' }], takeaways: [{ code: 'historical_reuse', evidenceIds: ['frame-source'] }, { code: 'temporal_conflict', evidenceIds: ['missing'] }, { code: 'invented_verdict', evidenceIds: ['frame-source'] }] };
+  const retained = { id: 'frame-source', sourceUrl: 'https://example.com/frame', title: null, content: { kind: 'reference' }, publicationDate: { status: 'unknown', reason: 'Unknown date.' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'unknown', retention: 'reference_only', contentHash: null } };
+  const input = { ...result, kind: 'video', caseRecord: { ...caseRecord, evidence: [retained] }, frames: [{ timestampMs: 0, imageResult }] };
+  expect(parseAutomaticResearchResult(input).frames[0].imageResult.captionComparison).toEqual({ mode: 'claim_check', claim: 'This clip is current.', status: 'POSSIBLE_CONTEXT_CONFLICT', takeaways: [{ code: 'historical_reuse', evidenceIds: ['frame-source'] }] });
+  expect(() => parseAutomaticResearchResult({ ...input, frames: [{ timestampMs: 0, imageResult: { ...imageResult, status: 'TRUE' } }] })).toThrow('invalid caption comparison');
+});
+
+
+it.each(['CONTEXT_CONFLICT', 'POSSIBLE_CONTEXT_CONFLICT', 'NO_CONFLICT_FOUND'])('downgrades unsupported %s after unsafe or absent sources are filtered', status => {
+  for (const timeline of [[], [{ evidenceId: 'omitted', sourceUrl: 'https://user:secret@example.com/source' }], [{ evidenceId: 'omitted', sourceUrl: 'https://example.com/not-in-case' }]]) {
+    const imageResult = { mode: 'claim_check', claim: 'This clip is current.', status, timeline, takeaways: [{ code: 'temporal_conflict', evidenceIds: ['omitted'] }], policyReasons: [{ gate: 'qualifying_conflicts', passed: true, supportIds: ['omitted'] }] };
+    const view = parseAutomaticResearchResult({ ...result, kind: 'video', frames: [{ timestampMs: 0, imageResult }] });
+    expect(view.frames[0].imageResult.captionComparison).toMatchObject({ status: 'INSUFFICIENT_EVIDENCE', takeaways: [] });
+    expect(view.frames[0].imageResult.captionComparison?.evidenceWarning).toContain('safe retained evidence');
+  }
+});
+it('retains policy-backed conflict only while both qualifying/corroborating sources survive', () => {
+  const evidence = ['one','two'].map(id => ({ id, sourceUrl: `https://example.com/${id}`, title: null, content: { kind: 'reference' }, publicationDate: { status: 'unknown', reason: 'Unknown date.' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'unknown', retention: 'reference_only', contentHash: null } }));
+  const imageResult = { mode: 'claim_check', claim: 'This clip is current.', status: 'CONTEXT_CONFLICT', timeline: evidence.map(item => ({ evidenceId: item.id, sourceUrl: item.sourceUrl })), takeaways: [], policyReasons: [{ gate: 'qualifying_conflicts', passed: true, supportIds: ['one','two'] }, { gate: 'corroborating_pair', passed: true, supportIds: ['one','two'] }] };
+  const input = { ...result, kind: 'video', caseRecord: { ...caseRecord, evidence }, frames: [{ timestampMs: 0, imageResult }] };
+  expect(parseAutomaticResearchResult(input).frames[0].imageResult.captionComparison?.status).toBe('CONTEXT_CONFLICT');
+  const changed = { ...input, caseRecord: { ...caseRecord, evidence: evidence.slice(0, 1) } };
+  expect(parseAutomaticResearchResult(changed).frames[0].imageResult.captionComparison?.status).toBe('INSUFFICIENT_EVIDENCE');
+});
+
+it('withholds no-conflict when filtering breaks its original coverage and support gates', () => {
+  const evidence = ['one','two','three'].map(id => ({ id, sourceUrl: `https://example.com/${id}`, title: null, content: { kind: 'reference' }, publicationDate: { status: 'unknown', reason: 'Unknown date.' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'unknown', retention: 'reference_only', contentHash: null } }));
+  const gates = ['relevant_core_coverage','distinct_domains','distinct_reporting_groups','corroborating_pair','strong_support'].map(gate => ({ gate, passed: true, supportIds: ['one','two','three'] }));
+  const imageResult = { mode: 'claim_check', claim: 'This clip is current.', status: 'NO_CONFLICT_FOUND', timeline: evidence.map(item => ({ evidenceId: item.id, sourceUrl: item.sourceUrl })), takeaways: [], policyReasons: gates };
+  const input = { ...result, kind: 'video', caseRecord: { ...caseRecord, evidence }, frames: [{ timestampMs: 0, imageResult }] };
+  expect(parseAutomaticResearchResult(input).frames[0].imageResult.captionComparison?.status).toBe('NO_CONFLICT_FOUND');
+  expect(parseAutomaticResearchResult({ ...input, caseRecord: { ...caseRecord, evidence: evidence.slice(0, 2) } }).frames[0].imageResult.captionComparison?.status).toBe('INSUFFICIENT_EVIDENCE');
 });

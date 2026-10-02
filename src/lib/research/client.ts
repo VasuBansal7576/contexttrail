@@ -1,3 +1,4 @@
+import { parseClaimReport, invalidateClaimReport, type ClaimReport } from './claim-report';
 import type { LocalComparisonResponse } from '../video/matching/application-contract';
 import { parseComparisonResponse } from '../video/matching/client';
 /** Browser boundary for the opt-in local research service. No retrieval or storage. */
@@ -42,6 +43,9 @@ export interface ResearchCaseView extends ResearchCaseSummary {
   citations: SuppliedCitation[];
   dependencies: ResearchDependencies;
   comparison: LocalComparisonResponse | null;
+  claimReport: ClaimReport | null;
+  claimReportCase: CaseRecord | null;
+  reportStatus: 'current' | 'stale' | 'none';
 }
 export interface ResearchClientOptions { signal?: AbortSignal }
 export class ResearchClientError extends Error {
@@ -321,7 +325,14 @@ export function parseResearchCaseView(value: unknown): ResearchCaseView {
   for (const check of report.citationChecks) { requireEvidence([check.citation.fromEvidenceId, ...check.targetEvidenceIds, ...check.quoteChecks.map(q => q.evidenceId)]); }
   for (const group of [...report.sharedCitations, ...report.duplicatePassages]) requireEvidence(group.evidenceIds);
   if (report.citationChecks.length !== citations.length || report.citationChecks.some(check => !citations.some(c => JSON.stringify(c) === JSON.stringify(check.citation)))) return fail('dependencies.citationChecks', 'citation report differs from saved citations');
-  return { caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
+  const claimReportCase = document.claimReport === undefined ? null : parseCaseRecord(document.claimReportCase ?? caseRecord);
+  if (claimReportCase && claimReportCase.id !== caseRecord.id) return fail('claimReportCase', 'different case identity');
+  const claimReport = claimReportCase ? parseClaimReport(document.claimReport, claimReportCase, text(object(document.claimReport, 'claimReport').question, 'claimReport.question')) : null;
+  if (claimReportCase && !claimReport) return fail('claimReport', 'invalid historical report');
+  if (document.claimReportInvalidated !== undefined && typeof document.claimReportInvalidated !== 'boolean') return fail('claimReportInvalidated');
+  const reportStatus = !claimReport ? 'none' : !document.claimReportInvalidated && invalidateClaimReport(claimReport, caseRecord, question.question) ? 'current' : 'stale';
+  if (v.reportStatus !== undefined && v.reportStatus !== reportStatus) return fail('reportStatus', 'inconsistent report validity');
+  return { claimReport, claimReportCase, reportStatus, caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
     subquestions, hypotheses, caseRecord, caseHistory, anchorSources, findingViews, history: list(workspace.history, 'history', history), changes,
     materials, citations, dependencies: report, comparison: version === 'contexttrail-research-v3' ? parseComparisonResponse(document.comparison) : null };
 }

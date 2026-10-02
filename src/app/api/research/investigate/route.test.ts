@@ -33,5 +33,9 @@ describe('automatic route boundary (no live provider calls)', () => {
     value.set('rights', 'user_provided'); await expect(parseAutomaticForm(value)).rejects.toThrow('self-contained');
     value.set('video', new Blob([new Uint8Array([0, 0, 0, 12, 102, 116, 121, 112, 0, 0, 0, 0])]), 'video.mp4');
     expect(await parseAutomaticForm(value)).toMatchObject({ kind: 'video', rights: 'user_provided' });
+    value.set('claim', 'This shows a current incident.');
+    expect(await parseAutomaticForm(value)).toMatchObject({ kind: 'video', claim: 'This shows a current incident.' });
+    value.set('claim', 'x'.repeat(501));
+    await expect(parseAutomaticForm(value)).rejects.toThrow('500 characters');
   });
 });

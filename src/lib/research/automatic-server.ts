@@ -19,7 +19,7 @@ export async function automaticProductionDeps(input: AutomaticResearchInput, sig
   if (!serpapiKey || !jevKey) throw new LiveUsageError('Provider configuration unavailable.');
   // One reservation covers the entire workflow. No ledger resets, nested image
   // admissions, per-frame refunds, or independent request counters are allowed.
-  const lease = input.kind === 'topic' ? await reserveTopicRun(config, signal) : await reserveLiveRun(config, null, signal);
+  const lease = input.kind === 'topic' ? await reserveTopicRun(config, signal) : await reserveLiveRun(config, input.claim ?? null, signal);
   return { deps: { serpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor('serpapi') }),
     jev: new JevClient({ apiKey: jevKey, model: JEV_MODEL, fetchImpl: lease.fetchFor('jev') }),
     fetchPage: fetchPageHtml, signal }, release: () => lease.release() };

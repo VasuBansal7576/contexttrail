@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AutomaticResearch, { AutomaticResult } from './AutomaticResearch';
 import { investigateAutomatically, type AutomaticResearchView } from '@/lib/research/automatic-client';
+import { buildClaimReport, assessClaimSource } from '@/lib/research/claim-report';
+import { ClaimReportView } from './ClaimReportView';
 import { CASE_SCHEMA_VERSION } from '@/lib/cases/model';
 vi.mock('@/lib/research/automatic-client', () => ({ investigateAutomatically: vi.fn() }));
 vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => React.createElement('a', props) }));
@@ -72,7 +74,7 @@ describe('automatic research UI', () => {
     await submit();
     const body = vi.mocked(investigateAutomatically).mock.calls[0][0];
     expect(body.get('kind')).toBe('video'); expect(body.get('rights')).toBe('user_provided');
-    expect(body.get('video')).toBe(file); expect(body.has('topic')).toBe(false);
+    expect(body.get('video')).toBe(file); expect(body.has('topic')).toBe(false); expect(body.has('claim')).toBe(false);
     expect(container.textContent).toContain('113 questions');
   });
   it('opens timestamped frame sources with explicit incomplete coverage', async () => {
@@ -81,4 +83,75 @@ describe('automatic research UI', () => {
     await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent?.startsWith('Sampled frames'))?.click(); });
     expect(container.textContent).toContain('Frame passage.'); expect(container.textContent).toContain('One frame only.'); expect(container.textContent).toContain('Identity basis: unknown'); expect(container.querySelector('a[href="https://example.com/frame"]')).not.toBeNull();
   });
+});
+
+it('sends a nonempty video caption once and shows its expanded reservation', async () => {
+  vi.mocked(investigateAutomatically).mockResolvedValue({ ...result, kind: 'video' });
+  await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'video' })));
+  const file = new File(['fixture'], 'clip.webm', { type: 'video/webm' });
+  const field = container.querySelector<HTMLInputElement>('input[type=file]');
+  const caption = container.querySelector('textarea');
+  if (!field || !caption) throw new Error('Missing video intake');
+  expect(caption.maxLength).toBe(500); expect(field.multiple).toBe(false);
+  await act(async () => {
+    Object.defineProperty(field, 'files', { value: [file], configurable: true }); field.dispatchEvent(new Event('change', { bubbles: true }));
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(caption, '  This video is from yesterday.  '); caption.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => { container.querySelector<HTMLInputElement>('input[type=checkbox]')?.click(); });
+  expect(container.textContent).toContain('6 searches · 1 image upload · 60 TypeSafe / Jev requests · 272 questions');
+  expect(container.textContent).toContain('caption also goes to SerpApi / Google');
+  await submit();
+  const body = vi.mocked(investigateAutomatically).mock.calls[0][0];
+  expect(body.get('claim')).toBe('This video is from yesterday.'); expect(body.getAll('video')).toEqual([file]);
+});
+
+it('shows the updated question assessment ceiling', async () => {
+  await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'topic' })));
+  expect(container.textContent).toContain('3 searches · 0 uploads · 8 TypeSafe / Jev requests · 40 questions');
+});
+
+it('renders source-quoted candidates with unknown scope and no invented user assertion', async () => {
+  const claimReport = buildClaimReport(result.question, result.caseRecord, result.caseRecord.evidence.map(evidence => assessClaimSource(evidence, null, null)));
+  await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, claimReport } })));
+  expect(container.textContent).toContain('This is a research question.');
+  expect(container.textContent).toContain('Source-quoted candidate assertion');
+  expect(container.textContent).toContain('Independent corroboration is not established');
+  expect(container.textContent).toContain('Insufficient evidence');
+  expect(container.textContent).toContain('Model: Unverified or unavailable');
+  expect(container.textContent).toContain('Save report');
+  expect(container.querySelector('blockquote')?.textContent).toBe('The actual retrieved passage.');
+  expect(container.textContent).not.toContain('User assertion to investigate');
+});
+
+it('keeps exact model probabilities, user claim, scope and source disagreements visible', async () => {
+  const question = 'Claim: This hotel is closed during 2026.';
+  const first = { ...result.caseRecord.evidence[0], content: { kind: 'text' as const, attribution: 'page_quote' as const, text: 'The hotel is closed during 2026.' } };
+  const second = { ...first, id: 'opposing-source', sourceUrl: 'https://example.org/report', content: { ...first.content, text: 'The hotel is open during 2026.' } };
+  function answer(relation: 'support' | 'challenge') {
+    return { model: 'jev-1.13.0', identity: { requested: 'jev-1.13.0', reported: 'jev-1.13.0', status: 'verified' as const, pinned: true }, answers: {
+      relevance: { type: 'noul', noul: 0.92461 },
+      relation: { type: 'choice', choice: relation, probabilities: { support: relation === 'support' ? 0.94 : 0.02, challenge: relation === 'challenge' ? 0.94 : 0.02, context: 0.02, insufficient: 0.02 } },
+      ...Object.fromEntries(['entity_property', 'time', 'variant'].map(key => [key, { type: 'choice', choice: 'compatible', probabilities: { compatible: 0.96, different: 0.02, unknown: 0.02 } }])),
+    } };
+  }
+  const record = { ...result.caseRecord, evidence: [first, second] };
+  const report = buildClaimReport(question, record, [assessClaimSource(first, 'This hotel is closed during 2026.', answer('support')), assessClaimSource(second, 'This hotel is closed during 2026.', answer('challenge'))]);
+  await act(async () => root.render(React.createElement(ClaimReportView, { report, caseRecord: record })));
+  expect(container.textContent).toContain('User assertion to investigate');
+  expect(container.textContent).toContain('Supporting excerpt'); expect(container.textContent).toContain('Challenging excerpt');
+  expect(container.textContent).toContain('0.92461'); expect(container.textContent).toContain('support: 0.94');
+  expect(container.textContent).toContain('Model: jev-1.13.0');
+  expect(container.textContent).toContain('The disagreement is unresolved');
+  expect(container.querySelectorAll('blockquote')).toHaveLength(2);
+  expect(container.querySelector('a[href="https://example.org/report"]')).not.toBeNull();
+});
+
+it('shows the sampled-frame caption outcome without hiding it behind the frame toggle', async () => {
+  const imageResult = { limitations: [], timeline: [], undatedEvidence: [], supportingEvidence: [], contextualEvidence: [], captionComparison: { mode: 'claim_check' as const, claim: 'This clip is current.', status: 'NO_CONFLICT_FOUND' as const, takeaways: [] } };
+  await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, kind: 'video', frames: [{ timestampMs: 1000, imageResult }] } })));
+  expect(container.textContent).toContain('Sampled-frame caption comparison');
+  expect(container.textContent).toContain('This clip is current.');
+  expect(container.textContent).toContain('No conflict found in the retrieved sample');
+  expect(container.textContent).toContain('No conflict found does not prove the caption is true');
+  expect(container.textContent).toContain('does not verify the entire video or its audio');
 });

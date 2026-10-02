@@ -1,5 +1,8 @@
-import { JEV_MODEL } from '@/lib/jev/client';
+import { JEV_MODEL } from '@/lib/jev/model';
 import { parseCaseRecord } from '@/lib/cases/parse';
+import { parseClaimReport } from './claim-report';
+import type { CaseEvidence } from '@/lib/cases/model';
+import type { ClaimStatus, Takeaway } from '@/lib/investigation/contracts/investigation';
 import type { AutomaticResearchResult } from './automatic-contract';
 
 export interface AutomaticFrameSource {
@@ -14,7 +17,7 @@ export interface AutomaticFrameSource {
   excerptSource: string;
 }
 export type AutomaticResearchView = Omit<AutomaticResearchResult, 'frames'> & {
-  frames: Array<{ timestampMs: number; imageResult: { limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
+  frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
 };
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The research service returned an invalid result.');
@@ -34,6 +37,36 @@ function sources(value: unknown): AutomaticFrameSource[] {
     return [{ evidenceId: nullableText(source.evidenceId) ?? sourceUrl, title: nullableText(source.title), sourceUrl, dateStatus: nullableText(source.dateStatus) ?? 'unknown', observedAt: nullableText(source.observedAt), identityBasis: nullableText(source.identityBasis) ?? 'unknown', excerpt: nullableText(source.excerpt), displayAttribution: nullableText(source.displayAttribution), excerptSource: nullableText(source.excerptSource) ?? 'attribution_unknown' }];
   });
 }
+function captionComparison(image: Record<string, unknown>, evidence: AutomaticFrameSource[], retained: CaseEvidence[]): AutomaticResearchView['frames'][number]['imageResult']['captionComparison'] {
+  if (image.mode !== 'claim_check') return undefined;
+  const status = image.status;
+  if ((status !== 'CONTEXT_CONFLICT' && status !== 'POSSIBLE_CONTEXT_CONFLICT' && status !== 'NO_CONFLICT_FOUND' && status !== 'INSUFFICIENT_EVIDENCE') || typeof image.claim !== 'string' || !image.claim.trim()) throw new Error('The research service returned an invalid caption comparison.');
+  const ids = new Set(evidence.filter(source => retained.some(item => item.id === source.evidenceId && item.sourceUrl === source.sourceUrl)).map(source => source.evidenceId));
+  const takeaways: Takeaway[] = [];
+  if (Array.isArray(image.takeaways)) for (const value of image.takeaways) {
+    const item = record(value), code = item.code;
+    if (code !== 'temporal_conflict' && code !== 'location_conflict' && code !== 'historical_reuse' && code !== 'no_current_media_corroboration') continue;
+    if (!Array.isArray(item.evidenceIds) || !item.evidenceIds.length || item.evidenceIds.some(id => typeof id !== 'string' || !ids.has(id))) continue;
+    takeaways.push({ code, evidenceIds: strings(item.evidenceIds) });
+  }
+  function boundGate(name: string, minimum: number, passedRequired: boolean): boolean {
+    if (!Array.isArray(image.policyReasons)) return false;
+    return image.policyReasons.some(value => {
+      if (!value || typeof value !== 'object' || !('gate' in value) || value.gate !== name || !('supportIds' in value) || !Array.isArray(value.supportIds)) return false;
+      if (passedRequired && (!('passed' in value) || value.passed !== true)) return false;
+      return value.supportIds.every((id: unknown) => typeof id === 'string' && ids.has(id)) && new Set(value.supportIds).size >= minimum;
+    });
+  }
+  // Upstream policy can have a real context conflict without date/location
+  // takeaways. Its qualifying/corroborating support must still survive this
+  // display projection; a dropped source cannot leave an unsupported verdict.
+  const supported = status === 'CONTEXT_CONFLICT'
+    ? boundGate('qualifying_conflicts', 2, true) && boundGate('corroborating_pair', 2, true)
+    : status === 'POSSIBLE_CONTEXT_CONFLICT' ? boundGate('qualifying_conflicts', 1, false)
+    : status !== 'NO_CONFLICT_FOUND' || (boundGate('relevant_core_coverage', 3, true) && boundGate('distinct_domains', 2, true) && boundGate('distinct_reporting_groups', 2, true) && boundGate('corroborating_pair', 2, true) && boundGate('strong_support', 1, true));
+  if (!supported) return { mode: 'claim_check', claim: image.claim, status: 'INSUFFICIENT_EVIDENCE', takeaways: [], evidenceWarning: 'The stronger caption result could not be bound to enough safe retained evidence. This view therefore reports insufficient evidence.' };
+  return { mode: 'claim_check', claim: image.claim, status, takeaways };
+}
 /** Validate the case and project only inspected frame fields. No trust cast to InvestigationResult. */
 export function parseAutomaticResearchResult(value: unknown): AutomaticResearchView {
   const result = record(value);
@@ -50,10 +83,14 @@ export function parseAutomaticResearchResult(value: unknown): AutomaticResearchV
     if (typeof assessment.relevance !== 'number' || !Number.isFinite(assessment.relevance) || assessment.relevance < 0 || assessment.relevance > 1 || assessment.model !== JEV_MODEL) throw new Error('The research service returned an invalid or unverified relevance assessment.');
     return { evidenceId: assessment.evidenceId, relevance: assessment.relevance, model: assessment.model };
   });
-  return { kind: result.kind, question: result.question, caseRecord, assessments, limitations: strings(result.limitations), frames: result.frames.map(item => {
+  const claimReport = result.claimReport === undefined ? null : parseClaimReport(result.claimReport, caseRecord, result.question);
+  if (result.claimReport !== undefined && !claimReport) throw new Error('The research service returned an invalid or stale claim report.');
+  return { kind: result.kind, question: result.question, caseRecord, assessments, ...(claimReport ? { claimReport } : {}), limitations: strings(result.limitations), frames: result.frames.map(item => {
     const frame = record(item), image = record(frame.imageResult);
     if (typeof frame.timestampMs !== 'number' || !Number.isFinite(frame.timestampMs) || frame.timestampMs < 0) throw new Error('The research service returned an invalid frame timestamp.');
-    return { timestampMs: frame.timestampMs, imageResult: { limitations: strings(image.limitations), timeline: sources(image.timeline), undatedEvidence: sources(image.undatedEvidence), supportingEvidence: sources(image.supportingEvidence), contextualEvidence: sources(image.contextualEvidence) } };
+    const timeline = sources(image.timeline), undatedEvidence = sources(image.undatedEvidence), supportingEvidence = sources(image.supportingEvidence), contextualEvidence = sources(image.contextualEvidence);
+    const comparison = captionComparison(image, [...timeline, ...undatedEvidence, ...supportingEvidence, ...contextualEvidence], caseRecord.evidence);
+    return { timestampMs: frame.timestampMs, imageResult: { ...(comparison ? { captionComparison: comparison } : {}), limitations: strings(image.limitations), timeline, undatedEvidence, supportingEvidence, contextualEvidence } };
   }) };
 }
 export async function investigateAutomatically(body: FormData, signal: AbortSignal, onProgress: (message: string) => void): Promise<AutomaticResearchView> {
