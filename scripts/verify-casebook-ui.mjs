@@ -33,7 +33,7 @@ try {
   await context.route('**/*',async route=>{const url=new URL(route.request().url());if(url.origin===base){await route.continue();return;} if(url.protocol==='data:'||url.protocol==='blob:'){await route.continue();return;}forbidden.push(url.origin);await route.abort();});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   let posts=0;page.on('request',request=>{if(request.method()==='POST')posts++;});
-  const shot=async name=>{await page.screenshot({path:resolve(artifacts,`${name}.png`),fullPage:true});await writeFile(resolve(artifacts,`${name}.aria.txt`),await page.locator('body').innerText());};
+  const shot=async name=>{await page.waitForLoadState('networkidle');await page.screenshot({path:resolve(artifacts,`${name}.png`),fullPage:true});await writeFile(resolve(artifacts,`${name}.aria.txt`),await page.locator('body').innerText());};
   const stable=async()=>page.waitForLoadState('networkidle');
   await page.goto(base);await stable();check('cover uses approved question direction',await page.getByRole('heading',{level:1}).innerText()==='Follow the\nquestion.');check('cover does not submit API work',posts===0);await shot('01-cover-desktop');
   await page.getByRole('link',{name:'Open your casebook',exact:true}).click();await page.getByRole('heading',{name:'What are you trying to understand?'}).waitFor();

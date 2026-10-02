@@ -21,6 +21,7 @@ jobs:
     env:
       CONTEXTTRAIL_LIVE_ENABLED: "false"
       RUN_LIVE_TESTS: "0"
+      VIDEO_REQUIRE_FFMPEG: "1"
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
       - name: Checkout
@@ -32,6 +33,12 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
+      - name: Install local media decoder
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
       - name: Install dependencies
         run: npm ci
       - name: Typecheck
