@@ -362,12 +362,17 @@ function tokens(s: string): Set<string> {
   );
 }
 
-/** A useful verbatim page paragraph, never a title/snippet composite. */
+/** A verbatim paragraph with lexical overlap, never a title/snippet composite.
+ * Overlap only selects a candidate: the model must still assess relevance and scope.
+ * A supplied question takes precedence over the page's own title, which can be off-topic.
+ */
 export function selectDisplayQuote(input: { title: string | null; claim: string | null; paragraphs: string[] }): string | null {
-  const query = tokens(`${input.title ?? ""} ${input.claim ?? ""}`);
-  const ranked = input.paragraphs.filter((p) => p.trim().length > 0).map((p, i) => ({
+  const queryText = input.claim?.trim() || input.title?.trim() || "";
+  const query = tokens(queryText);
+  const ranked = input.paragraphs.map(p => p.slice(0, EXCERPT_MAX_CHARS)).filter((p) => p.trim().length > 0).map((p, i) => ({
     p, i, overlap: [...tokens(p)].filter((t) => query.has(t)).length,
-  })).sort((a, b) => b.overlap - a.overlap || a.i - b.i);
+  })).filter(item => queryText === "" || item.overlap > 0)
+    .sort((a, b) => b.overlap - a.overlap || a.i - b.i);
   return ranked[0]?.p.slice(0, EXCERPT_MAX_CHARS) ?? null;
 }
 

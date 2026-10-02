@@ -41,6 +41,100 @@ describe("parseClaimDate (§19.1)", () => {
     expect(r.precision).toBe("month");
     expect(r.claimDate).toBe("2026-09");
   });
+
+  it("parses an explicit caption year without inventing a month or day", () => {
+    expect(
+      parseClaimDate("This house collapsed into a river in Nepal in 2026.", {
+        referenceInstant: new Date("2026-10-02T08:20:07.097Z"),
+        timezone: "UTC",
+      }),
+    ).toEqual({ claimDate: "2026", precision: "year", ambiguous: false });
+  });
+
+  it.each([
+    "The bridge collapsed in 2019.",
+    "The bridge collapsed during 2019.",
+    "Flooding continued throughout 2019.",
+    "The bridge collapsed in the year 2019.",
+    "IN THE YEAR 2019 the bridge collapsed.",
+    "The bridge collapsed in 2019 and was repaired in 2019.",
+    "The bridge collapsed in 2019. Copyright 2026.",
+  ])("keeps explicit year phrases at year precision: %s", (claim) => {
+    expect(parseClaimDate(claim, { referenceInstant: REF })).toEqual({
+      claimDate: "2019",
+      precision: "year",
+      ambiguous: false,
+    });
+  });
+
+  it.each([
+    "A bridge collapsed. Copyright 2026.",
+    "A bridge collapsed. © 2026.",
+    "A bridge collapsed. Copyright in 2026.",
+    "A bridge collapsed. Copyright in the year 2026.",
+    "A bridge collapsed, image ID 2026.",
+    "A bridge collapsed with 2026 people watching.",
+    "Flooding occurred in 2026 households.",
+    "Flooding occurred in 2026 locations.",
+    "A bridge collapsed in 20260.",
+  ])("does not treat arbitrary digits as event dates: %s", (claim) => {
+    expect(parseClaimDate(claim, { referenceInstant: REF })).toEqual({
+      claimDate: null,
+      precision: "unknown",
+      ambiguous: false,
+    });
+  });
+
+  it.each([
+    "The bridge collapsed in 2025-2026.",
+    "The bridge collapsed in 2025–2026.",
+    "The bridge collapsed in 2025—2026.",
+    "The bridge collapsed in 2025–26.",
+    "The bridge collapsed in 2025-26.",
+    "The bridge collapsed in 2025/2026.",
+    "The bridge collapsed in 2025 or 2026.",
+    "The bridge collapsed in 2025, 2026.",
+    "Flooding occurred during 2025 through 2026.",
+    "Flooding occurred from 2025 to 2026.",
+    "Flooding occurred between the years 2025 and 2026.",
+    "The bridge collapsed in 2025 and again in 2026.",
+    "The bridge collapsed in 2026, or on March 5, 2025.",
+  ])("does not reduce year ranges or conflicting dates to one year: %s", (claim) => {
+    expect(parseClaimDate(claim, { referenceInstant: REF })).toEqual({
+      claimDate: null,
+      precision: "unknown",
+      ambiguous: true,
+    });
+  });
+
+  it.each([
+    ['The house collapsed in 2026, on March 5, 2026.', '2026-03-05', 'day'],
+    ['In 2026, in March 2026, on March 5, 2026, the house collapsed.', '2026-03-05', 'day'],
+    ['The house collapsed in 2026, during March 2026.', '2026-03', 'month'],
+    ['The house collapsed in 2026, 25 people escaped.', '2026', 'year'],
+    ['The house collapsed in 2026, 2025 people escaped.', '2026', 'year'],
+  ])('preserves compatible date precision without turning counts into ranges: %s', (claim, claimDate, precision) => {
+    expect(parseClaimDate(claim, { referenceInstant: new Date('2026-10-02T08:20:07.097Z'), timezone: 'UTC' })).toEqual({ claimDate, precision, ambiguous: false });
+  });
+  it.each([
+    'The house collapsed in 2026, on March 5, 2025.',
+    'The house collapsed in 2026, on March 5, 2026 and March 6, 2026.',
+    'The house collapsed in 2026, in March 2026 and April 2026.',
+  ])('keeps different dates unresolved even when they share a year: %s', claim => {
+    expect(parseClaimDate(claim, { referenceInstant: REF })).toEqual({ claimDate: null, precision: 'unknown', ambiguous: true });
+  });
+
+  it("preserves complete ISO dates after a temporal preposition", () => {
+    expect(
+      parseClaimDate("The bridge collapsed in 2026-03-05.", {
+        referenceInstant: REF,
+      }),
+    ).toEqual({
+      claimDate: "2026-03-05",
+      precision: "day",
+      ambiguous: false,
+    });
+  });
 });
 
 describe("parseDateValue", () => {
@@ -141,6 +235,24 @@ describe("predatesClaim (§19.3)", () => {
     // Claim inside the same month: cannot assert predating.
     expect(
       predatesClaim("2026-09", "month", "usable", "2026-09-25"),
+    ).toBe(false);
+  });
+
+  it("compares an explicit claim year against its earliest possible date", () => {
+    const claim = parseClaimDate("The bridge collapsed in 2026.", {
+      referenceInstant: REF,
+    });
+    expect(
+      predatesClaim("2025-12-30", "day", "usable", claim.claimDate, claim.precision),
+    ).toBe(true);
+    expect(
+      predatesClaim("2025-12-31", "day", "usable", claim.claimDate, claim.precision),
+    ).toBe(false);
+    expect(
+      predatesClaim("2026-01-01", "day", "usable", claim.claimDate, claim.precision),
+    ).toBe(false);
+    expect(
+      predatesClaim("2025", "year", "usable", claim.claimDate, claim.precision),
     ).toBe(false);
   });
 });

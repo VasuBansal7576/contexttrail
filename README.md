@@ -67,6 +67,17 @@ live provenance accuracy.** See [the release checklist](docs/release.md) and
 
 ---
 
+## Local research application service
+
+An opt-in, loopback-only [research application service](docs/research-application-service.md)
+connects open questions, subquestions, hypotheses, exact text/timed findings, retained evidence
+and supplied source-dependency reports through real HTTP routes and persistent local files.
+It adds no interface or automatic retrieval. Design approval, hosted storage, and provider-backed
+research remain separate work. Run `npm run research:verify` after a production build to
+reproduce the synthetic HTTP, correction, restart and persistence checks.
+
+---
+
 ## Prerequisites
 
 - **Node.js 20 or newer** — declared in `package.json` under `engines.node` (`>=20`).
@@ -371,3 +382,31 @@ For an authorized local live demo, follow [live usage](docs/live-usage.md).
 
 No deployment is claimed. The hackathon's local-demo requirement and the remaining product
 acceptance work are recorded in [the release checklist](docs/release.md).
+
+### Precise retained evidence anchors
+
+The local research service can bind findings to a pixel region in a retained user-supplied PNG or an exact cell in a structured table. Material replacement and source correction require review; withdrawal stays explicitly unavailable. CaseRecord v1 is unchanged. See [formats, limits, v1/v2 compatibility and HTTP examples](docs/precise-evidence-anchors.md). No OCR, automatic truth judgment, image-authenticity assessment, provider call or UI is added.
+
+### Local sampled-frame comparison
+
+The local CLI compares rights-cleared supplied videos and images and retains candidate
+sampled-frame overlaps with timestamps, hashes, approximate crop regions, raw scores
+and sampling limits. It does not change case contracts or make truth/identity findings.
+See [local media matching](docs/local-media-matching.md).
+
+### Local media comparison bridge
+
+The optional `/api/media/compare` route connects supplied video/video or still/video
+comparison to the local application. It requires separate decoder opt-in, loopback
+origin checks, bounded uploads and one admitted request. It returns candidate
+sampled-frame overlaps and compared frames; no case evidence or finding is created.
+See [the API contract, limits, save gap and real HTTP verification](docs/local-media-application.md).
+
+### Automatic topic and single-video investigation
+
+The Questions and Video chapters now accept one input and run bounded provider-backed
+retrieval automatically, then expose source evidence for inspection. Video searches one
+representative sampled frame, with explicit limits; it does not verify an entire video.
+Both flows use the existing default-deny durable live gate. See
+[automatic investigation](docs/automatic-investigation.md) for data destinations, fixed
+reservation ceilings, API behavior and the separate live-verification prerequisites.

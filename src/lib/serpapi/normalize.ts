@@ -343,6 +343,20 @@ export function normalizeAboutThisImageResponse(
  * Normalize SerpApi `google` (`organic_results`) or `google_news`
  * (`news_results`) responses.
  */
+/** An absent/malformed collection is unavailable, except for the documented completed no-results response. */
+export function hasSearchResultSurface(json: unknown, kind: "google_search" | "google_news"): boolean {
+  const object = asObj(json);
+  if (!object) return false;
+  const status = searchMetadataStatus(object);
+  if (status !== null && status !== "Success") return false;
+  const collection = object[kind === "google_news" ? "news_results" : "organic_results"];
+  if (object.error !== undefined) {
+    return status === "Success" && typeof object.error === "string" && SERPAPI_NO_RESULTS_ERROR.test(object.error) &&
+      (collection === undefined || (Array.isArray(collection) && collection.length === 0));
+  }
+  return Array.isArray(collection);
+}
+
 export function normalizeSearchResponse(
   json: unknown,
   kind: "google_search" | "google_news",

@@ -1,0 +1,128 @@
+{
+  "watchlists": [],
+  "familyLinks": [],
+  "updates": [
+    {
+      "kind": "snapshot",
+      "caseRecord": {
+        "schemaVersion": "contexttrail-case-v1",
+        "id": "harbor-bridge",
+        "revision": 2,
+        "createdAt": "2026-10-01T00:00:00Z",
+        "claims": [
+          {
+            "id": "claim-open",
+            "kind": "text",
+            "text": "Harbor Bridge reopened on Monday.",
+            "language": "en",
+            "provenance": {
+              "method": "manual",
+              "toolVersion": null,
+              "capturedAt": null,
+              "retrievedAt": "2026-10-01T00:00:00Z",
+              "rights": "public_reference",
+              "retention": "reference_only",
+              "contentHash": null
+            }
+          },
+          {
+            "id": "claim-closed",
+            "kind": "text",
+            "text": "Harbor Bridge remained closed on Monday.",
+            "language": "en",
+            "provenance": {
+              "method": "manual",
+              "toolVersion": null,
+              "capturedAt": null,
+              "retrievedAt": "2026-10-01T00:00:00Z",
+              "rights": "public_reference",
+              "retention": "reference_only",
+              "contentHash": null
+            }
+          }
+        ],
+        "assets": [],
+        "evidence": [
+          {
+            "id": "notice",
+            "sourceUrl": "https://example.org/notice",
+            "title": "Harbor Bridge status",
+            "content": {
+              "kind": "text",
+              "text": "Correction: Harbor Bridge remained closed on Monday. The reopening notice was premature.",
+              "attribution": "page_quote"
+            },
+            "publicationDate": {
+              "status": "unknown",
+              "reason": "Publication time unavailable"
+            },
+            "provenance": {
+              "method": "manual",
+              "toolVersion": null,
+              "capturedAt": null,
+              "retrievedAt": "2026-10-01T00:00:00Z",
+              "rights": "public_reference",
+              "retention": "reference_only",
+              "contentHash": null
+            }
+          },
+          {
+            "id": "context",
+            "sourceUrl": "https://example.org/context",
+            "title": "Harbor Bridge context",
+            "content": {
+              "kind": "reference"
+            },
+            "publicationDate": {
+              "status": "unknown",
+              "reason": "Publication time unavailable"
+            },
+            "provenance": {
+              "method": "manual",
+              "toolVersion": null,
+              "capturedAt": null,
+              "retrievedAt": "2026-10-01T00:00:00Z",
+              "rights": "public_reference",
+              "retention": "reference_only",
+              "contentHash": null
+            }
+          }
+        ],
+        "occurrences": [],
+        "relations": [
+          {
+            "id": "supports-open",
+            "kind": "evidence_claim",
+            "evidenceId": "notice",
+            "claimId": "claim-open",
+            "relationship": "challenges",
+            "assessment": {
+              "status": "inferred",
+              "evidenceIds": [
+                "notice"
+              ],
+              "method": "manual reading",
+              "rationale": "Corrected source disputes the earlier reopening statement; still not independently verified."
+            }
+          }
+        ],
+        "coverage": {
+          "scope": "retrieved_evidence",
+          "completeness": "partial",
+          "omittedEvidenceCount": 0,
+          "originalPublication": {
+            "status": "unknown",
+            "reason": "No origin established"
+          },
+          "limitations": [
+            "Synthetic manual fixture; no network retrieval."
+          ],
+          "searches": []
+        }
+      },
+      "removal": {
+        "status": "not_confirmed"
+      }
+    }
+  ]
+}

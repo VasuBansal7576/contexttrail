@@ -122,6 +122,14 @@ export function liveRunAllocation(claim: string | null, publicImage = false): Li
   };
 }
 
+/** Topic retrieval has a distinct fixed ceiling. No caller-supplied quota is accepted. */
+export function topicRunAllocation(): LiveAllowance {
+  return { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 40 };
+}
+
+/** Existing reservations/grants keep their original charge; old topic allocations never authorize the expanded workflow. */
+const LEGACY_TOPIC_ALLOCATION: LiveAllowance = { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 8 };
+
 function validAllowance(value: unknown): value is LiveAllowance {
   return isRecord(value) && Object.keys(value).length === ALLOWANCE_KEYS.length &&
     ALLOWANCE_KEYS.every((key) => typeof value[key] === "number" && Number.isSafeInteger(value[key]) && value[key] >= 0);
@@ -137,7 +145,7 @@ function withinAllowance(a: LiveAllowance, b: LiveAllowance): boolean {
 
 function validRunAllocation(value: unknown): value is LiveAllowance {
   return validAllowance(value) &&
-    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true)]
+    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION]
       .some((allocation) => sameAllowance(value, allocation));
 }
 
@@ -159,7 +167,7 @@ function parseLedger(raw: string, config: LiveUsageConfig): LiveAllowance {
     if (isRecord(entry) && entry.type === "grant") {
       if (Object.keys(entry).length !== 4 || typeof entry.id !== "string" || !/^[0-9a-f-]{36}$/.test(entry.id) || ids.has(entry.id) ||
           typeof entry.reason !== "string" || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(entry.reason) || !validAllowance(entry.allocation) ||
-          ![liveRunAllocation(null, true),liveRunAllocation("claim", true)].some((a) => sameAllowance(a, entry.allocation as LiveAllowance))) {
+          ![liveRunAllocation(null, true),liveRunAllocation("claim", true), liveRunAllocation(null), liveRunAllocation("claim"), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION].some((a) => sameAllowance(a, entry.allocation as LiveAllowance))) {
         throw new LiveUsageError(STORAGE_ERROR);
       }
       ids.add(entry.id);
@@ -246,10 +254,17 @@ export interface LiveRunLease {
 }
 
 export async function reserveLiveRun(config: LiveUsageConfig, claim: string | null, signal?: AbortSignal, publicImage = false): Promise<LiveRunLease> {
+  return reserveAllocation(config, liveRunAllocation(claim, publicImage), signal);
+}
+
+export async function reserveTopicRun(config: LiveUsageConfig, signal?: AbortSignal): Promise<LiveRunLease> {
+  return reserveAllocation(config, topicRunAllocation(), signal);
+}
+
+async function reserveAllocation(config: LiveUsageConfig, allocation: LiveAllowance, signal?: AbortSignal): Promise<LiveRunLease> {
   let lock: OwnedLock | undefined;
   let ledger: FileHandle | undefined;
   let reservationWritten = false;
-  const allocation = liveRunAllocation(claim, publicImage);
   try {
     if (signal?.aborted) throw new ProviderError("aborted", "Investigation cancelled before live admission");
     const parent = await persistentLedgerPath(config.ledgerPath);

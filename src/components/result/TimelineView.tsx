@@ -11,6 +11,7 @@
  */
 "use client";
 
+import { EvidenceCollection } from "../casebook/EvidenceCollection";
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
 import {
@@ -311,13 +312,13 @@ export default function TimelineView({
       ) : null}
 
       {dated.length > 0 ? (
-        <ol className="mt-8 space-y-0">
-          {dated.map((occurrence, i) => {
+        <div className="mt-8 space-y-0">
+          <EvidenceCollection items={dated} label="Dated occurrences">{(occurrence, i) => {
             const id = occurrenceId(occurrence, `dated-${i}`);
             const info = connectorInfo(occurrence);
             const assessed = info.kind === "same" || info.kind === "different";
             return (
-              <motion.li
+              <motion.article
                 key={id}
                 initial={mounted && !reduce ? { opacity: 0, y: 20 } : false}
                 whileInView={{ opacity: 1, y: 0 }}
@@ -353,10 +354,10 @@ export default function TimelineView({
                     onInspect={() => onInspect(id)}
                   />
                 </div>
-              </motion.li>
+              </motion.article>
             );
-          })}
-        </ol>
+          }}</EvidenceCollection>
+        </div>
       ) : (
         <p className="mt-8 rounded-xl bg-white/70 p-5 text-sm leading-relaxed text-ink/65 ring-1 ring-ink/10">
           <strong>No dated core occurrences were found,</strong> so nothing is placed on the
@@ -373,11 +374,11 @@ export default function TimelineView({
             Visually similar material that was not confirmed as the same image. Dates here do not
             place these leads into the core history.
           </p>
-          <ul className="mt-3 space-y-4">
-            {supporting.map((occurrence, i) => {
+          <div className="mt-3 space-y-4">
+            <EvidenceCollection items={supporting} label="Visual leads">{(occurrence, i) => {
               const id = occurrenceId(occurrence, `supporting-${i}`);
               return (
-                <li key={id}>
+                <article key={id}>
                   <OccurrenceCard
                     occurrence={occurrence}
                     index={i}
@@ -388,10 +389,10 @@ export default function TimelineView({
                     groupLabel="Supporting lead"
                     onInspect={() => onInspect(id)}
                   />
-                </li>
+                </article>
               );
-            })}
-          </ul>
+            }}</EvidenceCollection>
+          </div>
         </section>
       ) : null}
 
@@ -404,11 +405,11 @@ export default function TimelineView({
             Related pages from web and news search. They were not confirmed to show the submitted
             image and never enter the core timeline.
           </p>
-          <ul className="mt-3 space-y-4">
-            {contextual.map((occurrence, i) => {
+          <div className="mt-3 space-y-4">
+            <EvidenceCollection items={contextual} label="Contextual sources">{(occurrence, i) => {
               const id = occurrenceId(occurrence, `contextual-${i}`);
               return (
-                <li key={id}>
+                <article key={id}>
                   <OccurrenceCard
                     occurrence={occurrence}
                     index={i}
@@ -419,10 +420,10 @@ export default function TimelineView({
                     groupLabel="Contextual result"
                     onInspect={() => onInspect(id)}
                   />
-                </li>
+                </article>
               );
-            })}
-          </ul>
+            }}</EvidenceCollection>
+          </div>
         </section>
       ) : null}
 
@@ -434,11 +435,11 @@ export default function TimelineView({
           <p className="mt-1 text-xs text-ink-soft">
             These occurrences could not be placed on the timeline because no usable date was retrieved.
           </p>
-          <ul className="mt-3 space-y-4">
-            {unknownDate.map((occurrence, i) => {
+          <div className="mt-3 space-y-4">
+            <EvidenceCollection items={unknownDate} label="Undated evidence">{(occurrence, i) => {
               const id = occurrenceId(occurrence, `unknown-${i}`);
               return (
-                <li key={id}>
+                <article key={id}>
                   <OccurrenceCard
                     occurrence={occurrence}
                     index={i}
@@ -449,10 +450,10 @@ export default function TimelineView({
                     groupLabel="Date unknown"
                     onInspect={() => onInspect(id)}
                   />
-                </li>
+                </article>
               );
-            })}
-          </ul>
+            }}</EvidenceCollection>
+          </div>
         </section>
       ) : null}
     </div>

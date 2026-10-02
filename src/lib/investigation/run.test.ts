@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { readCaseFromResult } from "../cases/parse";
 import { runInvestigation, type RunDeps, type SearchProvider } from "./run";
 import type { InvestigationEvent } from "./contracts/events";
 import type { InvestigationInput } from "./contracts/investigation";
@@ -170,6 +171,38 @@ const last = (events: InvestigationEvent[]) => events[events.length - 1];
 /* -------------------------------- tests ------------------------------- */
 
 describe("runInvestigation — happy path", () => {
+  it.each([traceInput, claimInput])("emits a validated case from the real orchestrator for $claim", async (input) => {
+    const calls: SerpapiParams[] = [];
+    const { client } = makeJev();
+    const { events, promise } = run(input, { serpapi: makeSerpapi(calls), jev: client });
+    await promise;
+    const started = events.find(e => e.type === "investigation.started");
+    const done = events.find(e => e.type === "investigation.completed");
+    if (started?.type !== "investigation.started" || done?.type !== "investigation.completed") throw new Error("Expected completed investigation");
+    const parsed = readCaseFromResult(done.result);
+    expect(parsed.status).toBe("available");
+    if (parsed.status !== "available") throw new Error("Expected valid case");
+    expect(parsed.caseRecord.id).toBe(started.investigationId);
+    expect(parsed.caseRecord.claims).toHaveLength(input.claim === null ? 0 : 1);
+    expect(parsed.caseRecord.evidence.length).toBeGreaterThan(0);
+    expect(parsed.caseRecord.relations.every(r => r.assessment.status === "inferred")).toBe(true);
+    expect(calls.length).toBeLessThanOrEqual(input.claim === null ? 4 : 6);
+  });
+  it("retains a completed legacy result when stricter case metadata validation fails", async () => {
+    const calls: SerpapiParams[] = [];
+    const serpapi = makeSerpapi(calls);
+    const originalSearch = serpapi.search;
+    serpapi.search = async (...args) => ({ ...await originalSearch(...args) as object, search_metadata: { id: "   ", status: "Success" } });
+    const { events, promise } = run(traceInput, { serpapi });
+    await promise;
+    const done = last(events);
+    if (done.type !== "investigation.completed") throw new Error("Expected completed image report");
+    expect(done.result.mode).toBe("trace");
+    expect(done.result.caseRecord).toBeUndefined();
+    expect(done.result.caseProjectionError).toBe("invalid_source_result");
+    expect(readCaseFromResult(done.result).status).toBe("invalid");
+    expect(done.result.undatedEvidence.length).toBeGreaterThan(0);
+  });
   it("searches reviewed public media without any image upload, including adaptive Lens", async () => {
     const calls: SerpapiParams[] = [];
     const serpapi = makeSerpapi(calls);

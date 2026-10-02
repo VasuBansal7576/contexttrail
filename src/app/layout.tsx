@@ -23,9 +23,9 @@ const geistSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "ContextTrail — Every image has a history",
+  title: "ContextTrail — A place for the question",
   description:
-    "ContextTrail traces where an image has appeared across the web, reconstructs how its context changed, and shows you the evidence trail.",
+    "Follow a question, trace an image, and keep the exact evidence behind your research.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

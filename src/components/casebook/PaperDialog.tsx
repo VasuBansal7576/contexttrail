@@ -1,0 +1,7 @@
+"use client";
+import * as Dialog from "@radix-ui/react-dialog";
+import { useRef, type ReactNode } from "react";
+export default function PaperDialog({ title, description, children, onClose, wide = false, busy = false, editing = false }: { title: string; description: string; children: ReactNode; onClose: () => void; wide?: boolean; busy?: boolean; editing?: boolean }) {
+  const opener = useRef(typeof document === "undefined" ? null : document.activeElement);
+  return <Dialog.Root open onOpenChange={open => { if (!open && !busy) onClose(); }}><Dialog.Portal><Dialog.Overlay className="paper-dialog-overlay" /><Dialog.Content onCloseAutoFocus={event => { event.preventDefault(); const target = opener.current; if (target instanceof HTMLElement && target.isConnected && !target.hasAttribute("disabled") && target.getClientRects().length) target.focus(); else document.getElementById("main")?.focus(); }} className={`paper-dialog${wide ? " wide" : ""}`} onEscapeKeyDown={event => { if (busy || editing) event.preventDefault(); }} onInteractOutside={event => { if (busy || editing) event.preventDefault(); }}><div className="dialog-topline"><p className="eyebrow">ContextTrail / case record</p><Dialog.Close className="dialog-close" disabled={busy}>{editing ? "Discard draft" : "Close"}</Dialog.Close></div><Dialog.Title>{title}</Dialog.Title><Dialog.Description className="fine-print">{description}</Dialog.Description>{children}</Dialog.Content></Dialog.Portal></Dialog.Root>;
+}

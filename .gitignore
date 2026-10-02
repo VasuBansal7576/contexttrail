@@ -10,3 +10,11 @@ next-env.d.ts
 .verify/
 
 data/
+
+.watchlists-build/
+
+.inquiries-build/
+
+.source-dependencies-build/
+
+.media-match-build/

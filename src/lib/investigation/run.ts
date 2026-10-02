@@ -12,6 +12,8 @@
  * forbidden (§40), this seam exists only for that purpose.
  */
 
+import { CaseValidationError } from "../cases/parse";
+import { caseFromImageInvestigation } from "../cases/from-image-investigation";
 import { auditUrl, readFailure, type PageReadOutcome } from "./report";
 import type { EvidenceCandidate, RetrievalKind } from "./contracts/evidence";
 import type {
@@ -1158,6 +1160,16 @@ export async function runInvestigation(
             pageReads,
             graph,
           });
+    try {
+      result.caseRecord = caseFromImageInvestigation({
+        result, id: investigationId, createdAt: new Date(startedAt).toISOString(),
+      });
+    } catch (error) {
+      if (!(error instanceof CaseValidationError)) throw error;
+      // The case has stricter import bounds than legacy provider metadata.
+      // Keep the completed image report and expose the projection failure.
+      result.caseProjectionError = "invalid_source_result";
+    }
     // Stage completion precedes the terminal event — a client that stops
     // reading at investigation.completed still sees a finished stage list.
     stage("FINAL_POLICY", "completed");

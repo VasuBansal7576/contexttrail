@@ -259,3 +259,6 @@ export function contextLabel(o: JsonRecord): string | null {
   if (label.includes("SUBMITTED") || label.includes("CLAIM")) return "Submitted claim";
   return null;
 }
+
+/** Read the additive case without changing the legacy report selectors. */
+export { readCaseFromResult } from "../cases/parse";
