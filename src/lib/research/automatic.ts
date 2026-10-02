@@ -1,6 +1,6 @@
 /** Bounded retrieval, never a generative answer substituted for source evidence. */
 import { randomUUID } from 'node:crypto';
-import { CASE_SCHEMA_VERSION, type CaseRecord, type CaseEvidence, type SourcedDate } from '../cases/model';
+import { CASE_SCHEMA_VERSION, type CaseRecord, type CaseEvidence, type SourcedDate, type CaseSourceRead } from '../cases/model';
 import { parseCaseRecord } from '../cases/parse';
 import { caseFromImageInvestigation } from '../cases/from-image-investigation';
 import { type EvidenceCandidate } from '../investigation/contracts/evidence';
@@ -8,6 +8,7 @@ import { type InvestigationResult } from '../investigation/contracts/investigati
 import { resolveEvidenceDate, type EvidenceDateSources } from '../investigation/dates';
 import { runInvestigation, type RunDeps } from '../investigation/run';
 import { retainableSourceUrl } from '../pages/source-reference';
+import { bindFetchedSource } from '../pages/source-binding';
 import type { JevAskResult } from '../jev/client';
 import { assessClaimSource, buildClaimReport, CLAIM_QUESTIONS, explicitTopicClaim, type ClaimSourceAssessment } from './claim-report';
 import { extractPage, selectDisplayQuote } from '../pages/extract';
@@ -81,6 +82,8 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   }
   record.coverage.omittedEvidenceCount = Math.max(0, candidates.size - selected.length);
   const assessments: AutomaticResearchResult['assessments'] = [];
+  const sourceReads: CaseSourceRead[] = [];
+  record.coverage.sourceReads = sourceReads;
   const claimSources: ClaimSourceAssessment[] = [];
   const claim = explicitTopicClaim(topic);
   for (const [index, entry] of selected.entries()) {
@@ -92,30 +95,41 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
     let quote = candidate.snippet?.slice(0, 8000) ?? null;
     let attribution: 'page_quote' | 'search_snippet' = 'search_snippet';
     let title = candidate.title;
+    let retainedDates = dates;
+    const read: CaseSourceRead = { evidenceId: candidate.id, requestedUrl: sourceUrl, finalUrl: null, sourceBinding: 'not_established', outcome: 'not_attempted' };
+    sourceReads.push(read);
     if (index < LIMITS.topicPageReads) {
       emit({ type: 'research.progress', message: `Reading source ${index + 1} of ${Math.min(selected.length, LIMITS.topicPageReads)}…` });
       try {
         const page = await deps.fetchPage(candidate.sourceUrl, deps.signal);
         check(deps);
         const extractedUrl = retainableSourceUrl(page.url);
-        if (!extractedUrl) throw new Error('The final source URL cannot be retained safely.');
-        finalUrl = extractedUrl;
-        const extracted = extractPage(page.html, page.url);
-        dates.pageJsonLd = extracted.jsonLdDates[0]; dates.pageMeta = extracted.metaDates[0]; dates.pageTime = extracted.timeDates[0];
-        const actualQuote = selectDisplayQuote({ title: extracted.title, claim: topic, paragraphs: extracted.paragraphs });
-        if (actualQuote) {
-          quote = actualQuote; attribution = 'page_quote'; title = extracted.title ?? title;
+        read.finalUrl = extractedUrl;
+        read.sourceBinding = bindFetchedSource(sourceUrl, page.url);
+        if (!extractedUrl || (read.sourceBinding !== 'same_resource' && read.sourceBinding !== 'normalized_resource')) {
+          read.outcome = 'binding_rejected';
+          limitations.push(`Source ${index + 1} led to an unrelated, blocked or unsafe destination. Its original search lead remains; destination text and dates were not used.`);
         } else {
-          const retainedLead = quote?.trim() ? 'its search snippet remains an unverified lead' : 'only its source reference remains';
-          limitations.push(extracted.paragraphs.length
-            ? `Source ${index + 1} had no page paragraph with lexical overlap to the question; ${retainedLead}. Relevant wording may have been missed.`
-            : `Source ${index + 1} had no readable page text; ${retainedLead}.`);
+          const extracted = extractPage(page.html, page.url);
+          const actualQuote = selectDisplayQuote({ title: extracted.title, claim: topic, paragraphs: extracted.paragraphs });
+          if (actualQuote) {
+            read.outcome = 'page_quote';
+            finalUrl = extractedUrl;
+            retainedDates = { ...dates, pageJsonLd: extracted.jsonLdDates[0], pageMeta: extracted.metaDates[0], pageTime: extracted.timeDates[0] };
+            quote = actualQuote; attribution = 'page_quote'; title = extracted.title;
+          } else {
+            read.outcome = extracted.paragraphs.length ? 'no_matching_quote' : 'no_readable_text';
+            const retainedLead = quote?.trim() ? 'its search snippet remains an unverified lead' : 'only its source reference remains';
+            limitations.push(extracted.paragraphs.length
+              ? `Source ${index + 1} had no page paragraph with lexical overlap to the question; ${retainedLead}. Relevant wording may have been missed.`
+              : `Source ${index + 1} had no readable page text; ${retainedLead}.`);
+          }
         }
-      } catch { check(deps); limitations.push(`Source ${index + 1} could not be read; its search snippet remains a lead.`); }
+      } catch { check(deps); read.outcome = 'fetch_failed'; limitations.push(`Source ${index + 1} could not be read; its original search lead remains.`); }
     }
     const evidence: CaseEvidence = { id: candidate.id, sourceUrl: finalUrl, title: title?.trim().slice(0, 2000) || null,
       content: quote?.trim() ? { kind: 'text', text: quote, attribution } : { kind: 'reference' },
-      publicationDate: publicationDate(dates, finalUrl, now),
+      publicationDate: publicationDate(retainedDates, finalUrl, now),
       provenance: { method: attribution === 'page_quote' ? 'page_extraction' : 'retrieval', toolVersion: null,
         capturedAt: null, retrievedAt: now.toISOString(), rights: 'unknown', retention: 'reference_only', contentHash: null } };
     record.evidence.push(evidence); record.coverage.searches[entry.search].retained++;

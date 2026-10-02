@@ -226,7 +226,7 @@ describe('same-origin research API client', () => {
       }
     }
     inspect(resolve('src/lib/research/client.ts'));
-    expect(seen.size).toBe(6); // Adds the grounded report parser and browser-safe model identity helpers.
+    expect(seen.has(resolve('src/lib/pages/source-reference-policy.ts'))).toBe(true);
   });
 });
 

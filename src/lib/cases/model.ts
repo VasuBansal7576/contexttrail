@@ -89,6 +89,14 @@ export type CaseRelation = {
   | { kind: 'occurrence_occurrence'; fromOccurrenceId: string; toOccurrenceId: string; relationship: 'repost' | 'quotation' | 'source_link' | 'similar_media' }
 );
 
+export interface CaseSourceRead {
+  evidenceId: string;
+  requestedUrl: string;
+  finalUrl: string | null;
+  sourceBinding: 'same_resource' | 'normalized_resource' | 'different_resource' | 'blocked_destination' | 'not_established';
+  outcome: 'not_attempted' | 'fetch_failed' | 'binding_rejected' | 'no_readable_text' | 'no_matching_quote' | 'page_quote';
+}
+
 export interface CaseRecord {
   schemaVersion: typeof CASE_SCHEMA_VERSION;
   id: string;
@@ -107,5 +115,7 @@ export interface CaseRecord {
     originalPublication: { status: 'unknown'; reason: string };
     limitations: string[];
     searches: Array<{ engine: string; attempted: number; returned: number; retained: number; searchId: string | null }>;
+    /** Optional in older cases. Each page read remains bound to its original search lead. */
+    sourceReads?: CaseSourceRead[];
   };
 }

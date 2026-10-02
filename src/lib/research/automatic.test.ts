@@ -19,6 +19,8 @@ describe('automatic topic investigation (offline providers only)', () => {
     const result = await investigateTopic('What evidence shows coral recovery?', () => {}, dependencies);
     expect(search).toHaveBeenCalledTimes(3);
     expect(dependencies.fetchPage).toHaveBeenCalledTimes(5);
+    expect(result.caseRecord.coverage.sourceReads).toHaveLength(8);
+    expect(result.caseRecord.coverage.sourceReads?.filter(read => read.outcome === 'not_attempted')).toHaveLength(3);
     expect(result.caseRecord.evidence).toHaveLength(8);
     expect(result.caseRecord.evidence.some(item => item.sourceUrl.includes('news.'))).toBe(true);
     expect(result.caseRecord.evidence[0].content).toMatchObject({ kind: 'text', attribution: 'page_quote' });
@@ -77,7 +79,7 @@ describe('automatic topic investigation (offline providers only)', () => {
     const controller = new AbortController(); controller.abort(); dependencies.signal = controller.signal;
     await expect(investigateTopic('Coral recovery evidence', () => {}, dependencies)).rejects.toThrow();
   });
-  it('keeps valid metadata without readable paragraphs and skips malformed oversized sources', async () => {
+  it('preserves snippet provenance without readable paragraphs and skips malformed oversized sources', async () => {
     const dependencies = deps(async () => ({ search_metadata: { status: 'Success' }, organic_results: [
       { link: `https://science.example.org/${'x'.repeat(5000)}`, title: 'Too long' },
       { link: 'https://science.example.org/metadata', title: '   ', snippet: 'Coral recovery summary.' },
@@ -86,11 +88,11 @@ describe('automatic topic investigation (offline providers only)', () => {
     const result = await investigateTopic('Coral recovery evidence', () => {}, dependencies);
     expect(result.caseRecord.evidence).toHaveLength(1);
     expect(result.caseRecord.evidence[0].title).toBeNull();
-    expect(result.caseRecord.evidence[0].publicationDate).toMatchObject({ status: 'observed', observation: { value: '2021-06-07' } });
+    expect(result.caseRecord.evidence[0].publicationDate.status).toBe('unknown');
     expect(result.caseRecord.evidence[0].content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
     expect(result.caseRecord.coverage.omittedEvidenceCount).toBe(1);
   });
-  it('preserves query-addressed source identity through reads and redirects, including metadata-only pages', async () => {
+  it('rejects query-addressed resource changes while preserving original snippet ownership', async () => {
     const dependencies = deps(async params => ({ search_metadata: { status: 'Success' }, [params.engine === 'google_news' ? 'news_results' : 'organic_results']: [
       { link: 'https://science.example.org/article?id=17', title: 'Coral evidence', snippet: 'A retrieved summary.' },
     ] }));
@@ -100,8 +102,8 @@ describe('automatic topic investigation (offline providers only)', () => {
     });
     const result = await investigateTopic('Coral recovery evidence', () => {}, dependencies);
     const source = result.caseRecord.evidence[0];
-    expect(source.sourceUrl).toBe('https://science.example.org/archive?paper=42');
-    expect(source.publicationDate).toMatchObject({ status: 'observed', observation: { source: { url: 'https://science.example.org/archive?paper=42' } } });
+    expect(source.sourceUrl).toBe('https://science.example.org/article?id=17');
+    expect(source.publicationDate.status).toBe('unknown');
     expect(source.content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
     dependencies.fetchPage = async url => ({ url, html: `<html><body><article><p>${'Coral recovery evidence was observed in the original paper. '.repeat(15)}</p></article></body></html>` });
     const quoted = await investigateTopic('Coral recovery evidence', () => {}, dependencies);
