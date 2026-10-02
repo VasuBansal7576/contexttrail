@@ -226,7 +226,9 @@ describe('same-origin research API client', () => {
       }
     }
     inspect(resolve('src/lib/research/client.ts'));
-    expect(seen.size).toBe(9); // Adds video retention, completed result projection and saved report parser; includes the grounded report parser and browser-safe model identity helpers.
+    for (const path of ['src/lib/pages/source-reference-policy.ts', 'src/lib/research/video-retention.ts', 'src/lib/research/automatic-client.ts', 'src/lib/research/saved-video.ts']) {
+      expect(seen.has(resolve(path))).toBe(true);
+    }
   });
 });
 

@@ -22,6 +22,21 @@ Source relationships remain model-assessed support, challenge, context or insuff
 
 ## Admission and costs
 
+Automatic question page reads use the same conservative resource binding as
+image deep reads. Same-host path/query changes, cross-host redirects, HTTPS
+downgrades and login/error destinations cannot donate text, titles or publication
+dates to the original search lead. A bound page supplies its own quote, title and
+date provenance only when a question-overlapping paragraph is retained. Without
+that quote, the original snippet/title/search date remain at the requested URL,
+including on legitimate URL normalization or HTTPS upgrades.
+
+New case records retain optional `coverage.sourceReads` audit rows with evidence
+ID, safe requested/final URLs, resource binding and read outcome. The audit
+survives explicit save/reopen; legacy records without it remain valid. Unsafe or
+credential-bearing final URLs are recorded as absent with binding unestablished,
+rather than copied into saved data. Audit rows are historical retrieval records,
+not proof of media identity or a renewed source assessment.
+
 Live use remains **disabled by default**. The route requires the existing single-user loopback research opt-in, existing live-usage configuration/verified allocation and server-only provider keys. Video additionally requires `CONTEXTTRAIL_MEDIA_LOCAL=1` and installed FFmpeg/FFprobe. Hosted/serverless live use remains denied.
 
 The persistent ledger and exclusive lock are shared with image investigations. The full fixed worst-case amount is reserved before any provider dispatch; the reservation is not refunded for an early result, failure or cancellation. Nothing in the implementation resets a period or ledger or queries provider balances.

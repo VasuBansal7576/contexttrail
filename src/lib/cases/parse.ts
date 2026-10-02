@@ -4,6 +4,7 @@ import {
   type MediaOccurrence, type MediaSpan, type NonEmpty, type Provenance,
   type SourcedDate, type TextClaim,
 } from './model';
+import { safeReferenceParameters } from '../pages/source-reference-policy';
 
 export class CaseValidationError extends Error {
   constructor(readonly path: string, message: string) {
@@ -56,6 +57,11 @@ function timestamp(value: unknown, path: string): string {
   }
   if (new Date(raw).toISOString().slice(0, 19) !== raw.slice(0, 19)) return fail(path, 'invalid calendar date');
   return raw;
+}
+function auditUrl(value: unknown, path: string): string {
+  const reference = url(value, path);
+  if (!safeReferenceParameters(new URL(reference))) return fail(path, 'credential-bearing source audit URL');
+  return reference;
 }
 function observation(value: unknown, path: string): DateObservation {
   const v = object(value, path);
@@ -169,6 +175,19 @@ export function parseCaseRecord(value: unknown): CaseRecord {
         const s = object(item, path);
         return { engine: text(s.engine, `${path}.engine`), attempted: integer(s.attempted, `${path}.attempted`), returned: integer(s.returned, `${path}.returned`), retained: integer(s.retained, `${path}.retained`), searchId: nullableText(s.searchId, `${path}.searchId`) };
       }),
+      ...(coverage.sourceReads === undefined ? {} : { sourceReads: list(coverage.sourceReads, 'case.coverage.sourceReads', (item, path) => {
+        const read = object(item, path);
+        const requestedUrl = auditUrl(read.requestedUrl, `${path}.requestedUrl`);
+        const finalUrl = read.finalUrl === null ? null : auditUrl(read.finalUrl, `${path}.finalUrl`);
+        const sourceBinding = choice(read.sourceBinding, ['same_resource', 'normalized_resource', 'different_resource', 'blocked_destination', 'not_established'], `${path}.sourceBinding`);
+        const outcome = choice(read.outcome, ['not_attempted', 'fetch_failed', 'binding_rejected', 'no_readable_text', 'no_matching_quote', 'page_quote'], `${path}.outcome`);
+        const bound = sourceBinding === 'same_resource' || sourceBinding === 'normalized_resource';
+        if (bound && !finalUrl) fail(path, 'bound read requires a final URL');
+        if (outcome === 'not_attempted' && (finalUrl || sourceBinding !== 'not_established')) fail(path, 'unattempted read cannot bind a destination');
+        if (outcome === 'binding_rejected' && bound) fail(path, 'rejected read cannot claim a bound resource');
+        if (['no_readable_text', 'no_matching_quote', 'page_quote'].includes(outcome) && !bound) fail(path, 'extracted read requires a bound resource');
+        return { evidenceId: id(read.evidenceId, `${path}.evidenceId`), requestedUrl, finalUrl, sourceBinding, outcome };
+      }) }),
     },
   };
   const unique = <T extends { id: string }>(items: T[], path: string) => {
