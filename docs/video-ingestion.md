@@ -43,6 +43,21 @@ are made here. Bytes and temporary images are not persisted in a case export.
 
 ## Bounds and provenance
 
+Automatic video and supplied-file comparison uploads share bounded MOV/MP4 atom
+recognition. `ftyp` is optional and need not be the first atom: padding before it,
+legacy `mdat`/`moov` ordering, 64-bit atom sizes within the byte cap and terminal
+zero-size atoms are recognized. A complete top-level layout needs movie metadata
+and media data; truncated, overflowing or inconsistent atom sizes are rejected.
+Recognition is not decoding. The restricted decoder still validates streams,
+duration, dimensions and frame output before any investigation can run.
+
+The structural scan allows at most 4096 atoms and 12 levels of movie metadata.
+It admits only empty self-contained `url ` data references. External URLs, URNs,
+file aliases, compressed movie metadata and reference movies are unsupported.
+This conservative subset does not accept a file merely from its name or MIME type.
+Decoder protocol/format allowlists and resource limits remain unchanged; external
+track and absolute alias-path support remain disabled by the decoder's defaults.
+
 - Maximum input: 32 MiB, two minutes, 3840 × 2160 pixel area
 - Self-contained MP4/MOV and WebM/Matroska containers only; no playlists
 - Three evenly spaced candidate samples, starting at zero; at most three returned frames

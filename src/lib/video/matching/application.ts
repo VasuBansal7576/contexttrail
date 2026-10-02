@@ -1,5 +1,6 @@
 /** Single-user loopback upload adapter. No case writes, input paths, network or provider calls. */
 import { VIDEO_LIMITS } from '../ingest';
+import { hasSelfContainedMovLayout } from '../container-signature';
 import { MATCH_LIMITS, type LocalMediaInput, type PreparedMatchFrame } from './model';
 import { comparePreparedMediaAsync } from './schedule';
 import { prepareMatchMedia } from './prepare';
@@ -36,7 +37,7 @@ function signature(bytes: Buffer, expected: string): boolean {
     case 'png': return bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     case 'jpeg': return bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
     case 'webp': return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
-    case 'mov': return bytes.length >= 12 && bytes.toString('ascii', 4, 8) === 'ftyp';
+    case 'mov': return hasSelfContainedMovLayout(bytes);
     case 'matroska': return bytes.subarray(0, 4).equals(Buffer.from([26, 69, 223, 163]));
     default: return false;
   }
