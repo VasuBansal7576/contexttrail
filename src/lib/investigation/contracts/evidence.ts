@@ -12,6 +12,7 @@ export type RetrievalKind =
   | "lens_visual"
   | "lens_about_image"
   | "google_search"
+  | "source_link"
   | "google_news";
 
 /**

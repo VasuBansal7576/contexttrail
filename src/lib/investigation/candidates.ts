@@ -24,6 +24,7 @@ const KIND_PRIORITY: Record<RetrievalKind, number> = {
   lens_visual: 1,
   lens_about_image: 2,
   google_search: 3,
+  source_link: 3,
   google_news: 4,
 };
 
@@ -109,7 +110,9 @@ export function applyRetentionCaps(
 ): EvidenceCandidate[] {
   const kept: EvidenceCandidate[] = [];
   for (const kind of Object.keys(RETENTION_CAPS) as RetrievalKind[]) {
-    const cap = RETENTION_CAPS[kind];
+    const cap = kind === 'google_search'
+      ? RETENTION_CAPS.google_search - Math.min(RETENTION_CAPS.source_link, candidates.filter(c => c.retrievalKind === 'source_link').length)
+      : RETENTION_CAPS[kind];
     const ofKind = candidates
       .filter((c) => c.retrievalKind === kind)
       .sort(

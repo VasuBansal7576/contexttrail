@@ -8,8 +8,11 @@ import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import { EXCERPT_MAX_CHARS } from "../investigation/limits";
 import type { JsonLdEntityMetadata } from "../investigation/contracts/evidence";
+import { extractSourceLinks, type SourceLink } from './source-links';
+import { canonicalizeUrl } from '../investigation/url';
 
 export interface PageExtraction {
+  sourceLinks: SourceLink[];
   title: string | null;
   /** Main readable text content; null when extraction fails. */
   text: string | null;
@@ -31,7 +34,7 @@ export interface PageExtraction {
   openGraph: Record<string, string>;
   /** article:published_time / equivalent meta values. */
   metaDates: string[];
-  /** Explicit <time datetime> values. */
+  /** Explicit publication <time datetime itemprop="datePublished"> values. */
   timeDates: string[];
 }
 
@@ -43,7 +46,8 @@ export interface PageExtraction {
  * root-level node's explicit `datePublished` is the only fallback;
  * container `dateCreated`/`datePosted` never stand in for publication.
  */
-const JSONLD_DATE_KEYS = ["datePublished", "dateCreated", "datePosted"] as const;
+// Creation/filming times are not publication times, even on a bound entity.
+const JSONLD_DATE_KEYS = ["datePublished", "datePosted"] as const;
 
 function isPublicationEntity(node: Record<string, unknown>): boolean {
   const t = node["@type"];
@@ -71,11 +75,9 @@ interface DateCandidate {
 }
 
 function normalizePageUrl(u: string): string {
-  return u
-    .replace(/#.*$/, "")
-    .replace(/[?].*$/, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
+  // Post IDs and case-sensitive paths identify resources. Tracking-only
+  // normalization may bind a publication entity; dropping every query may not.
+  return canonicalizeUrl(u)?.canonicalUrl ?? u;
 }
 
 /** Absolute page-identity URLs a node claims for itself. Relative or
@@ -222,8 +224,6 @@ const META_DATE_KEYS = new Set([
   "article:published_time",
   "og:published_time",
   "datepublished",
-  "date",
-  "dc.date",
   "dc.date.issued",
   "parsely-pub-date",
   "sailthru.date",
@@ -318,7 +318,8 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
   }
 
   const timeDates: string[] = [];
-  for (const el of doc.querySelectorAll("time[datetime]")) {
+  for (const el of doc.querySelectorAll('time[datetime][itemprop~="datePublished"], time[datetime][itemprop~="datePosted"]')) {
+    if (el.closest('blockquote, figure, aside, nav, header, footer')) continue;
     const dt = el.getAttribute("datetime");
     if (dt !== null && dt.trim() !== "") timeDates.push(dt.trim());
   }
@@ -341,7 +342,8 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length >= 40);
 
-  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, jsonLdMetadata, openGraph, metaDates, timeDates };
+  const sourceLinks = pageUrl ? extractSourceLinks(doc, pageUrl) : [];
+  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, jsonLdMetadata, openGraph, metaDates, timeDates, sourceLinks };
 }
 
 /* ---------------- deterministic excerpt builder (§18.3) ---------------- */

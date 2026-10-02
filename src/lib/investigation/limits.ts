@@ -41,6 +41,8 @@ export const RETENTION_CAPS = {
   lens_visual: 8,
   lens_about_image: 5,
   google_search: 5,
+  /** One inspected source link, sharing the five contextual search slots. */
+  source_link: 1,
   google_news: 5,
 } as const;
 

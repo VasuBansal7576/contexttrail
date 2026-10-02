@@ -5,6 +5,7 @@ import { STRONG_RELATION_THRESHOLD, RELEVANCE_THRESHOLD } from './contracts/judg
 import { ProviderError } from '../providers/http';
 import { isCoreOccurrence } from './identity';
 import type { SourceBinding } from '../pages/source-binding';
+import type { SourceLink } from '../pages/source-links';
 
 export interface PageReadOutcome {
   evidenceId: string;
@@ -12,6 +13,8 @@ export interface PageReadOutcome {
   finalUrl: string | null;
   /** Absent only in results saved before source binding was audited. */
   sourceBinding?: SourceBinding;
+  /** Inspected references, with selection deferrals visible. No dates inferred. */
+  sourceLinks?: Array<SourceLink & { followup: 'not_historical' | 'pending' | 'selected' | 'already_read' | 'retention_limit' | 'page_limit' | 'deadline'; evidenceId: string | null }>;
   selection: 'selected' | 'not_selected';
   fetch: 'succeeded' | 'failed' | 'not_attempted';
   extraction: 'usable_text' | 'empty_text' | 'failed' | 'not_attempted';
