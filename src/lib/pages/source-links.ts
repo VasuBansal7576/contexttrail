@@ -44,8 +44,12 @@ export function extractSourceLinks(doc: Document, pageUrl: string): SourceLink[]
     }
     if (out.length < MAX_SOURCE_LINKS) out.push(link);
     else if (historicalLead) {
-      const replace = out.findLastIndex(candidate => !candidate.historicalLead);
-      if (replace >= 0) out[replace] = link;
+      for (let replace = out.length - 1; replace >= 0; replace -= 1) {
+        if (!out[replace].historicalLead) {
+          out[replace] = link;
+          break;
+        }
+      }
     }
   }
   return out.sort((a, b) => a.location.index - b.location.index);
