@@ -340,6 +340,7 @@ body {
 .cover-strip-frame { right:-6%; top:185px; transform:rotate(5deg); background:#e8d99f; color:var(--cb-ink); }
 .cover-strip-question { left:-3%; top:382px; transform:rotate(-5deg); background:var(--cb-rust); color:var(--cb-sheet); }
 .cover-strip-source { right:12%; top:454px; transform:rotate(5deg); background:#becabd; color:var(--cb-ink); }
+.cover-pointing-hand { position:absolute; z-index:3; width:49%; right:-7%; top:54%; transform:rotate(-22deg); pointer-events:none; user-select:none; }
 .cover-collage .specimen-caption { position:absolute; top:505px; left:10%; margin:0; font-size:9px; }
 @media (prefers-reduced-motion:no-preference) {
  .cover-collage { animation:cover-arrive .65s ease-out both; }
@@ -349,7 +350,7 @@ body {
  @keyframes cover-label-arrive { from { opacity:0; translate:0 10px; } to { opacity:1; translate:0 0; } }
 }
 @media(max-width:1100px) and (min-width:761px) { .cover-layout { gap:35px; padding:44px 35px; } .cover-collage { transform:scale(.9); transform-origin:center; } .cover-strip-frame { right:-3%; } }
-@media(max-width:760px) { .cover-collage { min-height:465px; width:100%; padding:0; } .cover-collage .cover-photo-sheet { top:65px; padding:15px; } .cover-strip { font-size:18px; padding:8px 12px; } .cover-strip-date { top:29px; } .cover-strip-frame { top:155px; right:-2%; max-width:52%; } .cover-strip-question { top:300px; left:0; } .cover-strip-source { top:366px; right:8%; } .cover-collage .specimen-caption { top:417px; left:6%; } .cover-star { font-size:75px; } }
+@media(max-width:760px) { .cover-collage { min-height:480px; width:100%; padding:0; } .cover-collage .cover-photo-sheet { top:65px; padding:15px; } .cover-strip { font-size:18px; padding:8px 12px; } .cover-strip-date { top:29px; } .cover-strip-frame { top:155px; right:-2%; max-width:52%; } .cover-strip-question { top:300px; left:0; } .cover-strip-source { top:366px; right:8%; } .cover-collage .specimen-caption { top:425px; left:6%; } .cover-pointing-hand { top:53%; right:-3%; width:47%; } .cover-star { font-size:75px; } }
 
 /* Image entry: the submitted image stays the subject, rather than a thumbnail. */
 .image-workspace { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); align-items:start; gap:72px; }
