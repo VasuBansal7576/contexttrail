@@ -29,7 +29,10 @@ export default function LandingPage() {
           <span className="cover-strip cover-strip-frame">A moment in a travelling clip.</span>
           <span className="cover-strip cover-strip-question">What else could explain it?</span>
           <span className="cover-strip cover-strip-source">A source changes its story.</span>
-          <p className="specimen-caption">Illustrative cover · NASA / Bill Anders, Apollo 8, 1968<br />This photograph is not a completed investigation.</p>
+          {/* Original generated artwork recovered unchanged from the authored cover concept. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="cover-pointing-hand" src="/illustrative-pointing-hand.png" alt="" aria-hidden="true" />
+          <p className="specimen-caption">Illustrative cover · NASA / Bill Anders, Apollo 8, 1968<br />Generated pointing-hand artwork from the original concept.<br />These illustrations are not retrieved investigation evidence.</p>
         </div>
       </section>
       <section id="about" className="cover-about">
