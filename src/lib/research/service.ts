@@ -97,7 +97,14 @@ export function localResearchService(directory: string) {
       return withLock(id, async () => {
         const existing = await read(id);
         if (existing) {
-          if (existing.applied.find(item => item.operationId === request.operationId)?.digest !== candidate.document.applied[0].digest) throw new ResearchServiceError(409, 'OPERATION_CONFLICT', 'Creation operation ID reused with different input');
+          // Comparison identity is content-derived across browser sessions. Keep the
+          // first app-owned creation time rather than treating a later save click as
+          // changed evidence. Recompute against the original timestamp so existing
+          // v3 documents remain compatible; all report/question fields still bind.
+          const replayCandidate = request.kind === 'import_comparison'
+            ? researchWorkflow({ ...request, createdAt: inquiryCase(existing.workspace).createdAt })
+            : candidate;
+          if (existing.applied.find(item => item.operationId === request.operationId)?.digest !== replayCandidate.document.applied[0].digest) throw new ResearchServiceError(409, 'OPERATION_CONFLICT', 'Creation operation ID reused with different input');
           return reviewResearch(existing);
         }
         await write(candidate.document);

@@ -27,6 +27,12 @@ it('retains a real decoded video/still comparison across disk reopen and later e
     const updated = await service.apply({ kind: 'update', caseId: id, expectedRevision: 1, operationId: 'question', change: { kind: 'subquestion', value: { kind: 'subquestion', id: 'q2', question: 'Which moments were not sampled?' } } });
     expect(parseResearchCaseView(updated).comparison).toEqual(comparison);
     expect(await service.apply(input)).toEqual(updated);
+    // A fresh browser/session has a new save timestamp for the exact same report.
+    const freshSession = { ...input, createdAt: '2026-10-02T03:00:00Z' };
+    const freshService = localResearchService(join(directory, 'cases'));
+    expect(await freshService.apply(freshSession)).toEqual(updated);
+    expect(parseResearchCaseView(await freshService.get(id)).createdAt).toBe(input.createdAt);
+    await expect(freshService.apply({ ...freshSession, question: 'A changed question?' })).rejects.toMatchObject({ code: 'OPERATION_CONFLICT' });
     const corrupted = structuredClone(comparison); corrupted.frames.right[0].base64 = comparison.frames.left[0].base64;
     expect(() => parseSavedComparison(corrupted)).toThrow('hash');
     await expect(service.apply({ ...input, operationId: 'bad', comparison: corrupted })).rejects.toThrow('hash');
