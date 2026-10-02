@@ -9,8 +9,18 @@ import { CasebookShell, ChapterHeading } from './CasebookShell';
 import { ClaimReportView } from './ClaimReportView';
 import { EvidenceCollection, EvidencePassage, SourceActions } from './EvidenceCollection';
 import SaveToCasebook from './SaveToCasebook';
+import { researchLimitationCopy, researchProgressCopy } from '@/lib/research/display-copy';
 
 type ResearchState = { kind: 'idle' | 'cancelled' } | { kind: 'running'; message: string } | { kind: 'error'; message: string } | { kind: 'complete'; result: AutomaticResearchView };
+
+function ResearchLimitations({ values }: { values: string[] }) {
+  if (!values.length) return null;
+  return <section className="automatic-limitations" aria-label="Limits of this investigation">
+    <h3>Limits of this investigation</h3>
+    <ul>{[...new Set(values.map(researchLimitationCopy))].map(copy => <li key={copy}>{copy}</li>)}</ul>
+    <details><summary>Inspect technical limitation details</summary><ul className="fine-print">{values.map((value, index) => <li key={index}>{value}</li>)}</ul></details>
+  </section>;
+}
 
 function publicationLabel(date: SourcedDate): string {
   switch (date.status) {
@@ -56,9 +66,9 @@ export function AutomaticResult({ result, saved = false }: { result: AutomaticRe
     {!saved && result.kind === 'video' && result.retainedResult ? <SaveToCasebook value={result.caseRecord} question={result.question} videoReport={{ schemaVersion: 'contexttrail-video-report-v1', result: result.retainedResult }} /> : null}
     {result.frames.map((frame, index) => frame.imageResult.captionComparison ? <CaptionComparison key={index} comparison={frame.imageResult.captionComparison} /> : null)}
     <p className="fine-print">Original publication unknown. {result.caseRecord.coverage.originalPublication.reason}</p>
-    {limitations.length ? <details className="automatic-limitations" open><summary>Limits of this investigation</summary><ul>{limitations.map((limit, index) => <li key={index}>{limit}</li>)}</ul></details> : null}
+    <ResearchLimitations values={limitations} />
     <div className="button-row automatic-view-switch" aria-label="Evidence views"><button className="paper-button" aria-pressed={view === 'sources'} onClick={() => setView('sources')}>Source explorer ({result.caseRecord.evidence.length})</button>{result.kind === 'video' ? <button className="paper-button" aria-pressed={view === 'frames'} onClick={() => setView('frames')}>Sampled frames ({result.frames.length})</button> : null}</div>
-    {view === 'sources' ? <div className="source-stack">{result.caseRecord.evidence.length ? <EvidenceCollection items={result.caseRecord.evidence} label="Sources">{evidence => <SourceEvidence key={evidence.id} evidence={evidence} assessment={result.assessments.find(item => item.evidenceId === evidence.id)} />}</EvidenceCollection> : <p className="empty-state">No source evidence was retained. This does not establish that the claim is true or that the video is original.</p>}</div> : <div className="source-stack">{result.frames.length ? result.frames.map((frame, index) => <details className="automatic-frame paper-sheet" key={`${frame.timestampMs}-${index}`} open={index === 0}><summary>Sample {index + 1} · {formatTimestamp(frame.timestampMs)}</summary><p className="fine-print">Sources below concern this sampled frame. They do not verify the entire video or its audio.</p>{frame.imageResult.limitations.length ? <ul className="fine-print">{frame.imageResult.limitations.map((limit, i) => <li key={i}>{limit}</li>)}</ul> : null}<div className="source-stack"><EvidenceCollection label="Frame sources" items={[
+    {view === 'sources' ? <div className="source-stack">{result.caseRecord.evidence.length ? <EvidenceCollection items={result.caseRecord.evidence} label="Sources">{evidence => <SourceEvidence key={evidence.id} evidence={evidence} assessment={result.assessments.find(item => item.evidenceId === evidence.id)} />}</EvidenceCollection> : <p className="empty-state">No source evidence was retained. This does not establish that the claim is true or that the video is original.</p>}</div> : <div className="source-stack">{result.frames.length ? result.frames.map((frame, index) => <details className="automatic-frame paper-sheet" key={`${frame.timestampMs}-${index}`} open={index === 0}><summary>Sample {index + 1} · {formatTimestamp(frame.timestampMs)}</summary><p className="fine-print">Sources below concern this sampled frame. They do not verify the entire video or its audio.</p><ResearchLimitations values={frame.imageResult.limitations} /><div className="source-stack"><EvidenceCollection label="Frame sources" items={[
       ...frame.imageResult.timeline.map(source => ({ source, label: 'Dated occurrence' })),
       ...frame.imageResult.undatedEvidence.map(source => ({ source, label: 'Undated evidence' })),
       ...frame.imageResult.supportingEvidence.map(source => ({ source, label: 'Supporting visual lead' })),
@@ -108,7 +118,7 @@ export default function AutomaticResearch({ kind }: { kind: 'topic' | 'video' })
     else if (video) { body.set('video', video); body.set('rights', 'user_provided'); if (claim.trim()) body.set('claim', claim.trim()); }
     setState({ kind: 'running', message: kind === 'topic' ? 'Finding sources for your question…' : 'Preparing the video investigation…' });
     try {
-      const result = await investigateAutomatically(body, controller.signal, message => { if (active.current === controller) setState({ kind: 'running', message }); });
+      const result = await investigateAutomatically(body, controller.signal, message => { if (active.current === controller) setState({ kind: 'running', message: researchProgressCopy(message) }); });
       if (active.current === controller) setState({ kind: 'complete', result });
     } catch (error) {
       if (active.current === controller && !controller.signal.aborted) setState({ kind: 'error', message: error instanceof Error ? error.message : 'The investigation could not finish. Try again.' });

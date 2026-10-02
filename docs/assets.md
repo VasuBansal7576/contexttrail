@@ -21,6 +21,29 @@ This credit does not assert a universal license for other NASA materials.
 
 ## Design references
 
+### Recovered original pointing hand
+
+- File: `public/illustrative-pointing-hand.png`, unchanged PNG bytes, 1536 × 1024.
+- SHA-256: `f4c7a55cbb4084b915c4f23233619c5156018323bf878091b7cd4c178047cbef`.
+- Recovered on October 2, 2026 from the embedded `img.cover-hand` in the
+  user-owned local authored concepts `ContextTrail-A-Place-for-the-Question.html`
+  and `ContextTrail-The-Borrowed-Moment.html`. Both embedded copies have this
+  identical SHA-256. This is the original concept artwork, not a substitute.
+- The first concept credits the generated engraved hand retained from the
+  original concept. The second explicitly documents creation with the built-in
+  image-generation tool and the prompt: “isolated copperplate-engraved pointing
+  hand, black crosshatching on warm ivory paper, brick-red cuff, transparent
+  background.” No external stock-art source or attribution requirement was
+  recorded. This provenance does not grant rights to unrelated reference assets.
+- The authored cover uses a 338px-wide hand within a 695px-wide collage,
+  positioned 68px beyond the right edge, 326px below its top and rotated −22°.
+  The implementation preserves the original bytes, rotation and approximately
+  49% collage-relative scale. The crop/edge extension stays within the cover's
+  available margin; narrow screens use a 47% scale and a smaller extension.
+- The hand is decorative, excluded from the accessibility tree and pointer
+  hit-testing. Visible cover credits identify it as generated illustration;
+  neither the hand nor the cover photograph enters investigation evidence.
+
 `contexttrail-designs/screen-designs.png` was generated with an image-generation
 tool from the recorded design prompt. It is a composition reference, not a
 screenshot of working software or retrieved evidence.
