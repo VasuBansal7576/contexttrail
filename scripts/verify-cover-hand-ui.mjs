@@ -27,6 +27,8 @@ try {
   const bounds = await page.locator('.cover-pointing-hand').boundingBox();
   check(`${width}: hand stays within page width`, bounds.x >= 0 && bounds.x + bounds.width <= width);
   await page.screenshot({ path: resolve(artifacts, `${width}-cover.png`), fullPage: true });
+  await page.locator('.cover-collage').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(artifacts, `${width}-collage-viewport.png`) });
   for (const [name, href] of [['Investigate an image', '/investigate'], ['Investigate a question', '/questions'], ['Investigate a video', '/video'], ['Return to a saved case', '/casebook']]) {
    const link = page.getByRole('link', { name, exact: false }).first(); await link.scrollIntoViewIfNeeded();
    check(`${width}: ${name} clickable above artwork`, await link.evaluate(el => { const r = el.getBoundingClientRect(); return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); }));
