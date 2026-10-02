@@ -16,12 +16,15 @@ const prose = 'The photograph was released by Common Agency. Retrieved source ma
 const article = (url: string, date: string | null, body: string) => `<html><head><title>Source photograph</title>${date ? `<script type="application/ld+json">${JSON.stringify({ '@type': 'Article', url, datePublished: date, dateCreated: '1990-01-01' })}</script>` : ''}</head><body><article>${body}<p>${prose}</p></article></body></html>`;
 const linkBody = `<p>${support} <a href="${linkedUrl}">Earlier post</a></p>`;
 
-async function run(input: { body?: string; contextualCount?: number; failLink?: boolean; exactLinked?: boolean; deadline?: boolean } = {}) {
+async function run(input: { body?: string; contextualCount?: number; fullClassificationPool?: boolean; failLink?: boolean; exactLinked?: boolean; deadline?: boolean } = {}) {
   const fetches: string[] = [];
   const searches: string[] = [];
   let now = Date.parse('2026-10-02T00:00:00Z');
   const contextual = Array.from({ length: input.contextualCount ?? 0 }, (_, i) => ({ position: i + 1, title: 'Context source', link: `https://context${i}.example/article` }));
   const exact = [{ position: 1, title: 'Current photograph', link: parentUrl }];
+  if (input.fullClassificationPool) {
+    for (let i = 0; i < 7; i++) exact.push({ position: i + 2, title: 'Photograph', link: `https://exact${i}.example/photo` });
+  }
   if (input.exactLinked) {
     for (let i = 0; i < 3; i++) exact.push({ position: i + 2, title: 'Photograph', link: `https://exact${i}.example/photo` });
     exact.push({ position: 5, title: 'Historical photograph', link: linkedUrl });
@@ -31,6 +34,8 @@ async function run(input: { body?: string; contextualCount?: number; failLink?: 
     search: async params => {
       searches.push(`${params.engine}:${params.type ?? ''}`);
       if (params.type === 'exact_matches') return { exact_matches: exact };
+      if (input.fullClassificationPool && params.engine === 'google_news') return { news_results: Array.from({ length: 5 }, (_, i) => ({ position: i + 1, title: 'News', link: `https://news${i}.example/article` })) };
+      if (input.fullClassificationPool && params.type === 'all') return { visual_matches: Array.from({ length: 8 }, (_, i) => ({ position: i + 1, title: 'Visual lead', link: `https://visual${i}.example/photo` })) };
       if (params.engine === 'google') return { organic_results: contextual };
       return {};
     },
@@ -53,7 +58,8 @@ async function run(input: { body?: string; contextualCount?: number; failLink?: 
   });
   const terminal = events.find(event => event.type === 'investigation.completed');
   if (terminal?.type !== 'investigation.completed') throw new Error('Missing result');
-  return { result: terminal.result, fetches, searches };
+  const classifiedIds = new Set(events.flatMap(event => event.type === 'evidence.classified' ? [event.id] : []));
+  return { result: terminal.result, fetches, searches, classifiedIds };
 }
 
 const allItems = (result: Awaited<ReturnType<typeof run>>['result']) => [...result.timeline, ...result.undatedEvidence, ...result.contextualEvidence];
@@ -102,6 +108,16 @@ describe('inspected historical links within the existing investigation bounds', 
     expect(result.sourceLinkedReport?.pageReads.find(read => read.requestedUrl === parentUrl)?.sourceLinks?.[0].followup).toBe('retention_limit');
   });
 
+  it('defers a fresh lead at 24 admitted candidates even when a contextual retention slot is available', async () => {
+    const { result, fetches, classifiedIds } = await run({ fullClassificationPool: true, contextualCount: 3 });
+    expect(classifiedIds.size).toBe(24);
+    expect(result.sourceLinkedReport?.sourceRoles).toHaveLength(24);
+    expect(fetches).toHaveLength(5);
+    expect(fetches).not.toContain(linkedUrl);
+    expect(allItems(result).some(item => item.sourceUrl === linkedUrl)).toBe(false);
+    expect(result.sourceLinkedReport?.pageReads.find(read => read.requestedUrl === parentUrl)?.sourceLinks?.[0].followup).toBe('classification_limit');
+  });
+
   it('retains an unrelated reference for inspection without crawling it', async () => {
     const { result, fetches } = await run({ body: `<p>Read our subscription terms. <a href="${linkedUrl}">Terms</a></p>` });
     expect(fetches).toEqual([parentUrl]);
@@ -117,6 +133,12 @@ describe('inspected historical links within the existing investigation bounds', 
 });
 
 describe('bounded source references and distinct temporal meanings', () => {
+  it('prefers later historical support over an earlier unrelated reference to the same URL', () => {
+    const body = `<p>More coverage <a href="${linkedUrl}">here</a></p>` + linkBody;
+    const links = extractPage(article(parentUrl, null, body), parentUrl).sourceLinks;
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ url: linkedUrl, historicalLead: true, supportingText: `${support} Earlier post`, location: { element: 'anchor', index: 1 } });
+  });
   it('retains article anchor and embed support with safe query identity, but excludes navigation, secrets and invented URLs', () => {
     const ex = extractPage(article(parentUrl, null, `<nav><p><a href="https://nav.example/old">Old video 2020</a></p></nav>${linkBody}<blockquote>Earlier footage posted in 2020 <iframe src="https://embed.example/video?id=1" title="Embedded video"></iframe></blockquote><p>Earlier video 2020 <a href="http://127.0.0.1/a">Local</a><a href="https://safe.example/?token=secret">Secret</a><a href="javascript:alert(1)">Script</a></p>`), parentUrl);
     expect(ex.sourceLinks).toHaveLength(2);
@@ -134,7 +156,7 @@ describe('bounded source references and distinct temporal meanings', () => {
   });
 
   it('does not treat an event time or creation/filming time as publication, but accepts explicitly marked publication time', () => {
-    const ex = extractPage(article(parentUrl, null, '<p>Filmed on <time datetime="2024-01-31">Jan 31</time>; posted <time datetime="2024-02-01" itemprop="datePublished">Feb 1</time>.</p>')
+    const ex = extractPage(article(parentUrl, null, `<div itemscope itemtype="https://schema.org/Article" itemid="${parentUrl}"><p>Filmed on <time datetime="2024-01-31">Jan 31</time>; posted <time datetime="2024-02-01" itemprop="datePublished">Feb 1</time>.</p></div>`)
       .replace('</head>', `<meta name="date" content="1990-01-01"><meta name="dc.date" content="1991-01-01"><script type="application/ld+json">${JSON.stringify({ '@type': 'Article', url: parentUrl, dateCreated: '1990-01-01' })}</script></head>`), parentUrl);
     expect(ex.jsonLdDates).toEqual([]);
     expect(ex.metaDates).toEqual([]);
@@ -162,5 +184,17 @@ describe('bounded source references and distinct temporal meanings', () => {
     expect(extracted.jsonLdDates).toEqual([]);
     expect(extracted.timeDates).toEqual([]);
     expect(extracted.rejectedJsonLdDates).toContainEqual({ value: '1991-01-01', reason: 'contradictory_entity_binding' });
+  });
+
+  it('requires publication microdata to have a resource-bound owner and retains rejected ownership', () => {
+    const body = `<div itemscope itemtype="https://schema.org/VideoObject" itemid="https://archive.example/other"><time itemprop="datePublished" datetime="2020-01-01">2020</time></div>
+      <p><time itemprop="datePublished" datetime="2021-01-01">Unowned</time></p>
+      <div itemscope itemtype="https://schema.org/Article" itemid="${parentUrl}"><time itemprop="datePublished" datetime="2026-09-27">Publication</time></div>`;
+    const extracted = extractPage(article(parentUrl, null, body), parentUrl);
+    expect(extracted.timeDates).toEqual(['2026-09-27']);
+    expect(extracted.rejectedTimeDates).toEqual([
+      { value: '2020-01-01', reason: 'contradictory_time_owner' },
+      { value: '2021-01-01', reason: 'unbound_time_owner' },
+    ]);
   });
 });

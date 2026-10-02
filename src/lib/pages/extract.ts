@@ -36,6 +36,7 @@ export interface PageExtraction {
   metaDates: string[];
   /** Explicit publication <time datetime itemprop="datePublished"> values. */
   timeDates: string[];
+  rejectedTimeDates: Array<{ value: string; reason: string }>;
 }
 
 /**
@@ -318,10 +319,26 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
   }
 
   const timeDates: string[] = [];
+  const rejectedTimeDates: PageExtraction['rejectedTimeDates'] = [];
   for (const el of doc.querySelectorAll('time[datetime][itemprop~="datePublished"], time[datetime][itemprop~="datePosted"]')) {
-    if (el.closest('blockquote, figure, aside, nav, header, footer')) continue;
     const dt = el.getAttribute("datetime");
-    if (dt !== null && dt.trim() !== "") timeDates.push(dt.trim());
+    if (!dt?.trim()) continue;
+    if (el.closest('blockquote, figure, aside, nav, header, footer')) {
+      rejectedTimeDates.push({ value: dt.trim(), reason: 'quoted_time_owner' }); continue;
+    }
+    const owner = el.closest('[itemscope]');
+    const itemId = owner?.getAttribute('itemid');
+    if (!itemId || !pageUrl) {
+      rejectedTimeDates.push({ value: dt.trim(), reason: 'unbound_time_owner' }); continue;
+    }
+    let ownerUrl: string;
+    try { ownerUrl = new URL(itemId, pageUrl).toString(); } catch {
+      rejectedTimeDates.push({ value: dt.trim(), reason: 'unbound_time_owner' }); continue;
+    }
+    if (normalizePageUrl(ownerUrl) !== normalizePageUrl(pageUrl)) {
+      rejectedTimeDates.push({ value: dt.trim(), reason: 'contradictory_time_owner' }); continue;
+    }
+    timeDates.push(dt.trim());
   }
 
   let title: string | null = null;
@@ -343,7 +360,7 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     .filter((p) => p.length >= 40);
 
   const sourceLinks = pageUrl ? extractSourceLinks(doc, pageUrl) : [];
-  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, jsonLdMetadata, openGraph, metaDates, timeDates, sourceLinks };
+  return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, jsonLdMetadata, openGraph, metaDates, timeDates, rejectedTimeDates, sourceLinks };
 }
 
 /* ---------------- deterministic excerpt builder (§18.3) ---------------- */

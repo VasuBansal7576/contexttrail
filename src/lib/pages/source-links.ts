@@ -18,7 +18,6 @@ const SUPPORT_CAP = 1200;
  */
 export function extractSourceLinks(doc: Document, pageUrl: string): SourceLink[] {
   const out: SourceLink[] = [];
-  const seen = new Set<string>();
   const elements = doc.querySelectorAll('a[href], iframe[src]');
   for (let index = 0; index < elements.length; index += 1) {
     const el = elements[index];
@@ -33,12 +32,16 @@ export function extractSourceLinks(doc: Document, pageUrl: string): SourceLink[]
     let resolved: string;
     try { resolved = new URL(raw, pageUrl).toString(); } catch { continue; }
     const url = retainableSourceUrl(resolved);
-    if (!url || url === retainableSourceUrl(pageUrl) || seen.has(url)) continue;
-    seen.add(url);
+    if (!url || url === retainableSourceUrl(pageUrl)) continue;
     const historicalLead = /\b(?:video|footage|clip|image|photo(?:graph)?|post(?:ed)?|upload(?:ed)?|original)\b/i.test(supportingText)
       && /\b(?:19\d{2}|20\d{2}|earlier|previously|old(?:er)?|originally)\b/i.test(supportingText);
     const link: SourceLink = { url, text: (el.textContent ?? el.getAttribute('title') ?? '').trim().slice(0, 400), supportingText,
       location: { element: el.tagName === 'IFRAME' ? 'embed' : 'anchor', index }, historicalLead };
+    const duplicate = out.findIndex(candidate => candidate.url === url);
+    if (duplicate >= 0) {
+      if (historicalLead && !out[duplicate].historicalLead) out[duplicate] = link;
+      continue;
+    }
     if (out.length < MAX_SOURCE_LINKS) out.push(link);
     else if (historicalLead) {
       const replace = out.findLastIndex(candidate => !candidate.historicalLead);

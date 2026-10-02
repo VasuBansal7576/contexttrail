@@ -957,7 +957,7 @@ export async function runInvestigation(
           }
           if (ex.title !== null) c.title ??= ex.title;
           c.dateEntityBinding = ex.jsonLdDateBinding;
-          c.rejectedDateCandidates = ex.rejectedJsonLdDates;
+          c.rejectedDateCandidates = [...ex.rejectedJsonLdDates, ...ex.rejectedTimeDates];
           // §18.2 — retain source-bound JSON-LD/OpenGraph metadata for
           // inspection; null when the page yielded none.
           c.pageMetadata =
@@ -1017,6 +1017,11 @@ export async function runInvestigation(
         link.followup = 'already_read'; link.evidenceId = existing.id; continue;
       }
       if (followup) { link.followup = 'page_limit'; continue; }
+      // A fresh source cannot consume the final page if its identity cannot
+      // enter the existing distinct-candidate classification allowance.
+      if (!existing && classifiedIds.size >= MAX_JEV_CANDIDATES) {
+        link.followup = 'classification_limit'; continue;
+      }
       if (!existing && pool.filter(c => c.retrievalKind === 'google_search' || c.retrievalKind === 'source_link').length >= RETENTION_CAPS.google_search) {
         link.followup = 'retention_limit'; continue;
       }
