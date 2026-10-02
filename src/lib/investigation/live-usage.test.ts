@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  liveRunAllocation, readLiveUsageConfig, reserveLiveRun,
+  liveRunAllocation, readLiveUsageConfig, reserveLiveRun, reserveTopicRun, topicRunAllocation,
   type LiveUsageConfig, type LiveRunLease,
 } from "./live-usage";
 import { JEV_ENDPOINT, JEV_MODEL } from "../jev/client";
@@ -348,5 +348,33 @@ describe("provider response-body lifetime", () => {
     expect(cancel).toHaveBeenCalledTimes(1);
     await admitted.release();
     await expect(stat(`${config.ledgerPath}.lock`)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+
+describe("automatic topic fixed reservation", () => {
+  it("charges the fixed ceiling permanently, shares the image lock, and never refunds cancellation", async () => {
+    config.allowance = topicRunAllocation();
+    await initialize();
+    const topic = await reserveTopicRun(config); leases.push(topic);
+    await expect(reserveLiveRun(config, null)).rejects.toThrow("lock");
+    const stored = await readFile(config.ledgerPath, "utf8");
+    expect(stored).toContain(JSON.stringify(topicRunAllocation()));
+    await topic.release();
+    await expect(reserveTopicRun(config)).rejects.toThrow("cannot cover");
+    expect(await readFile(config.ledgerPath, "utf8")).toBe(stored);
+  });
+  it("enforces search, upload and question counters even when provider failures occur", async () => {
+    config.allowance = topicRunAllocation(); await initialize();
+    const topic = await reserveTopicRun(config); leases.push(topic);
+    const provider = vi.fn(async () => new Response("failed", { status: 500 }));
+    const search = topic.fetchFor("serpapi", provider);
+    for (let i = 0; i < 3; i++) await search(SERPAPI_SEARCH_URL);
+    await expect(search(SERPAPI_SEARCH_URL)).rejects.toThrow("allowance");
+    await expect(search(SERPAPI_IMAGE_UPLOAD_URL)).rejects.toThrow("allowance");
+    const jev = topic.fetchFor("jev", provider);
+    for (let i = 0; i < 8; i++) await jev(JEV_ENDPOINT, jevBody());
+    await expect(jev(JEV_ENDPOINT, jevBody())).rejects.toThrow("allowance");
+    expect(provider).toHaveBeenCalledTimes(11);
   });
 });

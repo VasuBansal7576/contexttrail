@@ -6,8 +6,8 @@ export function CasebookShell({ children, chapter = "cover", caseId, dark = fals
   const chapters = [
     { id: "cover", title: "Cover", href: "/" },
     { id: "image", title: "Image", href: "/investigate" },
-    { id: "video", title: "Video", href: "/compare" },
-    ...["questions", "evidence", "sources", "changes", "watch", "answers"].map(id => ({ id, title: id === "answers" ? "AI answers" : id[0].toUpperCase() + id.slice(1), href: caseHref(id) })),
+    { id: "video", title: "Video", href: "/video" },
+    ...["questions", "evidence", "sources", "changes", "watch", "answers"].map(id => ({ id, title: id === "answers" ? "AI answers" : id[0].toUpperCase() + id.slice(1), href: id === "questions" && !caseId ? "/questions" : caseHref(id) })),
   ];
   return <div className={`casebook-app${dark ? " casebook-blue" : ""}`}>
     <a className="skip-link" href="#main">Skip to content</a>

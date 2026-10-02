@@ -10,6 +10,7 @@ export default function LandingPage() {
           <h1>Follow the<br /><em>question.</em></h1>
           <p className="cover-description">From a single frame to a changing story.<br />Follow evidence, keep the details,<br />and return with a better question.</p>
           <div className="button-row"><Link className="paper-button primary" href="/investigate">Investigate an image <span aria-hidden="true">↗</span></Link><Link className="text-link" href="/casebook">Return to a saved case</Link></div>
+          <div className="button-row automatic-cover-links"><Link className="text-link" href="/questions">Investigate a question ↗</Link><Link className="text-link" href="/video">Investigate a video ↗</Link></div>
           <div className="cover-footnote"><span className="large-number">01</span><div><p className="eyebrow">Your next line of inquiry</p><p>Keep the question open.<br />Let the evidence change the answer.</p></div></div>
         </div>
         <div className="cover-specimen cover-collage">
@@ -33,7 +34,7 @@ export default function LandingPage() {
       </section>
       <section id="about" className="cover-about">
         <div><p className="eyebrow">Built around the evidence</p><h2>Keep the detail.<br /><em>Leave room to rethink.</em></h2></div>
-        <div><p>Trace an image with the existing investigation tools, or start a saved question. Add sources, compare explanations, and pin the exact passage, image region, or table cell behind a finding.</p><p className="fine-print">Saved research uses an explicitly enabled, single-user local service. Supplied evidence and your assessments stay labeled. Source monitoring and AI answers are planned.</p><Link className="text-link" href="/casebook">Begin a research question</Link></div>
+        <div><p>Investigate an image, a video, or a question. Follow retrieved sources and inspect the evidence behind each result. Use the manual casebook to save your own research and exact findings.</p><p className="fine-print">Saved research uses an explicitly enabled, single-user local service. Supplied evidence and your assessments stay labeled. Source monitoring and AI answers are planned.</p><Link className="text-link" href="/questions">Begin a research question</Link></div>
       </section>
     </main>
   </CasebookShell>;

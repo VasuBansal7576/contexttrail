@@ -7,9 +7,11 @@ import {randomUUID} from 'node:crypto';
 const keys=['searches','uploads','jevRequests','jevQuestions'];
 const publicClaim={searches:6,uploads:0,jevRequests:60,jevQuestions:272};
 const publicTrace={searches:4,uploads:0,jevRequests:60,jevQuestions:113};
+const topic={searches:3,uploads:0,jevRequests:8,jevQuestions:8};
+const grants=[publicClaim,publicTrace,{...publicTrace,uploads:1},topic];
 const same=(a,b)=>keys.every(k=>a[k]===b[k]);
 const valid=a=>a&&typeof a==='object'&&Object.keys(a).length===4&&keys.every(k=>Number.isSafeInteger(a[k])&&a[k]>=0);
-const allocation=a=>valid(a)&&[publicClaim,publicTrace,{...publicClaim,uploads:1},{...publicTrace,uploads:1}].some(b=>same(a,b));
+const allocation=a=>valid(a)&&[...grants,{...publicClaim,uploads:1}].some(b=>same(a,b));
 const cap=n=>{const v=process.env[n];if(!/^(0|[1-9]\d*)$/.test(v??'')||!Number.isSafeInteger(Number(v)))throw Error();return Number(v);};
 async function grant(){
  if(process.env.CONTEXTTRAIL_LIVE_ENABLED!=='false'||process.env.CONTEXTTRAIL_LIVE_DEPLOYMENT!=='single-host-persistent'||process.env.CONTEXTTRAIL_FREE_ALLOWANCE_ACKNOWLEDGED!=='true'||['VERCEL','VERCEL_ENV','NETLIFY','AWS_LAMBDA_FUNCTION_NAME','AWS_EXECUTION_ENV','FUNCTIONS_WORKER_RUNTIME','K_SERVICE','CLOUD_RUN_JOB'].some(k=>process.env[k]!==undefined))throw Error();
@@ -19,7 +21,7 @@ async function grant(){
  if(join(parent,basename(path))!==path||['/tmp','/var/tmp','/dev','/proc','/sys','/run'].some(r=>parent===r||parent.startsWith(r+'/')))throw Error();
  const allowance={searches:cap('CONTEXTTRAIL_FREE_SERPAPI_SEARCHES'),uploads:cap('CONTEXTTRAIL_FREE_SERPAPI_UPLOADS'),jevRequests:cap('CONTEXTTRAIL_FREE_JEV_REQUESTS'),jevQuestions:cap('CONTEXTTRAIL_FREE_JEV_QUESTIONS')};
  const addition=JSON.parse(process.env.CONTEXTTRAIL_ALLOWANCE_GRANT??'null'), reason=process.env.CONTEXTTRAIL_ALLOWANCE_GRANT_REASON;
- if(!valid(addition)||![publicClaim,publicTrace].some(a=>same(a,addition))||!reason||!/^[a-z0-9][a-z0-9-]{0,79}$/.test(reason))throw Error();
+ if(!valid(addition)||!grants.some(a=>same(a,addition))||!reason||!/^[a-z0-9][a-z0-9-]{0,79}$/.test(reason))throw Error();
  const lockPath=path+'.lock';const lock=await open(lockPath,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
  const token=randomUUID();let ledger,appendStarted=false;
  try {
@@ -33,7 +35,7 @@ async function grant(){
   for(const row of rows.slice(1)){
    if(!row||!['grant','reserve'].includes(row.type)||typeof row.id!=='string'||!/^[0-9a-f-]{36}$/.test(row.id)||ids.has(row.id)||!allocation(row.allocation))throw Error();ids.add(row.id);
    if(row.type==='grant'){
-    if(Object.keys(row).length!==4||typeof row.reason!=='string'||!/^[a-z0-9][a-z0-9-]{0,79}$/.test(row.reason)||![publicClaim,publicTrace].some(a=>same(a,row.allocation)))throw Error();
+    if(Object.keys(row).length!==4||typeof row.reason!=='string'||!/^[a-z0-9][a-z0-9-]{0,79}$/.test(row.reason)||!grants.some(a=>same(a,row.allocation)))throw Error();
     for(const k of keys)effective[k]+=row.allocation[k];
    }else{if(Object.keys(row).length!==3)throw Error();for(const k of keys)spent[k]+=row.allocation[k];}
    if(keys.some(k=>!Number.isSafeInteger(effective[k])||!Number.isSafeInteger(spent[k])||spent[k]>effective[k]))throw Error();

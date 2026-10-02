@@ -374,3 +374,21 @@ body {
 .image-investigation-form > button[type=submit]:disabled { color:#d6e0e2; background:#17384f; }
 
 @media(max-width:760px) { .image-workspace .image-investigation-form { order:1; } .image-workspace .image-specimen-panel { order:2; } }
+
+/* Automatic investigations share the casebook paper and chapter system. */
+.automatic-intake { display:grid; grid-template-columns:minmax(0,2fr) minmax(190px,1fr); gap:52px; margin-top:32px; align-items:start; }
+.automatic-intake .form-stack { margin:0; }
+.automatic-aside { display:grid; gap:20px; padding-top:24px; }
+.automatic-status { margin-top:40px; scroll-margin-block:24px calc(110px + env(safe-area-inset-bottom, 0px)); }
+.automatic-results { border-top:1px solid var(--cb-rule); padding-top:28px; }
+.automatic-results>h2 { font-size:44px; line-height:1.15; margin:18px 0; }
+.automatic-limitations { margin:24px 0; padding:18px 22px; border:1px solid var(--cb-rule); font-size:13px; line-height:1.7; }
+.automatic-limitations summary,.automatic-frame summary { cursor:pointer; font-weight:600; min-height:32px; }
+.automatic-limitations ul { list-style:disc; padding-left:20px; margin-top:12px; }
+.automatic-view-switch { margin:28px 0; }
+.automatic-view-switch [aria-pressed=true] { background:var(--cb-ink); color:var(--cb-paper); }
+.automatic-source .evidence-passage { font-size:25px; }
+.automatic-source>.fine-print { margin:12px 0; }
+.automatic-frame>.fine-print { margin:16px 0; }
+.automatic-cover-links { margin-top:22px; }
+@media(max-width:760px) { .automatic-intake { grid-template-columns:1fr; gap:12px; } .automatic-aside { gap:16px; } .automatic-results>h2 { font-size:34px; } }

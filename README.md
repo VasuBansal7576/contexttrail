@@ -401,3 +401,12 @@ comparison to the local application. It requires separate decoder opt-in, loopba
 origin checks, bounded uploads and one admitted request. It returns candidate
 sampled-frame overlaps and compared frames; no case evidence or finding is created.
 See [the API contract, limits, save gap and real HTTP verification](docs/local-media-application.md).
+
+### Automatic topic and single-video investigation
+
+The Questions and Video chapters now accept one input and run bounded provider-backed
+retrieval automatically, then expose source evidence for inspection. Video searches one
+representative sampled frame, with explicit limits; it does not verify an entire video.
+Both flows use the existing default-deny durable live gate. See
+[automatic investigation](docs/automatic-investigation.md) for data destinations, fixed
+reservation ceilings, API behavior and the separate live-verification prerequisites.
