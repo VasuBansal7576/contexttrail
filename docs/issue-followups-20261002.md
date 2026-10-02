@@ -7,13 +7,13 @@ PR #7 depends on PR #6. No merge or live-provider work is implied by raising fol
 
 | Issue | Work and review branch | Remaining acceptance |
 | --- | --- | --- |
-| [#8](https://github.com/VasuBansal7576/contexttrail/issues/8) | `codex/issue-8-source-binding`: requested/final URL attribution and offline redirect controls | Review published checks against final head |
-| [#9](https://github.com/VasuBansal7576/contexttrail/issues/9) | `codex/issue-9-video-save`: explicit video save, stable retry, complete retained result and correction handling | Exact retention and real local save/reopen evidence in PR |
-| [#10](https://github.com/VasuBansal7576/contexttrail/issues/10) | Historical source-link recovery, stacked after #8 | Actual provenance workflow and any measured spatial verifier remain separate gates |
-| [#11](https://github.com/VasuBansal7576/contexttrail/issues/11) | `codex/issue-11-readable-research`: readable stages/limitations, generic unknown fallback, technical disclosure | Offline complete/partial/failure and desktop/mobile verification in PR |
-| [#12](https://github.com/VasuBansal7576/contexttrail/issues/12) | Historical evidence viewer when current record is missing, stacked after #9 | Exact text/material bindings, absence states and correction/reopen checks in PR |
-| [#13](https://github.com/VasuBansal7576/contexttrail/issues/13) | Reviewable cover hand replacement, with provenance and rendered overlap checks | Owner agreement on replacement; do not claim recovered original artwork |
-| [#2](https://github.com/VasuBansal7576/contexttrail/issues/2) | Preserve historical branches; source/merge inventory here; free-gate configuration proposed separately | Owner review/merge and any unverified model availability; no branch deletion |
+| [#8](https://github.com/VasuBansal7576/contexttrail/issues/8) | [PR #14](https://github.com/VasuBansal7576/contexttrail/pull/14): requested/final URL attribution and offline redirect controls | Review published checks against final head |
+| [#9](https://github.com/VasuBansal7576/contexttrail/issues/9) | [PR #18](https://github.com/VasuBansal7576/contexttrail/pull/18): explicit video save, stable retry, complete retained result and correction handling | Exact retention and real local save/reopen evidence in PR |
+| [#10](https://github.com/VasuBansal7576/contexttrail/issues/10) | [Draft PR #21](https://github.com/VasuBansal7576/contexttrail/pull/21): historical source-link recovery, stacked after #14 | Actual provenance workflow and any measured spatial verifier remain separate gates |
+| [#11](https://github.com/VasuBansal7576/contexttrail/issues/11) | [PR #16](https://github.com/VasuBansal7576/contexttrail/pull/16): readable stages/limitations, generic unknown fallback, technical disclosure | Offline complete/partial/failure and desktop/mobile verification in PR |
+| [#12](https://github.com/VasuBansal7576/contexttrail/issues/12) | [PR #20](https://github.com/VasuBansal7576/contexttrail/pull/20): historical evidence viewer when current record is missing, stacked after #18 | Exact text/material bindings, absence states and correction/reopen checks in PR |
+| [#13](https://github.com/VasuBansal7576/contexttrail/issues/13) | [PR #19](https://github.com/VasuBansal7576/contexttrail/pull/19): original hand recovered unchanged from two authored concepts, provenance and rendered overlap checks | Actual desktop/mobile rendering checked; no replacement agreement needed |
+| [#2](https://github.com/VasuBansal7576/contexttrail/issues/2) | Preserve historical branches; source/merge inventory here; [PR #17](https://github.com/VasuBansal7576/contexttrail/pull/17) proposes the preserved free-gate configuration against main | Owner review/merge and any unverified model availability; no branch deletion |
 | [#3](https://github.com/VasuBansal7576/contexttrail/issues/3) | Integrated core already merged through #1; follow-up safety work tracked in #8/#10 | Strong live provenance, browser/provider acceptance and release evidence remain open |
 | [#4](https://github.com/VasuBansal7576/contexttrail/issues/4) | Bounded licensed-demo plan retained in release checklist; official cutoff rechecked | Authorized actual trial, demo recording and submission remain open |
 | [#5](https://github.com/VasuBansal7576/contexttrail/issues/5) | Updated README/release docs, default-disabled `.env.example`, removed interactive lint script, corrected harness/retention/telemetry state | Project software license and unresolved reference/font records remain owner/release decisions |
@@ -44,6 +44,6 @@ binding, and historical viewing after video persistence. Each PR names its actua
 reviewers can inspect only that issue's diff. CI now runs regardless of PR base branch and
 keeps live admission disabled. Existing parent drafts and historical branches are preserved.
 
-Do not close a report merely because it has a tracking PR. Issue #10's real-workflow gate and
-#13's design agreement cannot be proved by unit tests. Record exact final-head checks in each
+Do not close a report merely because it has a tracking PR. Issue #10's real-workflow gate cannot be proved by unit tests.
+Issue #13 uses the recovered original artwork, with recorded source hashes and rendered checks. Record exact final-head checks in each
 PR and keep those incomplete requirements visible until their acceptance evidence exists.
