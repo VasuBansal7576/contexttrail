@@ -105,7 +105,12 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
         const actualQuote = selectDisplayQuote({ title: extracted.title, claim: topic, paragraphs: extracted.paragraphs });
         if (actualQuote) {
           quote = actualQuote; attribution = 'page_quote'; title = extracted.title ?? title;
-        } else limitations.push(`Source ${index + 1} had no readable page text; its search snippet remains a lead.`);
+        } else {
+          const retainedLead = quote?.trim() ? 'its search snippet remains an unverified lead' : 'only its source reference remains';
+          limitations.push(extracted.paragraphs.length
+            ? `Source ${index + 1} had no page paragraph with lexical overlap to the question; ${retainedLead}. Relevant wording may have been missed.`
+            : `Source ${index + 1} had no readable page text; ${retainedLead}.`);
+        }
       } catch { check(deps); limitations.push(`Source ${index + 1} could not be read; its search snippet remains a lead.`); }
     }
     const evidence: CaseEvidence = { id: candidate.id, sourceUrl: finalUrl, title: title?.trim().slice(0, 2000) || null,

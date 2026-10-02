@@ -83,6 +83,7 @@ export function assessClaimSource(evidence: CaseEvidence, claim: string | null, 
   const scope = { entityProperty: claim ? scopeOf(entityProperty) : 'unknown' as const, time: claim ? scopeOf(time) : 'unknown' as const, variant: claim ? scopeOf(variant) : 'unknown' as const };
   let status: ClaimRelation = 'insufficient';
   const reasons: string[] = [];
+  if (relevance !== null && relevance < 0.5) reasons.push('Low topic relevance in the model assessment; this excerpt is retained as a lead and cannot support or challenge the claim.');
   if (!claim) reasons.push('No explicit user claim was identified. This verbatim excerpt is a candidate source assertion only.');
   if (!quote || quote.attribution !== 'page_quote') reasons.push('Source page text was not retrieved; a search snippet remains a lead.');
   if (!model || !relation) reasons.push('A validated pinned-model relationship assessment is unavailable.');

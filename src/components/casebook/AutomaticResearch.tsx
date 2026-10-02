@@ -24,6 +24,7 @@ function SourceEvidence({ evidence, assessment }: { evidence: CaseEvidence; asse
     <p className="eyebrow">{evidence.content.kind === 'text' ? evidence.content.attribution.replaceAll('_', ' ') : 'Source reference'}</p>
     <h3>{evidence.title ?? 'Untitled source'}</h3>
     <p className="fine-print">{publicationLabel(evidence.publicationDate)}</p>
+    {assessment && assessment.relevance !== null && assessment.relevance < 0.5 ? <p className="fine-print">Low topic relevance · model-assessed lead, not supporting evidence.</p> : null}
     {assessment && assessment.relevance !== null ? <details className="automatic-relevance"><summary>Topic relevance · model assessment</summary><p className="fine-print">Relevance probability: {assessment.relevance}. Model: {assessment.model}. This assesses relevance to the question, not factual accuracy or whether the source supports the claim.</p></details> : <p className="fine-print">Topic relevance unassessed.</p>}
     {evidence.content.kind === 'text' ? <p className="evidence-passage">{evidence.content.text}</p> : <p className="fine-print">No source text was retained for this record.</p>}
     <a className="text-link source-url" href={evidence.sourceUrl} target="_blank" rel="noopener noreferrer">{evidence.sourceUrl}</a>

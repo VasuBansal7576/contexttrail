@@ -29,6 +29,28 @@ describe('automatic topic investigation (offline providers only)', () => {
     expect(result.caseRecord.coverage.searches.map(item => item.retained).reduce((a, b) => a + b)).toBe(8);
     expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
   });
+  it('keeps snippets as leads when the retrieved page has no question-overlapping paragraph', async () => {
+    const dependencies = deps(async params => ({ search_metadata: { status: 'Success' }, [params.engine === 'google_news' ? 'news_results' : 'organic_results']: [
+      { link: 'https://source.example.org/reviews', title: 'Fashion Nova blocking negative reviews', snippet: 'A search lead about Fashion Nova reviews.' },
+    ] }));
+    dependencies.fetchPage = async url => ({ url, html: `<html><head><title>Newsletter subscription</title></head><body><article><p>${'Unrelated newsletter subscription and general editorial material. '.repeat(15)}</p></article></body></html>` });
+    const result = await investigateTopic('What does evidence establish about Fashion Nova suppressing customer reviews versus fabricating them?', () => {}, dependencies);
+    expect(result.caseRecord.evidence[0].content).toEqual({ kind: 'text', text: 'A search lead about Fashion Nova reviews.', attribution: 'search_snippet' });
+    expect(result.caseRecord.evidence[0].provenance.method).toBe('retrieval');
+    expect(result.limitations.some(value => value.includes('no page paragraph with lexical overlap'))).toBe(true);
+    expect(result.claimReport?.sources[0].relation).toBe('insufficient');
+    expect(JSON.stringify(result)).not.toContain('Unrelated newsletter subscription');
+  });
+  it('retains only a reference if neither a matching paragraph nor a snippet is available', async () => {
+    const dependencies = deps(async params => ({ search_metadata: { status: 'Success' }, [params.engine === 'google_news' ? 'news_results' : 'organic_results']: [
+      { link: 'https://source.example.org/reviews', title: 'Fashion Nova reviews' },
+    ] }));
+    const result = await investigateTopic('Fashion Nova reviews', () => {}, dependencies);
+    expect(result.caseRecord.evidence[0].content).toEqual({ kind: 'reference' });
+    expect(result.claimReport?.sources[0].quote).toBeNull();
+    expect(result.claimReport?.sources[0].relation).toBe('insufficient');
+    expect(result.limitations.some(value => value.includes('only its source reference remains'))).toBe(true);
+  });
   it('retains failure limits and empty evidence rather than substituted results', async () => {
     const dependencies = deps(async () => { throw new Error('provider unavailable'); });
     const result = await investigateTopic('Coral recovery evidence', () => {}, dependencies);

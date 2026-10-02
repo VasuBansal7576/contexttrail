@@ -286,6 +286,36 @@ function hasDayRange(text: string): boolean {
   return MONTH_DAY_RANGE.test(text);
 }
 
+// Chrono does not recognize "in 2026" and treats "in the year 2026" as
+// a relative year. Require a temporal phrase, never just four digits.
+// Leave ISO month/day dates to chrono rather than clipping their year.
+const EXPLICIT_CLAIM_YEAR = new RegExp(
+  `\\b(?:in|during|throughout)\\s+(the\\s+year\\s+)?(\\d{4})\\b` +
+    `(?!\\s*(?:${DASH_SEP}|[/.])\\s*\\d)`,
+  "gi",
+);
+
+// "In 2026 households" is a count, so an unlabeled year must end its
+// clause or precede a connector. Unclear prose stays unresolved.
+const YEAR_CLAUSE_END = /^\s*(?:$|[.,;:!?)\]]|(?:and|or|but)\b)/i;
+const COPYRIGHT_CLAUSE = /(?:\bcopyright|©|\(c\))[^.!?\n]*$/i;
+
+// A year-only range or alternative must not become its first year when
+// chrono ignores the second endpoint, including Unicode dash forms.
+const CLAIM_YEAR_RANGE = new RegExp(
+  `\\b(?:in|during|throughout|from|between)\\s+(?:the\\s+years?\\s+)?` +
+    `\\d{4}\\s*(${DASH_SEP}|/|to|through|thru|and|or|,)\\s*` +
+    `(?:in\\s+)?(?:\\d{4}|\\d{2})\\b(?!\\s*[-/.]\\s*\\d)`,
+  "gi",
+);
+
+function hasClaimYearRange(claim: string): boolean {
+  return [...claim.matchAll(CLAIM_YEAR_RANGE)].some(match =>
+    // A comma can introduce a new clause containing a count, not a year.
+    match[1] !== ',' || YEAR_CLAUSE_END.test(claim.slice(match.index + match[0].length)),
+  );
+}
+
 /** Every 4-digit year the claim states — a parse asserting a different
  *  year has silently lost supplied information (e.g. a range fragment
  *  inferred as "next March"). Refuse rather than assert a year the
@@ -314,19 +344,35 @@ export function parseClaimDate(
     timezone?: string;
   },
 ): ClaimDateResult {
-  if (hasAmbiguousNumericDate(claim) || hasDayRange(claim)) {
+  if (
+    hasAmbiguousNumericDate(claim) ||
+    hasDayRange(claim) ||
+    hasClaimYearRange(claim)
+  ) {
     return { claimDate: null, precision: "unknown", ambiguous: true };
   }
 
+  const values: ParsedDateValue[] = [];
+  const remainingClaim = claim.replace(
+    EXPLICIT_CLAIM_YEAR,
+    (phrase: string, yearLabel: string | undefined, year: string, index: number) => {
+      if (
+        !COPYRIGHT_CLAUSE.test(claim.slice(0, index)) &&
+        (yearLabel !== undefined ||
+          YEAR_CLAUSE_END.test(claim.slice(index + phrase.length)))
+      ) {
+        values.push({ value: year, precision: "year" });
+      }
+      // Do not let chrono reinterpret part of the same explicit phrase
+      // as a relative date. Keep separate date expressions in the claim.
+      return " ".repeat(phrase.length);
+    },
+  );
   const results = chrono.parse(
-    claim,
+    remainingClaim,
     zonedReference(opts.referenceInstant, opts.timezone),
   );
-  if (results.length === 0) {
-    return { claimDate: null, precision: "unknown", ambiguous: false };
-  }
 
-  const values: ParsedDateValue[] = [];
   for (const r of results) {
     const start = valueFromComponents(r.start);
     if (start !== null) values.push(start);
@@ -340,23 +386,26 @@ export function parseClaimDate(
     }
   }
 
-  const distinct = new Set(values.map((v) => v.value));
   if (values.length === 0) {
     return { claimDate: null, precision: "unknown", ambiguous: false };
   }
-  if (distinct.size > 1) {
+  // Compare against the most precise value, not the first coarse year.
+  // This accepts nested year/month/day values but still rejects two days
+  // or months that differ inside the same stated year.
+  const resolved = values.reduce((best, value) => value.value.length > best.value.length ? value : best);
+  if (values.some(value => value.value !== resolved.value.slice(0, value.value.length))) {
     return { claimDate: null, precision: "unknown", ambiguous: true };
   }
   // A stated 4-digit year the parse contradicts is silently lost
   // information — e.g. "March 5–8, 2026" surviving as a single inferred
   // "next March". Refuse rather than assert a year the claim never gave.
   const years = statedYears(claim);
-  if (years.size > 0 && !years.has(values[0].value.slice(0, 4))) {
+  if (years.size > 0 && !years.has(resolved.value.slice(0, 4))) {
     return { claimDate: null, precision: "unknown", ambiguous: true };
   }
   return {
-    claimDate: values[0].value,
-    precision: values[0].precision,
+    claimDate: resolved.value,
+    precision: resolved.precision,
     ambiguous: false,
   };
 }

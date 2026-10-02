@@ -44,6 +44,13 @@ describe('automatic research UI', () => {
     expect(container.textContent).toContain('Relevance probability: 0.82461. Model: jev-1.13.0.');
     expect(container.textContent).toContain('not factual accuracy or whether the source supports the claim');
   });
+  it('shows low relevance outside collapsed probability details while retaining the lead', async () => {
+    await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, assessments: [{ evidenceId: 'source', relevance: 0.1, model: 'jev-1.13.0' }] } })));
+    const label = [...container.querySelectorAll('p')].find(element => element.textContent?.startsWith('Low topic relevance'));
+    expect(label).toBeDefined();
+    expect(label?.closest('details')).toBeNull();
+    expect(container.textContent).toContain('The actual retrieved passage.');
+  });
   it('blocks duplicate submits and ignores results arriving after cancellation', async () => {
     let finish: ((value: AutomaticResearchView) => void) | undefined;
     vi.mocked(investigateAutomatically).mockImplementation(() => new Promise(resolve => { finish = resolve; }));

@@ -25,6 +25,18 @@ describe('claim-scoped policy fixtures (offline probabilities, not a live model 
     expect(source.quote?.text).toBe(quote);
     expect(source.reasons.some(reason => reason.includes('scope'))).toBe(true);
   });
+  it('visibly demotes low relevance even when relationship and scope probabilities are high', () => {
+    const assessed = answer('support'); assessed.answers.relevance = { type: 'noul', noul: 0.1 };
+    const item = evidence('Newsletter information for readers.');
+    const question = 'Claim: The product is defective.';
+    const source = assessClaimSource(item, explicitTopicClaim(question), assessed);
+    expect(source.relation).toBe('insufficient');
+    expect(source.relevance).toBe(0.1);
+    expect(source.reasons.some(reason => reason.startsWith('Low topic relevance'))).toBe(true);
+    const snapshot = record([item]);
+    const report = buildClaimReport(question, snapshot, [source]);
+    expect(parseClaimReport(report, snapshot, question)).toEqual(report);
+  });
   it('keeps mixed real review disagreements unresolved rather than voting', () => {
     const question = 'Claim: This dress fits the listed measurements for size M in 2026.';
     const items = [evidence('I measured the 2026 size M dress and it matches the listed waist and length.'), evidence('I measured the 2026 size M dress and its waist and length are both smaller than listed.', 'b')];
