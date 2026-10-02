@@ -17,6 +17,10 @@ That authorization does not enable providers, spend allocation, deploy, or submi
 | [#22](https://github.com/VasuBansal7576/contexttrail/issues/22) | [PR #25](https://github.com/VasuBansal7576/contexttrail/pull/25): contradictory JSON-LD parents cannot grant publication ownership to unbound mainEntity children | Extraction and exact-media chronology regressions; independently bound children remain eligible |
 | [#23](https://github.com/VasuBansal7576/contexttrail/issues/23) | [PR #26](https://github.com/VasuBansal7576/contexttrail/pull/26): question reads bind resources before adopting text, title or dates; original snippet fallbacks retain original provenance | Requested/final URL audit persists through save/reopen; old cases stay compatible |
 | [#24](https://github.com/VasuBansal7576/contexttrail/issues/24) | [PR #27](https://github.com/VasuBansal7576/contexttrail/pull/27): bounded self-contained MOV atom layouts accepted by automatic and comparison uploads | Actual generated ftyp/free/extended/legacy/terminal-zero clips decode; malformed layouts and external references rejected |
+| [#28](https://github.com/VasuBansal7576/contexttrail/issues/28) | [PR #32](https://github.com/VasuBansal7576/contexttrail/pull/32): nonwrapping case indices with content-sized columns and mobile type | Merged; actual digit bounds, overlap, overflow and saved-case opening checked at 320/390/1440px |
+| [#29](https://github.com/VasuBansal7576/contexttrail/issues/29) | [PR #34](https://github.com/VasuBansal7576/contexttrail/pull/34): readable retained source-linked caption leads in shared live and saved views | Merged; source/text/model/identity bindings and ten offline production browser scenarios passed; cautious caption status unchanged |
+| [#30](https://github.com/VasuBansal7576/contexttrail/issues/30) | [PR #35](https://github.com/VasuBansal7576/contexttrail/pull/35): bounded document-lead priority, unresolved primary coverage and reproducible topic benchmark | Eight controlled offline cases pass; old omitted pool and provider recall remain unknown; future live acceptance remains open and requires separate finite approval |
+| [#31](https://github.com/VasuBansal7576/contexttrail/issues/31) | [PR #33](https://github.com/VasuBansal7576/contexttrail/pull/33): accurate sampled-frame investigation save description for Trace and Claim-check | Merged; both modes checked at 320/390/1440px with exact disk archive, stable response-loss retry, reload and correction handling |
 | [#2](https://github.com/VasuBansal7576/contexttrail/issues/2) | Preserve historical branches; source/merge inventory here; [PR #17](https://github.com/VasuBansal7576/contexttrail/pull/17) preserves the free-gate configuration on main | Configuration merged through #17; model availability remains unverified; no branch deletion |
 | [#3](https://github.com/VasuBansal7576/contexttrail/issues/3) | Integrated core already merged through #1; follow-up safety work tracked in #8/#10 | Strong live provenance, browser/provider acceptance and release evidence remain open |
 | [#4](https://github.com/VasuBansal7576/contexttrail/issues/4) | Bounded licensed-demo plan retained in release checklist; official cutoff rechecked | Authorized actual trial, demo recording and submission remain open |
@@ -41,21 +45,35 @@ deployment and submitting the hackathon entry remain separate actions.
   fails closed; keyless interface hosting cannot establish live provenance utility.
 - The official site and announcement now agree on the 10 October cutoff, checked 2 October.
 
-## Review and merge sequencing
+## Initial review and merge sequencing (completed)
 
-Merge #6 before #7, then retarget the first-level issue PRs to main. Historical retrieval
-follows source binding; historical viewing follows video persistence. Merge #25 after #21
-and #26 after #14. Recheck combined behavior after resolving overlapping tests. Each PR names its actual base so
-reviewers can inspect only that issue's diff. CI now runs regardless of PR base branch and
-keeps live admission disabled. Parent drafts can become ready for integration after review;
-live-quality and release gates remain open. Historical branches are preserved.
+The first thirteen PRs (#6, #7, #14–#21 and #25–#27) were merged. Dependencies were
+integrated before their follow-ups, and combined behavior was rechecked after resolving
+overlapping tests. CI runs regardless of PR base branch and keeps live admission disabled.
+Live-quality and release gates remain open. Historical branches are preserved.
 
-The combined merge preview passed 1,306 tests with 17 intentional skips across 78 files,
+That initial combined merge preview passed 1,306 tests with 17 intentional skips across 78 files,
 typechecking and a production build. It includes all three new defect fixes, the earlier
 issue repairs and the free-gate configuration. Generated native-media fixtures and injected
 provider responses establish offline behavior; no live providers were contacted.
 An overlapping browser import-graph test was resolved by retaining recursive server-API
 rejection and explicitly checking the credential-policy and video-report dependencies.
+
+## Additional issue round
+
+PRs #32, #33 and #34 were reviewed and merged without conflicts. PR #35 builds on that
+main revision. The combined tree passed 1,348 tests with 17 intentional skips across 80
+files, typechecking and a production build. Real local HTTP/disk browser controls checked
+live and reopened caption leads, legacy/malformed archives, both video modes, stable save
+retries, corrections and mobile layout. The eight-case `research:coverage` benchmark
+passed through the actual topic orchestrator with injected offline adapters and unchanged
+three-search, eight-source, five-page, eight-request/forty-question limits.
+
+The benchmark records independently inspected reference URLs and dates separately from
+explicitly synthetic candidate lists, excerpts and model responses. It does not replay the
+uncaptured live search pool or establish provider recall. Primary coverage remains
+unestablished in the product; lexical document cues do not establish authority, truth or
+independent corroboration. See [the benchmark contract](topic-coverage-benchmark.md).
 
 Do not close a report merely because it has a tracking PR. Issue #10's real-workflow gate cannot be proved by unit tests.
 Issue #13 uses the recovered original artwork, with recorded source hashes and rendered checks. Record exact final-head checks in each
