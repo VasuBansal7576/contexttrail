@@ -1,6 +1,7 @@
 import { AUTOMATIC_RESEARCH_LIMITS, type AutomaticResearchInput } from './automatic-contract';
 import { ResearchServiceError } from './service';
 import { VIDEO_LIMITS } from '../video/ingest';
+import { hasSelfContainedMovLayout } from '../video/container-signature';
 
 export async function parseAutomaticForm(form: FormData): Promise<AutomaticResearchInput> {
   const kind = form.get('kind');
@@ -20,7 +21,7 @@ export async function parseAutomaticForm(form: FormData): Promise<AutomaticResea
   const video = form.get('video');
   if (!(video instanceof Blob) || !video.size || video.size > VIDEO_LIMITS.bytes) throw new ResearchServiceError(413, 'INVALID_VIDEO', 'Supply one nonempty video no larger than 32 MB.');
   const bytes = new Uint8Array(await video.arrayBuffer());
-  const mov = bytes.length >= 12 && String.fromCharCode(...bytes.slice(4, 8)) === 'ftyp';
+  const mov = hasSelfContainedMovLayout(bytes);
   const webm = bytes.length >= 4 && bytes[0] === 26 && bytes[1] === 69 && bytes[2] === 223 && bytes[3] === 163;
   if (!mov && !webm) throw new ResearchServiceError(415, 'INVALID_VIDEO', 'Use a self-contained MP4, MOV, WebM or MKV video. Playlists and remote video URLs are not accepted.');
   return { kind: 'video', bytes, rights: 'user_provided', claim };

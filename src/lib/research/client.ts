@@ -1,3 +1,4 @@
+import { parseSavedVideoReport, videoReportMatches, savedVideoView, type SavedVideoReport } from './saved-video';
 import { parseClaimReport, invalidateClaimReport, type ClaimReport } from './claim-report';
 import type { LocalComparisonResponse } from '../video/matching/application-contract';
 import { parseComparisonResponse } from '../video/matching/client';
@@ -44,6 +45,8 @@ export interface ResearchCaseView extends ResearchCaseSummary {
   citations: SuppliedCitation[];
   dependencies: ResearchDependencies;
   comparison: LocalComparisonResponse | null;
+  videoReport: SavedVideoReport | null;
+  videoReportStatus: 'current' | 'stale' | 'none';
   claimReport: ClaimReport | null;
   claimReportCase: CaseRecord | null;
   reportStatus: 'current' | 'stale' | 'none';
@@ -339,7 +342,12 @@ export function parseResearchCaseView(value: unknown): ResearchCaseView {
   if (document.claimReportInvalidated !== undefined && typeof document.claimReportInvalidated !== 'boolean') return fail('claimReportInvalidated');
   const reportStatus = !claimReport ? 'none' : !document.claimReportInvalidated && invalidateClaimReport(claimReport, caseRecord, question.question) ? 'current' : 'stale';
   if (v.reportStatus !== undefined && v.reportStatus !== reportStatus) return fail('reportStatus', 'inconsistent report validity');
-  return { claimReport, claimReportCase, reportStatus, caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
+  const videoReport = document.videoReport === undefined ? null : parseSavedVideoReport(document.videoReport);
+  if (videoReport && savedVideoView(videoReport).caseRecord.id !== caseRecord.id) return fail('videoReport', 'different case identity');
+  if (document.videoReportInvalidated !== undefined && (!videoReport || typeof document.videoReportInvalidated !== 'boolean')) return fail('videoReportInvalidated');
+  const videoReportStatus = !videoReport ? 'none' : !document.videoReportInvalidated && videoReportMatches(videoReport, caseRecord, question.question) ? 'current' : 'stale';
+  if (v.videoReportStatus !== undefined && v.videoReportStatus !== videoReportStatus) return fail('videoReportStatus', 'inconsistent report validity');
+  return { videoReport, videoReportStatus, claimReport, claimReportCase, reportStatus, caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
     subquestions, hypotheses, caseRecord, caseHistory, anchorSources, findingViews, history: list(workspace.history, 'history', history), changes,
     materials, citations, dependencies: report, comparison: version === 'contexttrail-research-v3' ? parseComparisonResponse(document.comparison) : null };
 }
