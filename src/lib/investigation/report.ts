@@ -4,15 +4,18 @@ import type { TimelineItem, ComparisonCoverage } from './contracts/investigation
 import { STRONG_RELATION_THRESHOLD, RELEVANCE_THRESHOLD } from './contracts/judgment';
 import { ProviderError } from '../providers/http';
 import { isCoreOccurrence } from './identity';
+import type { SourceBinding } from '../pages/source-binding';
 
 export interface PageReadOutcome {
   evidenceId: string;
   requestedUrl: string | null;
   finalUrl: string | null;
+  /** Absent only in results saved before source binding was audited. */
+  sourceBinding?: SourceBinding;
   selection: 'selected' | 'not_selected';
   fetch: 'succeeded' | 'failed' | 'not_attempted';
   extraction: 'usable_text' | 'empty_text' | 'failed' | 'not_attempted';
-  failureCode: 'timeout' | 'aborted' | 'http' | 'malformed' | 'network' | 'unknown' | 'extraction_failed' | null;
+  failureCode: 'timeout' | 'aborted' | 'http' | 'malformed' | 'network' | 'unknown' | 'extraction_failed' | 'source_binding_rejected' | null;
   httpStatus: number | null;
 }
 
