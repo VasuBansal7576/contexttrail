@@ -74,21 +74,26 @@ export function localResearchService(directory: string) {
   async function list() {
     let entries;
     try { entries = await readdir(root, { withFileTypes: true }); }
-    catch (error) { if (errorCode(error) === 'ENOENT') return []; throw error; }
+    catch (error) { if (errorCode(error) === 'ENOENT') return { cases: [], warnings: [] }; throw error; }
     const summaries: Array<{ caseId: string; question: string; revision: number; createdAt: string }> = [];
+    const warnings: Array<{ file: string; code: 'RECOVERY_REQUIRED'; message: string }> = [];
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
       if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/.test(entry.name)) continue;
-      const file = await open(join(root, entry.name), 'r');
-      let document;
       try {
-        if ((await file.stat()).size > MAX_RESEARCH_BYTES) throw new ResearchServiceError(413, 'STATE_TOO_LARGE', 'A saved case exceeds 5 MiB. Existing files have not been changed.');
-        const input: unknown = JSON.parse(await file.readFile('utf8'));
-        document = parseResearchDocument(input);
-      } finally { await file.close(); }
-      if (`${filename(document.workspace.inquiry.caseId)}.json` !== entry.name) throw new Error('Saved case filename mismatch');
-      summaries.push({ caseId: document.workspace.inquiry.caseId, question: document.workspace.inquiry.question, revision: document.revision, createdAt: inquiryCase(document.workspace).createdAt });
+        const file = await open(join(root, entry.name), 'r');
+        let document;
+        try {
+          if ((await file.stat()).size > MAX_RESEARCH_BYTES) throw new ResearchServiceError(413, 'STATE_TOO_LARGE', 'A saved case exceeds 5 MiB. Existing files have not been changed.');
+          const input: unknown = JSON.parse(await file.readFile('utf8'));
+          document = parseResearchDocument(input);
+        } finally { await file.close(); }
+        if (`${filename(document.workspace.inquiry.caseId)}.json` !== entry.name) throw new Error('Saved case filename mismatch');
+        summaries.push({ caseId: document.workspace.inquiry.caseId, question: document.workspace.inquiry.question, revision: document.revision, createdAt: inquiryCase(document.workspace).createdAt });
+      } catch {
+        warnings.push({ file: entry.name, code: 'RECOVERY_REQUIRED', message: 'This saved case could not be read or validated. Preserve the original file for recovery; it has not been changed.' });
+      }
     }
-    return summaries;
+    return { cases: summaries, warnings };
   }
   async function apply(input: unknown): Promise<ResearchReview> {
     const request = object(input);

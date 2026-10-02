@@ -38,6 +38,6 @@ it('retains a real decoded video/still comparison across disk reopen and later e
     await expect(service.apply({ ...input, operationId: 'bad', comparison: corrupted })).rejects.toThrow('hash');
     const changed = structuredClone(comparison); changed.report.limitations.push('Extra limitation');
     await expect(service.apply({ ...input, comparison: changed })).rejects.toMatchObject({ code: 'OPERATION_CONFLICT' });
-    expect(await service.list()).toHaveLength(1);
+    expect((await service.list()).cases).toHaveLength(1);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }, 30000);

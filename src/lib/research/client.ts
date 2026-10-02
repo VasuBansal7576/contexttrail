@@ -10,6 +10,7 @@ import type { Basis, SourceDependencyReport, SuppliedCitation } from '../source-
 import type { ResearchApplicationRequest } from './service';
 
 export interface ResearchCaseSummary { caseId: string; question: string; revision: number; createdAt: string }
+export interface ResearchCaseList { cases: ResearchCaseSummary[]; warnings: Array<{ file: string; code: 'RECOVERY_REQUIRED'; message: string }> }
 export interface ResearchMaterialReference {
   materialId: string; revision: number; digest: string; evidenceId: string;
   content: { kind: 'image'; mimeType: 'image/png'; width: number; height: number } | { kind: 'table'; rowCount: number; columnCount: number };
@@ -280,12 +281,18 @@ function dependencies(value: unknown, path: string, record: CaseRecord): Researc
     independence: basis(v.independence, `${path}.independence`), limits: list(v.limits, `${path}.limits`, text) };
 }
 
-export function parseResearchCaseList(value: unknown): ResearchCaseSummary[] {
+export function parseResearchCaseList(value: unknown): ResearchCaseList {
   const v = object(value, 'response');
-  return unique(list(v.cases, 'cases', (value, p) => {
+  const cases = unique(list(v.cases, 'cases', (value, p) => {
     const c = object(value, p);
     return { caseId: id(c.caseId, `${p}.caseId`), question: text(c.question, `${p}.question`), revision: integer(c.revision, `${p}.revision`, 1), createdAt: timestamp(c.createdAt, `${p}.createdAt`) };
   }, 10_000), c => c.caseId, 'cases');
+  const warnings = list(v.warnings ?? [], 'warnings', (value, p) => {
+    const warning = object(value, p), file = text(warning.file, `${p}.file`, 69);
+    if (!/^[a-f0-9]{64}\.json$/.test(file)) return fail(`${p}.file`);
+    return { file, code: choice(warning.code, ['RECOVERY_REQUIRED'], `${p}.code`), message: text(warning.message, `${p}.message`) };
+  }, 10_000);
+  return { cases, warnings };
 }
 /** Project only UI-consumed fields. Server-side validation remains authoritative. */
 export function parseResearchCaseView(value: unknown): ResearchCaseView {
@@ -351,7 +358,7 @@ async function request(path: string, init: RequestInit): Promise<unknown> {
   }
   return body;
 }
-export async function listResearchCases(options: ResearchClientOptions = {}): Promise<ResearchCaseSummary[]> {
+export async function listResearchCases(options: ResearchClientOptions = {}): Promise<ResearchCaseList> {
   return parseResearchCaseList(await request('/api/research', { method: 'GET', signal: options.signal }));
 }
 export async function getResearchCase(caseId: string, options: ResearchClientOptions = {}): Promise<ResearchCaseView> {

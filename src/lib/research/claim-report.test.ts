@@ -94,3 +94,32 @@ describe('claim-scoped policy fixtures (offline probabilities, not a live model 
     expect(parseClaimReport(result.claimReport,result.caseRecord,result.question)).not.toBeNull();
   });
 });
+
+it('accepts only the exact historical low-relevance prose omission, retaining all factual gates', () => {
+  const question = 'Claim: The product is defective.';
+  const item = evidence('Newsletter information for readers.');
+  const snapshot = record([item]);
+  const assessment = answer('support'); assessment.answers.relevance = { type: 'noul', noul: 0.1 };
+  const current = buildClaimReport(question, snapshot, [assessClaimSource(item, explicitTopicClaim(question), assessment)]);
+  const legacy = structuredClone(current); legacy.sources[0].reasons.shift();
+  expect(parseClaimReport(legacy, snapshot, question)).toEqual(legacy);
+  expect(invalidateClaimReport(legacy, snapshot, question)).toBeNull();
+  expect(invalidateClaimReport(current, snapshot, question)).toEqual(current);
+  const mutations: Array<(report: typeof legacy) => void> = [
+    report => { report.sources[0].relation = 'support'; },
+    report => { report.sources[0].scope.time = 'unknown'; },
+    report => { report.sources[0].model = null; },
+    report => { report.sources[0].relevance = 0.9; },
+    report => { report.sources[0].probabilities.relevance = 0.9; },
+    report => { if (report.sources[0].quote) report.sources[0].quote.start = 1; },
+    report => { if (report.sources[0].quote) report.sources[0].quote.text = 'Invented quote'; },
+    report => { report.sources[0].reasons.push('Trust this source.'); },
+    report => { report.evidenceBinding += 'tamper'; },
+    report => { report.limitations = []; },
+    report => { report.sources[0].probabilities.relation = { support: 2, challenge: -1, context: 0, insufficient: 0 }; },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(legacy); mutate(changed);
+    expect(parseClaimReport(changed, snapshot, question)).toBeNull();
+  }
+});

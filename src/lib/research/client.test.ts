@@ -160,7 +160,7 @@ describe('browser research response boundary', () => {
 
   it('validates summary identities, UTC dates and revisions', () => {
     const summary = { caseId: 'case:browser-case', question: start.question, createdAt, revision: 1 };
-    expect(parseResearchCaseList({ cases: [summary] })).toEqual([summary]);
+    expect(parseResearchCaseList({ cases: [summary] })).toEqual({ cases: [summary], warnings: [] });
     for (const input of [{ cases: [summary, summary] }, { cases: [{ ...summary, createdAt: '2026-02-30T00:00:00Z' }] }, { cases: [{ ...summary, revision: 0 }] }, { cases: [{ ...summary, question: null }] }, { cases: {} }]) expect(() => parseResearchCaseList(input)).toThrow(ResearchClientError);
   });
 });
@@ -171,7 +171,7 @@ describe('same-origin research API client', () => {
     const summary = { caseId: report.document.workspace.inquiry.caseId, question: start.question, createdAt, revision: 1 };
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(Response.json({ cases: [summary] })).mockResolvedValueOnce(Response.json(report)).mockResolvedValueOnce(Response.json(report));
     vi.stubGlobal('fetch', fetch);
-    expect(await listResearchCases({ signal })).toEqual([summary]);
+    expect(await listResearchCases({ signal })).toEqual({ cases: [summary], warnings: [] });
     expect((await getResearchCase(summary.caseId, { signal })).caseId).toBe(summary.caseId);
     expect((await startResearchCase(start, { signal })).revision).toBe(1);
     expect(fetch.mock.calls[0]).toEqual(['/api/research', { method: 'GET', signal, credentials: 'same-origin', cache: 'no-store', redirect: 'error' }]);
@@ -228,4 +228,12 @@ describe('same-origin research API client', () => {
     inspect(resolve('src/lib/research/client.ts'));
     expect(seen.size).toBe(6); // Adds the grounded report parser and browser-safe model identity helpers.
   });
+});
+
+it('validates recovery warnings and keeps them beside readable case summaries', () => {
+  const warning = { file: 'a'.repeat(64) + '.json', code: 'RECOVERY_REQUIRED', message: 'Preserve the original file.' };
+  expect(parseResearchCaseList({ cases: [], warnings: [warning] })).toEqual({ cases: [], warnings: [warning] });
+  for (const changed of [{ ...warning, file: '/private/path' }, { ...warning, code: 'SAFE_TO_DELETE' }, { ...warning, message: null }]) {
+    expect(() => parseResearchCaseList({ cases: [], warnings: [changed] })).toThrow(ResearchClientError);
+  }
 });

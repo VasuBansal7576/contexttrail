@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { JEV_MODEL } from '../jev/model';
+import { mkdtemp, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -78,4 +79,28 @@ it('legacy documents remain readable and invalid unbound imports are rejected', 
   expect(parseResearchCaseView(researchWorkflow(legacy)).reportStatus).toBe('none');
   expect(() => researchWorkflow({ ...request, question: 'Different question' })).toThrow();
   expect(() => researchWorkflow({ ...request, claimReport: { ...claimReport, sources: [] } })).toThrow();
+});
+it('reopens legacy reason-only reports as historical without rewriting bytes, and retains them through edits', async () => {
+  const { dir, service, request } = await setup();
+  const source = assessClaimSource(request.caseRecord.evidence[0], 'The supplied sample is historical.', {
+    model: JEV_MODEL, identity: { requested: JEV_MODEL, reported: JEV_MODEL, status: 'verified', pinned: true }, answers: { relevance: { type: 'noul', noul: 0.1 } },
+  });
+  request.claimReport = buildClaimReport(request.question, request.caseRecord, [source]);
+  request.claimReport.sources[0].reasons.shift();
+  const historical = researchWorkflow(request).document;
+  const saved = await service.apply(request);
+  const file = join(dir, (await readdir(dir))[0]);
+  // Exact pre-change storage shape, with no new presentation metadata.
+  await writeFile(file, JSON.stringify(historical));
+  const originalBytes = await readFile(file, 'utf8');
+  expect(saved.reportStatus).toBe('stale');
+  expect((await service.list()).cases).toHaveLength(1);
+  const reopened = parseResearchCaseView(await localResearchService(dir).get(request.caseRecord.id));
+  expect(reopened.reportStatus).toBe('stale');
+  expect(reopened.claimReport).toEqual(request.claimReport);
+  expect(await readFile(file, 'utf8')).toBe(originalBytes);
+  const edited = await service.apply({ kind: 'update', caseId: request.caseRecord.id, operationId: 'add-question', expectedRevision: 1, change: { kind: 'subquestion', value: { kind: 'subquestion', id: 'q2', question: 'What does this source establish?' } } });
+  expect(edited.document.claimReport).toEqual(request.claimReport);
+  expect(edited.document.applied[0]).toEqual(historical.applied[0]);
+  expect(parseResearchCaseView(await localResearchService(dir).get(request.caseRecord.id)).reportStatus).toBe('stale');
 });

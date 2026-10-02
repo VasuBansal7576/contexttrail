@@ -23,11 +23,15 @@ No provider variables or credentials are required. Do not add them for this work
 
 Every response has `Cache-Control: no-store`. POST bodies require `application/json`; the body and saved case each have a 5 MiB limit. Invalid edits leave the last committed document unchanged. Reuse an operation ID only for an exact retry of that operation, including its original expected revision.
 
-- `GET /api/research`: `{ "cases": [{ "caseId", "question", "revision", "createdAt" }] }`
+- `GET /api/research`: `{ "cases": [{ "caseId", "question", "revision", "createdAt" }], "warnings": [{ "file", "code": "RECOVERY_REQUIRED", "message" }] }`
 - `GET /api/research?caseId=<URL-encoded-id>`: the saved document plus recomputed findings and dependency report
 - `POST /api/research`: create or update as shown below; returns the same review shape as a case GET
 
-The response is:
+The case list isolates unreadable, oversized, incompatible, or invalid saved files. Valid cases remain available, and each skipped file gets a recovery warning with its hashed filename. Reads never repair, delete, or rewrite stored files. Directory-level storage failures still fail the request.
+
+Historical claim reports that omit the former low-relevance warning remain readable only when every other field matches the current validator. Their original text and operation digests are preserved. They reopen as stale and require review. Changed quotes, bindings, model identities, probabilities, scopes, decisions, or other report fields still fail validation.
+
+The case response is:
 
 ```ts
 {

@@ -53,7 +53,7 @@ describe('local research application service', () => {
     expect(reopened.dependencies.duplicatePassages).toHaveLength(1);
     expect(reopened.dependencies.independence.status).toBe('unknown');
     expect(reopened.dependencies.citationChecks[0].entailment.status).toBe('unknown');
-    expect(await service.list()).toEqual([{ caseId: id, question: start.question, revision: 8, createdAt: start.createdAt }]);
+    expect((await service.list()).cases).toEqual([{ caseId: id, question: start.question, revision: 8, createdAt: start.createdAt }]);
     const files = await readdir(directory);
     expect(files).toHaveLength(1);
     expect(JSON.parse(await readFile(join(directory, files[0]), 'utf8'))).toEqual(reopened.document);
@@ -155,4 +155,21 @@ describe('local research application service', () => {
     await expect(service.apply({ ...start })).rejects.toThrow('Unsupported research version');
     expect(await readFile(path, 'utf8')).toBe(invalid);
   });
+});
+
+it('lists readable cases beside corrupt, incompatible, oversized and mismatched files without changing originals', async () => {
+  const { directory, service, id, result } = await setup();
+  const failures = [
+    ['a'.repeat(64) + '.json', '{broken'],
+    ['b'.repeat(64) + '.json', '{"schemaVersion":"future-version"}'],
+    ['c'.repeat(64) + '.json', JSON.stringify(result.document)],
+    ['d'.repeat(64) + '.json', ' '.repeat(5 * 1024 * 1024 + 1)],
+  ];
+  for (const [file, bytes] of failures) await writeFile(join(directory, file), bytes);
+  const listing = await service.list();
+  expect(listing.cases.map(item => item.caseId)).toEqual([id]);
+  expect(listing.warnings.map(item => item.file)).toEqual(failures.map(([file]) => file));
+  expect(listing.warnings.every(item => item.code === 'RECOVERY_REQUIRED' && item.message.includes('not been changed'))).toBe(true);
+  for (const [file, bytes] of failures) expect(await readFile(join(directory, file), 'utf8')).toBe(bytes);
+  expect(await service.get(id)).toEqual(result);
 });

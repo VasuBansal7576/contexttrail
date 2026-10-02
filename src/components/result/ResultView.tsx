@@ -12,7 +12,7 @@
  */
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from "react";
 import Link from "next/link";
 import {
   STATUS_COPY,
@@ -58,6 +58,8 @@ import { Badge } from "@/components/ui";
 import { cn } from "@/components/cn";
 import TimelineView, { type DivergenceLink, type TimelineGroups } from "./TimelineView";
 import SaveToCasebook from "../casebook/SaveToCasebook";
+import { CasebookShell } from "../casebook/CasebookShell";
+import { EvidenceCollection, SourceActions } from "../casebook/EvidenceCollection";
 import EvidenceViewer from "./EvidenceViewer";
 
 type Tab = "overview" | "timeline" | "sources" | "analysis";
@@ -78,6 +80,7 @@ interface ResultViewProps {
   onNewInvestigation: () => void;
   /** Shown when this result was restored after a refresh (F17). */
   restoredNotice?: string | null;
+  headingRef?: Ref<HTMLHeadingElement>;
 }
 
 export default function ResultView({
@@ -88,6 +91,7 @@ export default function ResultView({
   stages,
   onNewInvestigation,
   restoredNotice = null,
+  headingRef,
 }: ResultViewProps) {
   const [tab, setTab] = useState<Tab>("overview");
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -289,23 +293,12 @@ export default function ResultView({
         : "bg-white/70 ring-ink/10 text-ink";
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
-      <header className="mx-auto flex max-w-[1280px] items-center justify-between px-5 py-5 sm:px-8">
-        <p className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-ink" />
-          ContextTrail
-        </p>
-        <button
-          type="button"
-          onClick={onNewInvestigation}
-          className="min-h-[44px] rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition hover:bg-black"
-        >
-          New investigation
-        </button>
-      </header>
+    <CasebookShell chapter="image">
+      <div className="investigation-result">
+      <div className="casebook-main result-toolbar"><p className="eyebrow">01 / Image investigation</p><button type="button" onClick={onNewInvestigation} className="paper-button primary">New investigation</button></div>
 
       <nav aria-label="Result views" className="border-b border-ink/10">
-        <div className="mx-auto flex max-w-[1280px] gap-1 px-5 sm:px-8" role="tablist" aria-label="Result views">
+        <div className="image-result-tabs mx-auto flex max-w-[1280px] gap-1 px-5 sm:px-8" role="tablist" aria-label="Result views">
           {TABS.map((t, i) => (
             <button
               key={t.id}
@@ -320,7 +313,7 @@ export default function ResultView({
               onClick={() => setTab(t.id)}
               onKeyDown={(e) => onTabKeyDown(e, i)}
               className={cn(
-                "min-h-[44px] border-b-2 px-4 text-sm font-medium transition",
+                "min-h-[44px] shrink-0 whitespace-nowrap border-b-2 px-4 text-sm font-medium transition",
                 tab === t.id
                   ? "border-ink text-ink"
                   : "border-transparent text-ink-soft hover:text-ink",
@@ -332,7 +325,7 @@ export default function ResultView({
         </div>
       </nav>
 
-      <main className="mx-auto max-w-[1280px] px-5 py-10 sm:px-8">
+      <main id="main" tabIndex={-1} className="casebook-main">
         <SaveToCasebook value={result.caseRecord} question={claim?.trim() || "What does the retrieved history of this image show?"} />
         {restoredNotice ? (
           <p role="note" className="mb-6 rounded-xl bg-ink/5 px-4 py-3 text-sm leading-relaxed text-ink/75 ring-1 ring-ink/10">
@@ -350,7 +343,7 @@ export default function ResultView({
             {/* Result first in DOM and on mobile; submitted material beside it on desktop. */}
             <section aria-label="Investigation result" className="lg:order-2">
               <div className={cn("rounded-2xl p-6 ring-1 sm:p-8", panelTone)}>
-                <h1 className="font-serif text-4xl text-balance sm:text-5xl">{headline}</h1>
+                <h1 ref={headingRef} tabIndex={-1} className="font-serif text-4xl text-balance sm:text-5xl">{headline}</h1>
                 {mode === "claim-check" && copy ? (
                   <>
                     <p className="mt-3 leading-relaxed text-ink/75">{copy.support}</p>
@@ -511,8 +504,8 @@ export default function ResultView({
                   No sources were retrieved.
                 </p>
               ) : (
-                <ul className="mt-6 space-y-3">
-                  {viewerItems.map((o, i) => {
+                <div className="mt-6 space-y-3">
+                  <EvidenceCollection items={viewerItems} label="Image sources">{(o, i) => {
                     const id = viewerIdList[i];
                     const title = str(o, "title") ?? "Untitled result";
                     const domain = str(o, "domain");
@@ -528,14 +521,14 @@ export default function ResultView({
                     const groupId = str(o, "reportingOriginGroupId");
                     const groupSize = groupId ? (groupSizes.get(groupId) ?? null) : null;
                     return (
-                      <li key={id} className="rounded-xl bg-white/70 p-4 ring-1 ring-ink/10">
+                      <article key={id} className="source-card">
                         {/* Narrow screens read the source identity first and in
                             full: side-by-side, a non-shrinking action row left
                             the title 130px for 206px of text and ellipsised even
                             a short title. Desktop keeps the compact row. */}
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0 flex-1">
-                            <p className="break-words font-medium" title={title}>{title}</p>
+                            <button type="button" className="source-title" onClick={() => openEvidenceById(id)}>{title}</button>
                             <p className="break-words text-sm text-ink-soft">
                               {domain ?? "Unknown domain"}
                               {occurrenceDate(o) ? ` · ${occurrenceDate(o)}` : " · date unknown"}
@@ -556,16 +549,6 @@ export default function ResultView({
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-3">
-                            {url ? (
-                              <a
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex min-h-[44px] items-center text-sm font-medium text-signal-ink underline underline-offset-2"
-                              >
-                                Open source ↗
-                              </a>
-                            ) : null}
                             <button
                               type="button"
                               onClick={() => openEvidenceById(id)}
@@ -575,10 +558,11 @@ export default function ResultView({
                             </button>
                           </div>
                         </div>
-                      </li>
+                        {url ? <SourceActions url={url} /> : <p className="fine-print">No source URL retained.</p>}
+                      </article>
                     );
-                  })}
-                </ul>
+                  }}</EvidenceCollection>
+                </div>
               )}
             </section>
           </div>
@@ -1083,6 +1067,7 @@ export default function ResultView({
         onClose={closeViewer}
         onNavigate={navigateViewer}
       />
-    </div>
+      </div>
+    </CasebookShell>
   );
 }

@@ -13,7 +13,8 @@
  */
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { CasebookShell } from "@/components/casebook/CasebookShell";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import UploadForm, { type UploadSelection } from "@/components/upload/UploadForm";
 import InvestigationView from "@/components/investigation/InvestigationView";
@@ -149,11 +150,23 @@ export default function InvestigatePage() {
   }, []);
 
   const phase = inv.phase;
+  const viewHeading = useRef<HTMLHeadingElement>(null);
+  const visiblePhase = restored || (phase === "completed" && inv.result)
+    ? "result" : phase === "preparing" || phase === "streaming" ? "running"
+    : phase === "failed" ? "failed" : phase === "cancelled" ? "cancelled" : "input";
+  useEffect(() => {
+    if (visiblePhase === "input") return;
+    viewHeading.current?.focus({ preventScroll: true });
+    // Reset the old form's scroll position once. Keeping the whole view start
+    // visible includes the result tabs and the progress Cancel control.
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [visiblePhase]);
 
   if (restored) {
     const restoredClaim = str(restored, "claim") ?? str(rec(restored, "input"), "claim");
     return (
       <ResultView
+        headingRef={viewHeading}
         result={restored}
         submittedImageUrl={null}
         claim={restoredClaim}
@@ -168,6 +181,7 @@ export default function InvestigatePage() {
   if (phase === "completed" && inv.result) {
     return (
       <ResultView
+        headingRef={viewHeading}
         result={inv.result}
         submittedImageUrl={publicImageId ? PUBLIC_IMAGES[publicImageId].previewUrl : publicImageUrl ?? selection?.previewUrl ?? null}
         claim={claim.trim().length > 0 ? claim.trim() : null}
@@ -187,70 +201,41 @@ export default function InvestigatePage() {
           evidence={inv.evidence}
           error={inv.error}
           onCancel={inv.cancel}
+          headingRef={viewHeading}
+          recoveryActions={phase === "failed" ? <div className="image-recovery-actions"><div className="button-row"><button type="button" onClick={() => inv.reset()} className="paper-button primary">← Return to upload</button><button type="button" onClick={handleNewInvestigation} className="paper-button">Start new investigation</button></div><p className="fine-print">Your selected image and claim were kept in this browser tab only.</p></div> : null}
         />
-        {phase === "failed" ? (
-          <div className="bg-deep pb-16 text-white">
-            <div className="mx-auto flex max-w-[1280px] flex-wrap gap-3 px-5 sm:px-8">
-              <button
-                type="button"
-                onClick={() => inv.reset()}
-                className="inline-flex min-h-[48px] items-center rounded-full bg-paper px-6 py-3 font-medium text-ink transition hover:bg-white"
-              >
-                ← Return to upload
-              </button>
-              <button
-                type="button"
-                onClick={handleNewInvestigation}
-                className="inline-flex min-h-[48px] items-center rounded-full px-6 py-3 font-medium ring-1 ring-white/25 transition hover:ring-white/50"
-              >
-                Start new investigation
-              </button>
-            </div>
-            <p className="mx-auto mt-3 max-w-[1280px] px-5 text-xs text-white/50 sm:px-8">
-              Your selected image and claim were kept in this browser tab only.
-            </p>
-          </div>
-        ) : null}
+
       </div>
     );
   }
 
   if (phase === "cancelled") {
     return (
-      <div className="min-h-screen bg-deep text-white">
-        <header className="mx-auto flex max-w-[1280px] items-center justify-between px-5 py-5 sm:px-8">
-          <p className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-            <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-white" />
-            ContextTrail
-          </p>
-          <Link href="/" className="text-sm text-white/60 hover:text-white">
-            ← Home
-          </Link>
-        </header>
-        <main className="mx-auto max-w-xl px-5 pt-16 text-center">
-          <h1 className="font-serif text-4xl">Investigation cancelled.</h1>
+      <CasebookShell chapter="image" dark>
+        <main id="main" tabIndex={-1} className="casebook-main">
+          <h1 ref={viewHeading} tabIndex={-1} className="font-serif text-4xl">Investigation cancelled.</h1>
           <p className="mt-3 text-white/65">
             New work was stopped. Requests already sent may still have consumed provider credits.
             Your image and claim remain in this tab if you want to retry.
           </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <div className="button-row">
             <button
               type="button"
               onClick={() => inv.reset()}
-              className="inline-flex min-h-[48px] items-center rounded-full bg-paper px-6 py-3 font-medium text-ink transition hover:bg-white"
+              className="paper-button primary"
             >
               ← Return to upload
             </button>
             <button
               type="button"
               onClick={handleNewInvestigation}
-              className="inline-flex min-h-[48px] items-center rounded-full px-6 py-3 font-medium ring-1 ring-white/25 transition hover:ring-white/50"
+              className="paper-button"
             >
               Start new investigation
             </button>
           </div>
         </main>
-      </div>
+      </CasebookShell>
     );
   }
 

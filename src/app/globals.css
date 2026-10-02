@@ -409,3 +409,71 @@ body {
 .claim-report .source-url, .claim-report .evidence-passage { overflow-wrap: anywhere; }
 .claim-report summary { cursor: pointer; padding-block: 0.5rem; }
 .claim-report li + li { margin-top: 0.35rem; }
+
+/* Evidence collections inherit the approved chapter composition at every size. */
+.casebook-app { padding-bottom:calc(110px + env(safe-area-inset-bottom, 0px)); overflow-wrap:anywhere; }
+.casebook-main,.workspace-grid>*,.automatic-results,.claim-report,.source-stack,.evidence-collection { min-width:0; }
+.casebook-app :where(img,video,canvas) { max-width:100%; }
+.chapter-nav { padding-bottom:calc(14px + env(safe-area-inset-bottom, 0px)); }
+.chapter-links { min-width:0; overflow-x:auto; }
+.chapter-links a { flex-shrink:0; }
+.sheet-topline,.dialog-actions { flex-wrap:wrap; }
+.source-stack .evidence-collection { display:grid; gap:20px; }
+.evidence-collection { scroll-margin-top:24px; }
+.evidence-pagination { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; padding-block:20px; font-size:12px; }
+.source-address { margin-block:18px 0; border-top:1px solid var(--cb-rule); padding-top:16px; }
+.source-actions { display:flex; flex-wrap:wrap; align-items:center; gap:18px; }
+.source-actions .fine-print { margin:0; }
+.source-title { font:30px/1.15 var(--font-instrument-serif),Georgia,serif; text-align:left; cursor:pointer; }
+.source-title:hover { text-decoration:underline; text-underline-offset:5px; }
+.source-inspection summary { cursor:pointer; }
+.source-inspection summary h3 { display:inline; }
+.source-inspection summary .text-link { display:block; }
+.evidence-full-text summary { cursor:pointer; }
+.evidence-full-text summary .evidence-passage { display:block; }
+.evidence-full-text[open] summary .evidence-passage { display:none; }
+.evidence-full-text>.evidence-passage { max-height:65vh; overflow:auto; padding:8px; }
+.result-toolbar { display:flex; align-items:center; justify-content:space-between; gap:18px; padding-block:24px; }
+.investigation-result { --color-paper:var(--cb-paper); --color-ink:var(--cb-ink); --color-signal-ink:var(--cb-rust); --color-ink-soft:var(--cb-muted); }
+.investigation-result [class*="rounded-"],.investigation-progress [class*="rounded-"] { border-radius:0; }
+.investigation-result :where(section,aside,li,dl,dd) { min-width:0; overflow-wrap:anywhere; }
+.investigation-result [class*="bg-white/"] { background:var(--cb-sheet); }
+.investigation-result nav[aria-label="Result views"] { border-color:var(--cb-rule); }
+.investigation-progress { color:var(--cb-sheet); }
+@media(max-width:760px) {
+ .casebook-app { padding-bottom:calc(100px + env(safe-area-inset-bottom, 0px)); }
+ .chapter-nav { padding-bottom:calc(8px + env(safe-area-inset-bottom, 0px)); }
+ .evidence-pagination .paper-button { padding-inline:14px; }
+ .result-toolbar { align-items:flex-start; }
+ .hypothesis-list { grid-template-columns:minmax(0,1fr); }
+ .source-card { padding:20px; }
+ .investigation-result nav[aria-label="Result views"]>div { overflow-x:auto; }
+}
+.progress-evidence .evidence-collection { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.progress-evidence .evidence-collection>.fine-print,.progress-evidence .evidence-pagination { grid-column:1/-1; color:var(--cb-sheet); }
+.progress-evidence .evidence-pagination .paper-button { border-color:var(--cb-sheet); }
+@media(max-width:760px) { .progress-evidence .evidence-collection { grid-template-columns:minmax(0,1fr); } }
+
+/* Keep the run's feedback beside its controls, above disclosure and route links. */
+.automatic-action-area { scroll-margin-block:24px calc(110px + env(safe-area-inset-bottom, 0px)); }
+.automatic-action-area .button-row { margin-top:10px; }
+.automatic-action-status { font-size:13px; line-height:1.6; margin-top:12px; }
+.automatic-action-status:empty { margin-top:0; }
+/* Break long identifiers only when needed; don't orphan normal-word punctuation. */
+.case-title-note h2,.automatic-results>h2 { overflow-wrap:break-word; word-break:normal; text-wrap:pretty; }
+
+/* Image view switches reset to this page's top; long labels scroll as whole words. */
+.image-result-tabs { overflow-x:auto; scroll-padding-inline:20px; padding-block:4px; }
+.image-result-tabs [role=tab] { flex-shrink:0; white-space:nowrap; overflow-wrap:normal; }
+.image-recovery-actions { margin-block:24px; }
+
+/* Terminal image failures are an ended run, with paper/rust alert contrast. */
+.investigation-failure { background:#faf6e8; color:#222c29; border:1px solid #a93f2e; }
+.investigation-failure-title { color:#a93f2e; }
+.investigation-stopped :is(.text-white\/55,.text-white\/60,.text-white\/65,.text-white\/70,.text-signal-pale) { color:#d6e0e2; }
+/* Fit the manual chapter's longest display word inside its 320px sidebar. */
+@media(min-width:761px) { .workspace-side .chapter-heading h1 { font-size:clamp(50px,5vw,72px); overflow-wrap:normal; } }
+
+/* Evidence and stage text must not set the intrinsic minimum width of a grid. */
+.investigation-work-grid>*,.progress-evidence .evidence-collection>* { min-width:0; }
+.investigation-detail,.investigation-candidate-title { white-space:normal; overflow-wrap:anywhere; }

@@ -29,5 +29,5 @@ it('rejects cross-kind operation reuse and malformed cases before saving', async
   const input = request();
   await expect(service.apply({ ...input, operationId: start.operationId, question: start.question })).rejects.toMatchObject({ code: 'OPERATION_CONFLICT' });
   await expect(service.apply({ ...input, caseRecord: {} })).rejects.toThrow();
-  expect(await service.list()).toHaveLength(1);
+  expect((await service.list()).cases).toHaveLength(1);
 });

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -59,4 +59,15 @@ describe('research application HTTP boundary', () => {
     expect(reuse.status).toBe(409);
     expect((await reuse.json()).code).toBe('OPERATION_CONFLICT');
   });
+});
+
+it('returns readable cases and recovery warnings together through the HTTP boundary', async () => {
+  await POST(request(start));
+  const file = 'a'.repeat(64) + '.json';
+  await writeFile(join(directory, file), '{broken');
+  const response = await GET(new Request('http://127.0.0.1:3119/api/research'));
+  expect(response.status).toBe(200);
+  const listing = await response.json();
+  expect(listing.cases).toHaveLength(1);
+  expect(listing.warnings).toEqual([{ file, code: 'RECOVERY_REQUIRED', message: expect.stringContaining('not been changed') }]);
 });

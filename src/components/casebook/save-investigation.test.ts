@@ -21,9 +21,9 @@ it('saves once across double click, lost response and component remount', async 
   const settle = async () => act(async () => { await new Promise(r => setTimeout(r, 100)); });
   try {
     await render('first'); await act(async () => { container.querySelector('button')?.click(); container.querySelector('button')?.click(); }); await settle();
-    expect(requests).toHaveLength(1); expect(container.textContent).toContain('Lost response'); expect(await service.list()).toHaveLength(1);
+    expect(requests).toHaveLength(1); expect(container.textContent).toContain('Lost response'); expect((await service.list()).cases).toHaveLength(1);
     await render('remount'); await act(async () => container.querySelector('button')?.click()); await settle();
-    expect(requests[1]).toEqual(requests[0]); expect(await service.list()).toHaveLength(1); expect(container.querySelector('a')?.href).toContain('chapter=evidence');
+    expect(requests[1]).toEqual(requests[0]); expect((await service.list()).cases).toHaveLength(1); expect(container.querySelector('a')?.href).toContain('chapter=evidence');
     await act(async () => root.render(React.createElement(SaveToCasebook, { value: null, question: 'Q?' }))); expect(container.textContent).toBe('');
   } finally { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); await rm(directory, { recursive: true, force: true }); }
 });

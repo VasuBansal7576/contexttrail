@@ -37,7 +37,7 @@ beforeEach(async()=>{
     const url=new URL(input,'http://localhost');
     try {
       if(init?.method==='POST'){const body:unknown=JSON.parse(String(init.body));posts.push(body);return Response.json(await store.apply(body));}
-      const id=url.searchParams.get('caseId');return Response.json(id?await store.get(id):{cases:await store.list()});
+      const id=url.searchParams.get('caseId');return Response.json(id?await store.get(id):await store.list());
     }catch(error){return Response.json({error:error instanceof Error?error.message:'Error',code:'TEST_REQUEST_REJECTED'},{status:400});}
   }));
 });
@@ -45,8 +45,8 @@ afterEach(async()=>{await act(async()=>root.unmount());container.remove();vi.uns
 
 describe('casebook application flow against real local storage, without a rendered browser',()=>{
   it('cancels creation without saving, then creates and reopens a case',async()=>{
-    await render();const opener=button('Start a question');await click('Start a question');await fill('Research question','Synthetic bridge question?');await click('Cancel');expect(button('Start a question')).toBe(opener);expect(posts).toHaveLength(0);expect(await store.list()).toHaveLength(0);
-    await click('Start a question');await fill('Research question','Synthetic bridge question?');await submit();expect(await store.list()).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');await render(navigation.next.split('?')[1]);expect(document.body.textContent).toContain('Synthetic bridge question?');expect(document.body.textContent).toContain('No findings yet.');
+    await render();const opener=button('Start a question');await click('Start a question');await fill('Research question','Synthetic bridge question?');await click('Cancel');expect(button('Start a question')).toBe(opener);expect(posts).toHaveLength(0);expect((await store.list()).cases).toHaveLength(0);
+    await click('Start a question');await fill('Research question','Synthetic bridge question?');await submit();expect((await store.list()).cases).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');await render(navigation.next.split('?')[1]);expect(document.body.textContent).toContain('Synthetic bridge question?');expect(document.body.textContent).toContain('No findings yet.');
   });
   it('saves hypotheses, passage evidence, an exact finding, and a correction that marks review stale',async()=>{
     const started=await store.apply({kind:'start',operationId:'ui-start',question:'Synthetic bridge question?',createdAt:'2026-10-01T00:00:00Z'});const id=started.document.workspace.inquiry.caseId;await render(`case=${encodeURIComponent(id)}&chapter=questions`);
@@ -61,7 +61,7 @@ describe('casebook application flow against real local storage, without a render
   });
   it('retries a lost creation response with the same operation instead of duplicating the case',async()=>{
     const original=fetch;let lose=true;vi.stubGlobal('fetch',vi.fn(async(input:string,init?:RequestInit)=>{const response=await original(input,init);if(init?.method==='POST'&&lose){lose=false;throw new TypeError('Synthetic lost response');}return response;}));
-    await render();await click('Start a question');await fill('Research question','Synthetic uncertain creation?');await submit();expect(document.body.textContent).toContain('Synthetic lost response');expect(await store.list()).toHaveLength(1);await submit();expect(await store.list()).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');expect(posts).toHaveLength(2);expect(posts[0]).toEqual(posts[1]);
+    await render();await click('Start a question');await fill('Research question','Synthetic uncertain creation?');await submit();expect(document.body.textContent).toContain('Synthetic lost response');expect((await store.list()).cases).toHaveLength(1);await submit();expect((await store.list()).cases).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');expect(posts).toHaveLength(2);expect(posts[0]).toEqual(posts[1]);
   });
   it('reconciles a lost committed edit and keeps a conflicting draft while loading latest revision',async()=>{
     const started=await store.apply({kind:'start',operationId:'ui-recovery',question:'Synthetic save recovery?',createdAt:'2026-10-01T00:00:00Z'});const id=started.document.workspace.inquiry.caseId;await render(`case=${encodeURIComponent(id)}&chapter=questions`);

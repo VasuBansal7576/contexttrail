@@ -9,15 +9,19 @@
  */
 "use client";
 
+import { CasebookShell } from "../casebook/CasebookShell";
+import { EvidenceCollection } from "../casebook/EvidenceCollection";
 import { motion, useReducedMotion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type Ref, type ReactNode } from "react";
 import { KNOWN_STAGES, STAGE_LABELS, str, type JsonRecord } from "@/lib/stream/events";
 import { progressRelationshipNote } from "@/components/result/evidence-display";
 import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge, StatusDot } from "@/components/ui";
 import { cn } from "@/components/cn";
 
-function stageTone(status: StageState["status"]): "ok" | "active" | "idle" | "bad" | "muted" {
+function stageTone(status: StageState["status"], stopped = false): "ok" | "active" | "idle" | "bad" | "muted" {
+  if (stopped && status === "running") return "bad";
+  if (stopped && status === "waiting") return "muted";
   switch (status) {
     case "completed":
       return "ok";
@@ -32,7 +36,9 @@ function stageTone(status: StageState["status"]): "ok" | "active" | "idle" | "ba
   }
 }
 
-function stageStateLabel(status: StageState["status"]): string {
+function stageStateLabel(status: StageState["status"], stopped = false): string {
+  if (stopped && status === "running") return "Interrupted";
+  if (stopped && status === "waiting") return "No start recorded";
   switch (status) {
     case "completed":
       return "Completed";
@@ -64,11 +70,14 @@ interface InvestigationViewProps {
   evidence: JsonRecord[];
   error: { code: string; message: string; partial: boolean } | null;
   onCancel: () => void;
+  headingRef?: Ref<HTMLHeadingElement>;
+  recoveryActions?: ReactNode;
 }
 
-export default function InvestigationView({ stages, searchCounts, evidence, error, onCancel }: InvestigationViewProps) {
+export default function InvestigationView({ stages, searchCounts, evidence, error, onCancel, headingRef, recoveryActions }: InvestigationViewProps) {
   const reduce = useReducedMotion();
   const fullStages = mergeStageList(stages);
+  const stopped = error !== null;
   // Mounted flag (U2): SSR and reduced-motion render the visible final
   // state; hidden initial states apply only after mount with motion allowed.
   const [mounted, setMounted] = useState(false);
@@ -87,46 +96,44 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
     null;
 
   return (
-    <div className="min-h-screen bg-deep text-white">
-      <header className="mx-auto flex max-w-[1280px] items-center justify-between px-5 py-5 sm:px-8">
-        <p className="flex items-center gap-2 text-sm font-semibold tracking-tight">
-          <span aria-hidden="true" className="inline-block h-4 w-4 rounded-full border-2 border-white" />
-          ContextTrail
-        </p>
-        <button
+    <CasebookShell chapter="image" dark><div className={cn("investigation-progress", stopped && "investigation-stopped")}>
+      <div className="casebook-main result-toolbar"><p className="eyebrow">01 / Image investigation</p>
+        {!error ? <button
           type="button"
           onClick={onCancel}
-          className="min-h-[44px] rounded-full px-4 py-2 text-sm text-white/70 ring-1 ring-white/25 transition hover:text-white hover:ring-white/50"
+          className="paper-button"
         >
           Cancel investigation
-        </button>
-      </header>
+        </button> : null}
+      </div>
 
-      <main className="mx-auto max-w-[1280px] px-5 pb-20 sm:px-8">
-        <h1 className="font-serif text-5xl">Tracing the web…</h1>
+      <main id="main" tabIndex={-1} className="casebook-main">
+        <h1 ref={headingRef} tabIndex={-1} className="font-serif text-5xl">{error ? "Investigation interrupted." : "Tracing the web…"}</h1>
         <p className="mt-3 max-w-2xl text-white/65">
-          Searching live web evidence to find where this image has appeared and how its context has changed.
+          {error ? "The investigation stopped. Review the interruption and any retained evidence below." : "Searching live web evidence to find where this image has appeared and how its context has changed."}
         </p>
 
         {error ? (
-          <div role="alert" className="mt-6 rounded-xl bg-coral/10 p-5 ring-1 ring-coral/30">
-            <p className="font-semibold text-coral">⚠ Investigation interrupted — {error.code}</p>
-            <p className="mt-1 text-sm leading-relaxed text-white/75">{error.message}</p>
+          <div role="alert" className="investigation-failure mt-6 p-5">
+            <p className="investigation-failure-title font-semibold">⚠ Investigation interrupted — {error.code}</p>
+            <p className="mt-1 text-sm leading-relaxed">{error.message}</p>
             {error.partial ? (
-              <p className="mt-2 text-sm text-white/60">
+              <p className="mt-2 text-sm">
                 Evidence that arrived before the failure is kept visible below.
               </p>
             ) : null}
           </div>
         ) : null}
 
-        <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        {recoveryActions}
+
+        <div className="investigation-work-grid mt-10 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           {/* Compact current-stage summary first on mobile; full list below evidence. */}
-          {currentStage ? (
+          {!stopped && currentStage ? (
             <p aria-live="polite" className="rounded-xl bg-white/5 px-4 py-3 text-sm text-white/80 ring-1 ring-white/10 lg:hidden">
               <StatusDot kind={stageTone(currentStage.status)} label={`${currentStage.label}: ${stageStateLabel(currentStage.status)}`} />
               {currentStage.detail ? (
-                <span className="mt-1 block truncate text-white/55" title={currentStage.detail}>
+                <span className="investigation-detail mt-1 block text-white/55" title={currentStage.detail}>
                   {currentStage.detail}
                 </span>
               ) : null}
@@ -134,32 +141,31 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
           ) : null}
 
           {/* Progressive evidence — first in DOM and on mobile, right column on desktop. */}
-          <section aria-label="Evidence arriving live" aria-live="polite" className="lg:order-2">
+          <section aria-label={stopped ? "Evidence retained before interruption" : "Evidence arriving live"} aria-live={stopped ? "off" : "polite"} className="min-w-0 lg:order-2">
             {evidence.length === 0 ? (
               <p className="rounded-xl bg-white/5 p-8 text-center text-sm text-white/55 ring-1 ring-white/10">
-                Waiting for the first evidence from this investigation…
+                {stopped ? "No evidence was received before this investigation stopped." : "Waiting for the first evidence from this investigation…"}
               </p>
             ) : (
               <>
                 <p className="text-sm text-white/60">
                   {evidence.length} {evidence.length === 1 ? "candidate" : "candidates"} found ·{" "}
-                  {domains.size} {domains.size === 1 ? "source domain" : "source domains"} · preliminary, may
-                  change after page reading or classification
+                  {domains.size} {domains.size === 1 ? "source domain" : "source domains"} · {stopped ? "retained before interruption; assessment may be incomplete" : "preliminary, may change after page reading or classification"}
                 </p>
-                <ul className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {evidence.map((item, i) => {
+                <div className="mt-4 progress-evidence">
+                  <EvidenceCollection items={evidence} label="Candidates">{(item, i) => {
                     const note = relationshipNote(item);
                     const title = str(item, "title");
                     const domain = str(item, "domain");
                     const image = str(item, "imageUrl") ?? str(item, "thumbnailUrl");
                     const key = str(item, "id") ?? `evidence-${i}`;
                     return (
-                      <motion.li
+                      <motion.article
                         key={key}
                         initial={mounted && !reduce ? { opacity: 0, y: 16 } : false}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: mounted && !reduce ? 0.35 : 0 }}
-                        className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10"
+                        className="min-w-0 rounded-xl bg-white/5 ring-1 ring-white/10"
                       >
                         {image ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -176,37 +182,38 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                           >
                             {note.label}
                           </Badge>
-                          <p className="mt-2 line-clamp-2 text-sm font-medium">{title ?? "Untitled result"}</p>
+                          <p className="investigation-candidate-title mt-2 text-sm font-medium">{title ?? "Untitled result"}</p>
                           {domain ? <p className="mt-1 text-xs text-white/55">{domain}</p> : null}
                         </div>
-                      </motion.li>
+                      </motion.article>
                     );
-                  })}
-                </ul>
+                  }}</EvidenceCollection>
+                </div>
               </>
             )}
           </section>
 
           {/* Stage list — below evidence in DOM and on mobile, left column on desktop. */}
-          <section aria-label="Investigation stages" className="lg:order-1">
+          <section aria-label="Investigation stages" className="min-w-0 lg:order-1">
             <ol className="space-y-1">
               {fullStages.map((stage) => (
                 <li
                   key={stage.name}
-                  aria-label={`${stage.label}: ${stageStateLabel(stage.status)}${stage.detail ? ` — ${stage.detail}` : ""}`}
+                  aria-label={`${stage.label}: ${stageStateLabel(stage.status, stopped)}${stage.detail ? ` — ${stage.detail}` : ""}`}
                   className="flex items-start gap-3 rounded-lg px-2 py-2"
                 >
-                  <span className={cn("mt-0.5", stage.status === "running" && "text-signal")}>
-                    <StatusDot kind={stageTone(stage.status)} label="" />
+                  <span className={cn("mt-0.5 shrink-0", !stopped && stage.status === "running" && "text-signal")}>
+                    <StatusDot kind={stageTone(stage.status, stopped)} label="" />
                   </span>
-                  <div className={cn("min-w-0", stage.status === "waiting" && "opacity-45")}>
+                  <div className={cn("min-w-0 flex-1", !stopped && stage.status === "waiting" && "opacity-45")}>
                     <p className="text-[15px] font-medium">{stage.label}</p>
+                    {stopped ? <p className="text-sm">{stageStateLabel(stage.status, true)}</p> : null}
                     {stage.detail ? (
-                      <p className="truncate text-sm text-white/55" title={stage.detail}>
-                        {stage.detail}
+                      <p className="investigation-detail text-sm text-white/55" title={stage.detail}>
+                        {stopped ? `Last reported detail: ${stage.detail}` : stage.detail}
                       </p>
                     ) : null}
-                    {stage.status === "running" && !stage.detail ? (
+                    {!stopped && stage.status === "running" && !stage.detail ? (
                       <p className="text-sm text-white/55">In progress…</p>
                     ) : null}
                   </div>
@@ -223,11 +230,11 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
               </ul>
             ) : null}
             <p className="mt-6 text-xs leading-relaxed text-white/60">
-              Canceling stops new work where possible. Requests already sent may still consume provider credits.
+              {stopped ? "No further work is scheduled in this investigation. Requests sent before it stopped may have consumed provider credits." : "Canceling stops new work where possible. Requests already sent may still consume provider credits."}
             </p>
           </section>
         </div>
       </main>
-    </div>
+    </div></CasebookShell>
   );
 }

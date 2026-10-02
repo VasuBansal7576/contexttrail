@@ -162,3 +162,50 @@ it('shows the sampled-frame caption outcome without hiding it behind the frame t
   expect(container.textContent).toContain('No conflict found does not prove the caption is true');
   expect(container.textContent).toContain('does not verify the entire video or its audio');
 });
+
+it('keeps running and cancelled status beside keyboard controls without moving focus on stream updates', async () => {
+  let progress: ((message: string) => void) | undefined;
+  vi.mocked(investigateAutomatically).mockImplementation((_body, _signal, onProgress) => {
+    progress = onProgress;
+    return new Promise(() => {});
+  });
+  await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'topic' })));
+  await fillTopic();
+  const submitButton = container.querySelector<HTMLButtonElement>('button[type=submit]');
+  submitButton?.focus();
+  await submit();
+  const cancelButton = [...container.querySelectorAll('button')].find(button => button.textContent === 'Cancel investigation');
+  const actionArea = container.querySelector('.automatic-action-area');
+  const live = actionArea?.querySelector('[role=status]');
+  expect(document.activeElement).toBe(cancelButton);
+  expect(live?.getAttribute('aria-live')).toBe('polite');
+  expect(live?.getAttribute('aria-atomic')).toBe('true');
+  expect(live?.closest('[aria-busy=true]')).toBeNull();
+  expect(live?.textContent).toBe('Finding sources for your question…');
+  expect(container.querySelector('.automatic-status')?.textContent).toBe('');
+  const budget = container.querySelector('.automatic-budget');
+  if (!budget) throw new Error('Missing budget disclosure');
+  expect(actionArea?.compareDocumentPosition(budget)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  expect(scrollIntoView.mock.instances[0]).toBe(actionArea);
+  expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest', behavior: 'instant' });
+  // A user can move to another control while the stream progresses.
+  const otherLink = container.querySelector<HTMLAnchorElement>('.automatic-aside a');
+  otherLink?.focus();
+  await act(async () => { progress?.('Reading retained source excerpts…'); });
+  expect(live?.textContent).toBe('Reading retained source excerpts…');
+  expect(document.activeElement).toBe(otherLink);
+  expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  cancelButton?.focus();
+  await act(async () => { cancelButton?.click(); });
+  expect(document.activeElement).toBe(submitButton);
+  expect(submitButton?.disabled).toBe(false);
+  expect(live?.textContent).toContain('Investigation cancelled.');
+  expect(scrollIntoView).toHaveBeenCalledTimes(2);
+  expect(scrollIntoView.mock.instances[1]).toBe(actionArea);
+  expect(vi.mocked(investigateAutomatically).mock.calls[0][1].aborted).toBe(true);
+  // Late stream messages cannot replace the cancellation confirmation.
+  await act(async () => { progress?.('Late update'); });
+  expect(live?.textContent).toContain('Investigation cancelled.');
+  expect(scrollIntoView).toHaveBeenCalledTimes(2);
+});

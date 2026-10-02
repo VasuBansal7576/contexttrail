@@ -20,7 +20,7 @@ function failure(error: unknown): Response {
 export async function GET(request: Request): Promise<Response> {
   try {
     const store = service(request), id = new URL(request.url).searchParams.get('caseId');
-    return json(id === null ? { cases: await store.list() } : await store.get(id));
+    return json(id === null ? await store.list() : await store.get(id));
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request): Promise<Response> {

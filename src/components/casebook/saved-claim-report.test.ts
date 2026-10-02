@@ -12,7 +12,7 @@ vi.mock('@/lib/research/client', async importOriginal => ({ ...await importOrigi
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('case=case%3Asource&chapter=evidence'), useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => React.createElement('a', props) }));
 let root: Root, container: HTMLDivElement;
-beforeEach(() => { vi.stubGlobal('React', React); vi.stubGlobal('crypto', webcrypto); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.mocked(listResearchCases).mockResolvedValue([]); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(() => { vi.stubGlobal('React', React); vi.stubGlobal('crypto', webcrypto); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.mocked(listResearchCases).mockResolvedValue({ cases: [], warnings: [] }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 function fixture() {
   const question = 'What is in the record?';
@@ -38,9 +38,18 @@ it('reopened corrected cases show needs review with original report collapsed as
   await act(async () => root.render(React.createElement(Casebook)));
   const report = container.querySelector('[aria-label="Saved grounded report"]');
   expect(report?.textContent).toContain('Needs review');
-  expect(report?.textContent).toContain('assessments are historical');
+  expect(report?.textContent).toContain('historical record');
   const details = report?.querySelector('details');
   expect(details?.open).toBe(false);
   expect(details?.textContent).toContain('Original retained text.');
   expect(container.textContent).toContain('Corrected retained text.');
+});
+it('shows recovery warnings without hiding the readable saved case', async () => {
+  const f = fixture();
+  vi.mocked(getResearchCase).mockResolvedValue(parseResearchCaseView(f.saved));
+  vi.mocked(listResearchCases).mockResolvedValue({ cases: [], warnings: [{ file: 'a'.repeat(64) + '.json', code: 'RECOVERY_REQUIRED', message: 'Preserve the original file for recovery.' }] });
+  await act(async () => root.render(React.createElement(Casebook)));
+  expect(container.textContent).toContain('Some saved cases need recovery');
+  expect(container.textContent).toContain('Original retained text.');
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('original files have not been changed');
 });
