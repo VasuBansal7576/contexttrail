@@ -49,7 +49,7 @@ import {
 } from "./expansion";
 import { enforceIdentityInvariants } from "./identity";
 import { coreOccurrences, unresolvedOriginCount } from "./reporting-origins";
-import { CONCURRENCY, TIMEOUTS, MAX_DEEP_READ_PAGES, MAX_JEV_CANDIDATES } from "./limits";
+import { CONCURRENCY, TIMEOUTS, MAX_DEEP_READ_PAGES, MAX_JEV_CANDIDATES, RETENTION_CAPS } from "./limits";
 import { refineReportingOrigins } from "./origin-evidence";
 import {
   buildClaimResult,
@@ -77,6 +77,8 @@ import {
 import { createLimiter, ProviderError } from "../providers/http";
 import type { FetchedPage } from "../pages/fetch";
 import { bindFetchedSource } from "../pages/source-binding";
+import { candidateFromSourceLink } from "./linked-history";
+import { canonicalizeUrl } from "./url";
 import { retainableSourceUrl } from "../pages/source-reference";
 import { buildExcerpt, extractPage, selectDisplayQuote } from "../pages/extract";
 import {
@@ -776,6 +778,7 @@ export async function runInvestigation(
       lens_visual: 1,
       lens_about_image: 2,
       google_search: 3,
+      source_link: 3,
       google_news: 4,
     };
     const sortForPool = (list: readonly EvidenceCandidate[]) =>
@@ -920,15 +923,19 @@ export async function runInvestigation(
     stage("DEEP_READ", "started");
     const pageLimiter = createLimiter(CONCURRENCY.pageFetch);
     const pages = deadlineHit() ? [] : selectDeepReadCandidates(pool);
-    const selectedPageIds = new Set(pages.map(c => c.id));
+    // Read the first four frozen priorities, then let one inspected historical
+    // reference compete with the fifth page. No recursive crawl or extra page.
+    const initialPages = pages.slice(0, MAX_DEEP_READ_PAGES - 1);
+    const selectedPageIds = new Set(initialPages.map(c => c.id));
     const pageReads: PageReadOutcome[] = pool.map(c => ({ evidenceId: c.id,
       requestedUrl: retainableSourceUrl(c.sourceUrl), finalUrl: null, sourceBinding: 'not_established',
       selection: selectedPageIds.has(c.id) ? 'selected' : 'not_selected',
       fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null }));
     let pageFailures = 0;
-    await Promise.all(
-      pages.map(async (c) => {
-        const read = pageReads.find(r => r.evidenceId === c.id)!;
+    const readCandidate = async (c: EvidenceCandidate): Promise<void> => {
+        const read = pageReads.find(r => r.evidenceId === c.id);
+        if (!read || deadlineHit()) return;
+        read.selection = "selected";
         telemetry.pagesAttempted += 1;
         try {
           const page = await pageLimiter(() => deps.fetchPage(c.sourceUrl, shared.signal));
@@ -942,6 +949,7 @@ export async function runInvestigation(
             return;
           }
           const ex = extractPage(page.html, page.url);
+          read.sourceLinks = ex.sourceLinks.map(link => ({ ...link, followup: link.historicalLead ? "pending" : "not_historical", evidenceId: null }));
           read.extraction = ex.text ? "usable_text" : "empty_text";
           if (ex.text !== null) {
             c.pageText = ex.text;
@@ -949,7 +957,7 @@ export async function runInvestigation(
           }
           if (ex.title !== null) c.title ??= ex.title;
           c.dateEntityBinding = ex.jsonLdDateBinding;
-          c.rejectedDateCandidates = ex.rejectedJsonLdDates;
+          c.rejectedDateCandidates = [...ex.rejectedJsonLdDates, ...ex.rejectedTimeDates];
           // §18.2 — retain source-bound JSON-LD/OpenGraph metadata for
           // inspection; null when the page yielded none.
           c.pageMetadata =
@@ -987,11 +995,56 @@ export async function runInvestigation(
           else { read.fetch = 'failed'; Object.assign(read, readFailure(err)); }
           pageFailures += 1; // §29: page fetch failure is non-fatal
         }
-      }),
-    );
+    };
+    await Promise.all(initialPages.map(readCandidate));
+    // Parent relevance, canonical URL and document order are stable tie-breaks;
+    // network completion order and an outlet's name never select the winner.
+    const leads = pageReads.flatMap(read => (read.sourceLinks ?? []).map(link => ({ read, link })))
+      .filter(({ link }) => link.followup === 'pending')
+      .sort((a, b) => {
+        const parentA = pool.find(c => c.id === a.read.evidenceId);
+        const parentB = pool.find(c => c.id === b.read.evidenceId);
+        return (parentB?.judgment?.relevance ?? 0) - (parentA?.judgment?.relevance ?? 0)
+          || (parentA?.canonicalUrl ?? '').localeCompare(parentB?.canonicalUrl ?? '')
+          || a.link.location.index - b.link.location.index;
+      });
+    let followup: EvidenceCandidate | null = null;
+    for (const { link } of leads) {
+      if (deadlineHit()) { link.followup = 'deadline'; continue; }
+      const canonical = canonicalizeUrl(link.url)?.canonicalUrl;
+      const existing = pool.find(c => c.canonicalUrl === canonical);
+      if (existing && pageReads.some(read => read.evidenceId === existing.id && read.selection === 'selected')) {
+        link.followup = 'already_read'; link.evidenceId = existing.id; continue;
+      }
+      if (followup) { link.followup = 'page_limit'; continue; }
+      // A fresh source cannot consume the final page if its identity cannot
+      // enter the existing distinct-candidate classification allowance.
+      if (!existing && classifiedIds.size >= MAX_JEV_CANDIDATES) {
+        link.followup = 'classification_limit'; continue;
+      }
+      if (!existing && pool.filter(c => c.retrievalKind === 'google_search' || c.retrievalKind === 'source_link').length >= RETENTION_CAPS.google_search) {
+        link.followup = 'retention_limit'; continue;
+      }
+      const candidate = existing ?? candidateFromSourceLink(link, retrievedAt);
+      if (!candidate) { link.followup = 'retention_limit'; continue; }
+      link.followup = 'selected'; link.evidenceId = candidate.id;
+      followup = candidate;
+      if (!existing) {
+        candidates.push(candidate); pool.push(candidate); seenIds.add(candidate.id);
+        prepareAndDiscover(candidate);
+        pageReads.push({ evidenceId: candidate.id, requestedUrl: retainableSourceUrl(candidate.sourceUrl), finalUrl: null,
+          sourceBinding: 'not_established', selection: 'selected', fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null });
+      }
+    }
+    const finalPage = followup ?? pages[MAX_DEEP_READ_PAGES - 1];
+    if (finalPage && !deadlineHit()) await readCandidate(finalPage);
+    // References on the final page are retained, but never followed recursively.
+    for (const read of pageReads) for (const link of read.sourceLinks ?? []) {
+      if (link.followup === 'pending') link.followup = deadlineHit() ? 'deadline' : 'page_limit';
+    }
     if (pageFailures > 0) limitations.add("page_fetch_partial_failure");
     if (callerAborted()) return;
-    stage("DEEP_READ", "completed", `${pages.length - pageFailures}/${pages.length} pages read`);
+    stage("DEEP_READ", "completed", `${telemetry.pagesAttempted - pageFailures}/${telemetry.pagesAttempted} pages read`);
 
     /* -------------------------- REFINED_CLASSIFY ------------------------- */
     stage("REFINED_CLASSIFY", "started");

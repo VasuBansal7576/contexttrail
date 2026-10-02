@@ -694,6 +694,7 @@ const RETRIEVAL_ENGINE_COPY: Record<string, string> = {
   lens_visual: "Google Lens — visual matches",
   lens_about_image: "Google Lens — About This Image",
   google_search: "Google Search",
+  source_link: "Inspected source reference",
   google_news: "Google News",
 };
 
@@ -705,6 +706,7 @@ const RESULT_TYPE_COPY: Record<string, string> = {
   about_this_image: "About This Image",
   news: "News result",
   organic: "Web result",
+  source_link: "Linked source",
 };
 
 /** Readable retrieval engine; null when the payload reports none. */
