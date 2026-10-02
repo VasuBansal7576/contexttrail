@@ -32,6 +32,10 @@ describe('automatic route boundary (no live provider calls)', () => {
     vi.stubEnv('CONTEXTTRAIL_MEDIA_LOCAL', '1'); value.set('rights', 'no'); await expect(parseAutomaticForm(value)).rejects.toThrow('Confirm');
     value.set('rights', 'user_provided'); await expect(parseAutomaticForm(value)).rejects.toThrow('self-contained');
     value.set('video', new Blob([new Uint8Array([0, 0, 0, 12, 102, 116, 121, 112, 0, 0, 0, 0])]), 'video.mp4');
+    await expect(parseAutomaticForm(value)).rejects.toThrow('self-contained');
+    // This test isolates form/caption admission; generated container decoding
+    // and real MOV signature validation run in automatic-input.test.ts.
+    value.set('video', new Blob([new Uint8Array([26, 69, 223, 163])]), 'video.webm');
     expect(await parseAutomaticForm(value)).toMatchObject({ kind: 'video', rights: 'user_provided' });
     value.set('claim', 'This shows a current incident.');
     expect(await parseAutomaticForm(value)).toMatchObject({ kind: 'video', claim: 'This shows a current incident.' });

@@ -1,3 +1,4 @@
+import { parseSavedVideoReport, videoReportMatches, savedVideoView, type SavedVideoReport } from './saved-video';
 import { parseClaimReport, invalidateClaimReport, type ClaimReport } from './claim-report';
 import type { LocalComparisonResponse } from '../video/matching/application-contract';
 import { parseSavedComparison } from './saved-comparison';
@@ -22,6 +23,8 @@ interface ResearchDocumentBase {
   /** Includes citation-only edits, which do not alter inquiry semantics. */
   revision: number;
   /** Original assessed case retained for provenance when current evidence is corrected. */
+  videoReport?: SavedVideoReport;
+  videoReportInvalidated?: boolean;
   claimReport?: ClaimReport;
   claimReportCase?: CaseRecord;
   claimReportInvalidated?: boolean;
@@ -42,7 +45,7 @@ export type ResearchChange =
   | { kind: 'citation'; value: SuppliedCitation };
 export type ResearchRequest =
   | { kind: 'start'; operationId: string; question: string; createdAt: string }
-  | { kind: 'import_case'; operationId: string; question: string; createdAt: string; caseRecord: CaseRecord; claimReport?: ClaimReport }
+  | { kind: 'import_case'; operationId: string; question: string; createdAt: string; caseRecord: CaseRecord; claimReport?: ClaimReport; videoReport?: SavedVideoReport }
   | { kind: 'import_comparison'; operationId: string; question: string; createdAt: string; comparison: LocalComparisonResponse }
   | { kind: 'read'; document: ResearchDocument }
   | { kind: 'update'; operationId: string; expectedRevision: number; document: ResearchDocument; change: ResearchChange };
@@ -89,13 +92,17 @@ export function parseResearchDocument(value: unknown): ResearchDocument {
     if (!claimReport) throw new Error('Invalid or ungrounded claim report');
     savedReport = { claimReport, claimReportCase, claimReportInvalidated: o.claimReportInvalidated === true };
   } else if (o.claimReportCase !== undefined || o.claimReportInvalidated !== undefined) throw new Error('Claim report metadata requires a report');
-  const base = { ...savedReport, revision: revision(o.revision), workspace, citations: report.citationChecks.map(check => check.citation), applied };
+  const videoReport = o.videoReport === undefined ? undefined : parseSavedVideoReport(o.videoReport);
+  if (videoReport && savedVideoView(videoReport).caseRecord.id !== workspace.inquiry.caseId) throw new Error('Video report belongs to a different case');
+  if (o.videoReportInvalidated !== undefined && (!videoReport || typeof o.videoReportInvalidated !== 'boolean')) throw new Error('Invalid video report review status');
+  const base = { ...(videoReport ? { videoReport, videoReportInvalidated: o.videoReportInvalidated === true } : {}), ...savedReport, revision: revision(o.revision), workspace, citations: report.citationChecks.map(check => check.citation), applied };
   return o.schemaVersion === RESEARCH_VERSION_V3 ? { ...base, schemaVersion: o.schemaVersion, comparison: parseSavedComparison(o.comparison) } : { ...base, schemaVersion: o.schemaVersion };
 }
 export function reviewResearch(document: ResearchDocument) {
   const record = inquiryCase(document.workspace);
   const reportStatus: 'current' | 'stale' | 'none' = !document.claimReport ? 'none' : !document.claimReportInvalidated && invalidateClaimReport(document.claimReport, record, document.workspace.inquiry.question) ? 'current' : 'stale';
-  return { document, reportStatus, anchorSources: record.evidence.map(e => ({ evidenceId: e.id, evidenceDigest: evidenceDigest(record, e) })), findings: findingViews(document.workspace), dependencies: sourceDependencyReport({ caseRecord: inquiryCase(document.workspace), citations: document.citations }) };
+  const videoReportStatus: 'current' | 'stale' | 'none' = !document.videoReport ? 'none' : !document.videoReportInvalidated && videoReportMatches(document.videoReport, record, document.workspace.inquiry.question) ? 'current' : 'stale';
+  return { document, videoReportStatus, reportStatus, anchorSources: record.evidence.map(e => ({ evidenceId: e.id, evidenceDigest: evidenceDigest(record, e) })), findings: findingViews(document.workspace), dependencies: sourceDependencyReport({ caseRecord: inquiryCase(document.workspace), citations: document.citations }) };
 }
 export type ResearchReview = ReturnType<typeof reviewResearch>;
 
@@ -112,8 +119,10 @@ export function researchWorkflow(input: unknown): ResearchReview {
     }
     const claimReport = imported && request.claimReport !== undefined ? parseClaimReport(request.claimReport, imported, text(request.question)) : undefined;
     if (imported && request.claimReport !== undefined && !claimReport) throw new Error('Invalid or ungrounded claim report');
+    const videoReport = imported && request.videoReport !== undefined ? parseSavedVideoReport(request.videoReport) : undefined;
+    if (videoReport && (!imported || !videoReportMatches(videoReport, imported, text(request.question)))) throw new Error('Video report does not match imported evidence');
     const comparison = request.kind === 'import_comparison' ? parseSavedComparison(request.comparison) : null;
-    return reviewResearch(parseResearchDocument({ schemaVersion: comparison ? RESEARCH_VERSION_V3 : RESEARCH_VERSION, ...(comparison ? { comparison } : {}), ...(claimReport ? { claimReport, claimReportCase: imported } : {}), revision: 1, workspace, citations: [], applied: [{ operationId: id, digest: digest({ kind: request.kind, question: text(request.question), createdAt: text(request.createdAt), ...(imported ? { caseRecord: imported } : {}), ...(claimReport ? { claimReport } : {}), ...(comparison ? { comparison } : {}) }) }] }));
+    return reviewResearch(parseResearchDocument({ schemaVersion: comparison ? RESEARCH_VERSION_V3 : RESEARCH_VERSION, ...(comparison ? { comparison } : {}), ...(claimReport ? { claimReport, claimReportCase: imported } : {}), ...(videoReport ? { videoReport } : {}), revision: 1, workspace, citations: [], applied: [{ operationId: id, digest: digest({ kind: request.kind, question: text(request.question), createdAt: text(request.createdAt), ...(imported ? { caseRecord: imported } : {}), ...(claimReport ? { claimReport } : {}), ...(videoReport ? { videoReport } : {}), ...(comparison ? { comparison } : {}) }) }] }));
   }
   if (request.kind !== 'update') throw new Error('Unsupported research request');
   const document = parseResearchDocument(request.document), change = object(request.change);
@@ -151,6 +160,7 @@ export function researchWorkflow(input: unknown): ResearchReview {
   if (change.kind !== 'citation') document.workspace = applyInquiry(document.workspace, workspaceInput).workspace;
   if (document.schemaVersion !== RESEARCH_VERSION_V3 && document.workspace.schemaVersion === WORKSPACE_VERSION_V2) document.schemaVersion = RESEARCH_VERSION_V2;
   if (document.claimReport && (change.kind === 'material' || change.kind === 'evidence')) document.claimReportInvalidated = true;
+  if (document.videoReport && (change.kind === 'material' || change.kind === 'evidence')) document.videoReportInvalidated = true;
   document.revision += 1;
   document.applied.push({ operationId: id, digest: requestDigest });
   return reviewResearch(parseResearchDocument(document));

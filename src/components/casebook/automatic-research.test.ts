@@ -17,6 +17,24 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 async function fillTopic() { const field = container.querySelector('textarea'); if (!field) throw new Error('Missing topic'); await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, 'Source question?'); field.dispatchEvent(new Event('input', { bubbles: true })); }); }
 async function submit() { await act(async () => { container.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); }); }
 describe('automatic research UI', () => {
+  it.each(['topic', 'video'] as const)('keeps %s uncertainty visible and raw details collapsed without changing the result', async kind => {
+    const value = { ...result, kind, limitations: ['near_match_verifier_disabled', 'reporting_origins_unresolved', 'unknown_dates_present', 'insufficient_dated_occurrences', 'future_limit'] };
+    const before = structuredClone(value);
+    await act(async () => root.render(React.createElement(AutomaticResult, { result: value })));
+    const limits = container.querySelector('.automatic-limitations');
+    const details = limits?.querySelector('details');
+    expect(details?.open).toBe(false);
+    const visible = limits?.querySelector('ul');
+    expect(visible?.textContent).toContain('Similar-looking images were not independently checked');
+    expect(visible?.textContent).toContain('original reporting sources remain unresolved');
+    expect(visible?.textContent).toContain('no usable publication date');
+    expect(visible?.textContent).toContain('Too few appearances have usable dates');
+    expect(visible?.textContent).toContain('meaning is unavailable');
+    expect(visible?.textContent).not.toContain('near_match_verifier_disabled');
+    expect(details?.textContent).toContain('near_match_verifier_disabled');
+    expect(value).toEqual(before);
+    expect(container.querySelector('a[href="https://example.com/article"]')).not.toBeNull();
+  });
   it('starts from one question without creating a manual case and renders returned source text', async () => {
     vi.mocked(investigateAutomatically).mockResolvedValue(result);
     await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'topic' })));

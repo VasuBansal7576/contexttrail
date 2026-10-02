@@ -16,6 +16,7 @@ import { hasSearchResultSurface, normalizeSearchResponse } from '../serpapi/norm
 import { serpapiResponseFailed } from '../serpapi/client';
 import { prepareVideo, type PreparedVideo } from '../video/ingest';
 import { AUTOMATIC_RESEARCH_LIMITS as LIMITS, type AutomaticResearchInput, type AutomaticResearchEvent, type AutomaticResearchResult } from './automatic-contract';
+import { researchStageCopy } from './display-copy';
 
 type Progress = (event: AutomaticResearchEvent) => void;
 export interface AutomaticResearchDeps extends RunDeps {
@@ -177,7 +178,7 @@ export async function runAutomaticResearch(input: AutomaticResearchInput, emit: 
   await (deps.traceFrame ?? runInvestigation)({ media: frame.bytes, claim: input.claim ?? null, timezone: 'UTC', locale: 'en' }, event => {
     if (event.type === 'investigation.completed') imageResult = event.result;
     if (event.type === 'investigation.error') failure = event.message;
-    if (event.type === 'stage.started') emit({ type: 'research.progress', message: `Examining retrieved frame evidence: ${event.stage}…` });
+    if (event.type === 'stage.started') emit({ type: 'research.progress', message: researchStageCopy(event.stage) });
   }, deps);
   check(deps);
   if (!imageResult) throw new Error(failure ?? 'The sampled frame investigation did not complete.');
