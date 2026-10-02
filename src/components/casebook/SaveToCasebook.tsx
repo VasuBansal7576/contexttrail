@@ -31,7 +31,7 @@ export default function SaveToCasebook({ value, question, claimReport, videoRepo
     finally { busy.current = false; }
   }
   return <section className="mb-6 rounded-xl border border-ink/15 p-4" aria-label="Save investigation">
-    <p className="text-sm">{videoReport ? 'Save the completed sampled-frame caption report, retained source evidence, limitations and report provenance locally. Original video bytes and sampled image bytes are excluded. Reopening runs no retrieval or model assessment.' : claimReport ? 'Save this exact grounded report and its evidence locally. Reopening does not run another investigation.' : 'Keep this evidence in your local casebook. Uploaded image bytes and the full provider report are not copied.'}</p>
+    <p className="text-sm">{videoReport ? 'Save the completed sampled-frame investigation report, retained source evidence, limitations and report provenance locally. Original video bytes and sampled image bytes are excluded. Reopening runs no retrieval or model assessment.' : claimReport ? 'Save this exact grounded report and its evidence locally. Reopening does not run another investigation.' : 'Keep this evidence in your local casebook. Uploaded image bytes and the full provider report are not copied.'}</p>
     {state.caseId ? <Link href={`/casebook?case=${encodeURIComponent(state.caseId)}&chapter=evidence`}>Open saved case</Link> : <button type="button" className="mt-3 min-h-[44px] rounded-full bg-ink px-5 text-white" disabled={state.busy} onClick={save}>{state.busy ? 'Saving…' : videoReport ? 'Save video report' : claimReport ? 'Save report' : 'Save to casebook'}</button>}
     {state.error && <p role="alert">{state.error}</p>}
   </section>;
