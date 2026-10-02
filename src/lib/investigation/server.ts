@@ -1,52 +1,58 @@
-/**
- * Server assembly for POST /api/investigate (spec §24).
- *
- * Builds the real provider clients from server-only env, then streams
- * §24.2 NDJSON events produced by `runInvestigation`. There is no fixture,
- * simulation, or demo fallback anywhere in this path (§40): missing
- * configuration surfaces as honest provider failure events.
- */
-
+/** Server-only live assembly. Keyless previews never contact providers. */
 import type { InvestigationInput } from "./contracts/investigation";
 import { encodeEvent, type InvestigationEvent } from "./contracts/events";
 import { runInvestigation, type RunDeps } from "./run";
-import { JevClient } from "../jev/client";
+import { JevClient, JEV_MODEL } from "../jev/client";
 import { SerpapiClient } from "../serpapi/client";
-import { fetchPageHtml } from "../pages/fetch";
+import { fetchPageHtml, validatePublicImageUrl } from "../pages/fetch";
+import { LiveUsageError, readLiveUsageConfig, reserveLiveRun } from "./live-usage";
+import { isPublicImageId } from "../media/public-images";
 
 export const NDJSON_CONTENT_TYPE = "application/x-ndjson; charset=utf-8";
 
-/** Build provider deps from server-only env. Never reads NEXT_PUBLIC_*. */
-export function productionDeps(externalSignal?: AbortSignal): RunDeps {
-  const serpapiKey = process.env.SERPAPI_API_KEY;
-  const jevKey = process.env.TYPESAFE_API_KEY;
+/** Admission and durable worst-case reservation happen before client creation. */
+export async function productionDeps(input: InvestigationInput, externalSignal?: AbortSignal): Promise<{
+  deps: RunDeps;
+  release: () => Promise<void>;
+}> {
+  const config = readLiveUsageConfig(process.env);
+  if (input.publicImageId !== undefined && !isPublicImageId(input.publicImageId)) {
+    throw new LiveUsageError("The public image is not in the reviewed catalogue. No provider requests were made.");
+  }
+  const serpapiKey = process.env.SERPAPI_API_KEY?.trim();
+  const jevKey = process.env.TYPESAFE_API_KEY?.trim();
+  if (!serpapiKey || !jevKey) {
+    throw new LiveUsageError("Live investigations require server-only SerpApi and TypeSafe keys. No provider requests were made.");
+  }
+  if (input.publicImageId && input.publicImageUrl) throw new LiveUsageError("Choose one public image input.");
+  const lease = await reserveLiveRun(config, input.claim, externalSignal, input.publicImageId !== undefined || input.publicImageUrl !== undefined);
+  try {
+    if (input.publicImageUrl) input.publicImageUrl = await validatePublicImageUrl(input.publicImageUrl, externalSignal);
+  } catch {
+    await lease.release();
+    throw new LiveUsageError("The public image could not be safely read. Use an accessible public JPEG, PNG or WebP. No provider requests were made.");
+  }
   return {
-    serpapi:
-      typeof serpapiKey === "string" && serpapiKey.length > 0
-        ? new SerpapiClient(serpapiKey)
-        : null,
-    jev:
-      typeof jevKey === "string" && jevKey.length > 0
-        ? new JevClient({
-            apiKey: jevKey,
-            model: process.env.TYPESAFE_MODEL || undefined,
-          })
-        : null,
-    fetchPage: (url, signal) => fetchPageHtml(url, signal),
-    signal: externalSignal,
+    deps: {
+      serpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor("serpapi") }),
+      jev: new JevClient({ apiKey: jevKey, model: JEV_MODEL, fetchImpl: lease.fetchFor("jev") }),
+      fetchPage: (url, signal) => fetchPageHtml(url, signal),
+      signal: externalSignal,
+    },
+    release: () => lease.release(),
   };
 }
 
-/**
- * Create the streamed NDJSON response for one investigation.
- * `deps` may be overridden in tests; production uses `productionDeps`.
- */
+/** Request data has no provider, model, quota, or storage override surface. */
 export function createInvestigationResponse(
   input: InvestigationInput,
-  deps?: Partial<RunDeps>,
+  options: { signal?: AbortSignal } = {},
 ): Response {
   const encoder = new TextEncoder();
   const controller = new AbortController();
+  const onAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) onAbort();
+  else options.signal?.addEventListener("abort", onAbort, { once: true });
 
   const stream = new ReadableStream<Uint8Array>({
     start(streamCtl) {
@@ -54,40 +60,36 @@ export function createInvestigationResponse(
         try {
           streamCtl.enqueue(encoder.encode(encodeEvent(event)));
         } catch {
-          // Stream already closed (client gone) — stop producing work.
           controller.abort();
         }
       };
-      let prod: RunDeps | null = null;
-      const prodDeps = () => (prod ??= productionDeps(controller.signal));
-      const runDeps: RunDeps = {
-        serpapi: deps?.serpapi !== undefined ? deps.serpapi : prodDeps().serpapi,
-        jev: deps?.jev !== undefined ? deps.jev : prodDeps().jev,
-        fetchPage: deps?.fetchPage ?? ((url, signal) => fetchPageHtml(url, signal)),
-        signal: controller.signal,
-      };
-      // Link the incoming request's abort into the shared controller,
-      // including the already-aborted case the listener would miss.
-      if (deps?.signal?.aborted) controller.abort(deps.signal.reason);
-      else
-        deps?.signal?.addEventListener("abort", () => controller.abort(deps.signal?.reason), {
-          once: true,
-        });
-      void runInvestigation(input, emit, runDeps)
-        .catch(() => {
-          emit({
-            type: "investigation.error",
-            code: "INTERNAL_ERROR",
-            message: "The investigation failed unexpectedly. No evidence was fabricated to fill the gap.",
-          });
-        })
-        .finally(() => {
-          try {
-            streamCtl.close();
-          } catch {
-            // already closed
+      void (async () => {
+        let production: Awaited<ReturnType<typeof productionDeps>> | undefined;
+        try {
+          if (controller.signal.aborted) return;
+          production = await productionDeps(input, controller.signal);
+          if (!controller.signal.aborted) await runInvestigation(input, emit, production.deps);
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            emit({
+              type: "investigation.error",
+              code: error instanceof LiveUsageError ? error.code : "INTERNAL_ERROR",
+              message: error instanceof LiveUsageError
+                ? error.message
+                : "The investigation failed unexpectedly. No evidence was fabricated to fill the gap.",
+            });
           }
-        });
+        } finally {
+          // Cancellation stops dispatch; ownership lasts until provider work settles.
+          try { await production?.release(); } catch {
+            // Failed release leaves the durable lock in place and fails closed.
+            // Do not leak ledger paths, keys, or raw filesystem exceptions.
+            console.warn("[investigate] live usage lock release failed; further live use remains blocked");
+          }
+          options.signal?.removeEventListener("abort", onAbort);
+          try { streamCtl.close(); } catch { /* client already gone */ }
+        }
+      })();
     },
     cancel() {
       controller.abort();

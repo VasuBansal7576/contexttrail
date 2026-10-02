@@ -170,6 +170,22 @@ const last = (events: InvestigationEvent[]) => events[events.length - 1];
 /* -------------------------------- tests ------------------------------- */
 
 describe("runInvestigation — happy path", () => {
+  it("searches reviewed public media without any image upload, including adaptive Lens", async () => {
+    const calls: SerpapiParams[] = [];
+    const serpapi = makeSerpapi(calls);
+    const { client } = makeJev();
+    const { events, promise } = run({ ...traceInput, media: new Uint8Array(), publicImageId: "nasa-earthrise" }, { serpapi, jev: client, fetchPage: async () => PAGE });
+    await promise;
+    expect(serpapi.uploadImage).not.toHaveBeenCalled();
+    const lens = calls.filter(c => c.engine === "google_lens");
+    expect(lens.length).toBeGreaterThanOrEqual(2);
+    for (const params of lens) {
+      expect(params.url).toBe("https://www.nasa.gov/wp-content/uploads/2024/06/as08-14-2383orig.jpg");
+      expect(params.image_id).toBeUndefined();
+      expect(params.type).not.toBe("about_this_image");
+    }
+    expect(last(events).type).toBe("investigation.completed");
+  });
   it("trace mode runs the DAG and completes with a trace result", async () => {
     const calls: SerpapiParams[] = [];
     const { client } = makeJev();
@@ -202,7 +218,8 @@ describe("runInvestigation — happy path", () => {
     // Budget: trace = 3 base lens calls (+ ≤1 adaptive) — assert bound.
     expect(calls.length).toBeLessThanOrEqual(4);
     expect(calls.filter((c) => c.type === "exact_matches")).toHaveLength(1);
-    expect(calls.filter((c) => c.type === "about_this_image")).toHaveLength(1);
+    expect(calls.filter((c) => c.type === "about_this_image")).toHaveLength(0);
+    expect(result.limitations).toContain("about_this_image_unavailable");
     // exact_matches/about_this_image must not carry `q` (§6.4).
     for (const c of calls) {
       if (c.type === "exact_matches" || c.type === "about_this_image") {

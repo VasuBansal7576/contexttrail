@@ -120,7 +120,7 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
           </div>
         ) : null}
 
-        <div className="mt-10 grid gap-10 lg:grid-cols-[40%_60%]">
+        <div className="mt-10 grid gap-10 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
           {/* Compact current-stage summary first on mobile; full list below evidence. */}
           {currentStage ? (
             <p aria-live="polite" className="rounded-xl bg-white/5 px-4 py-3 text-sm text-white/80 ring-1 ring-white/10 lg:hidden">

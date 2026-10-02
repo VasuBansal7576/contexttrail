@@ -1,7 +1,7 @@
 /**
  * Screen 1 — Landing (spec sections 3.2, 4.5, 4.8).
  *
- * Dark editorial canvas. The hero shows the same public-domain photograph
+ * Dark editorial canvas. The hero shows the same NASA photograph
  * (NASA Earthrise, Apollo 8, 1968) repeated across three staggered context
  * cards so image reuse reads at a glance. The whole composition is labeled
  * illustrative — it is never retrieved evidence, uses no publishers, and
@@ -16,7 +16,7 @@ import { Badge, SectionHeading } from "@/components/ui";
 
 const EARTHRISE_SRC = "/illustrative-earthrise.jpg";
 const EARTHRISE_ALT =
-  "Illustration: the Earthrise photograph (Apollo 8, NASA, public domain), repeated to show one image in three contexts";
+  "Illustration: the Earthrise photograph (Apollo 8, NASA / Bill Anders), repeated to show one image in three contexts";
 
 /**
  * The three context cards. The time label is deliberately generic: these are
@@ -77,7 +77,7 @@ function HeroCards() {
         </Badge>
       </p>
       <p className="mt-2 text-right text-xs text-white/60">
-        Photo: Earthrise, Apollo 8, 24 Dec 1968 — NASA (public domain).
+        Photo: NASA / Bill Anders, Apollo 8, 24 Dec 1968. No NASA endorsement.
       </p>
     </figure>
   );

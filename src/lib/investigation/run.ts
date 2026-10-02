@@ -12,6 +12,7 @@
  * forbidden (§40), this seam exists only for that purpose.
  */
 
+import { auditUrl, readFailure, type PageReadOutcome } from "./report";
 import type { EvidenceCandidate, RetrievalKind } from "./contracts/evidence";
 import type {
   InvestigationEvent,
@@ -26,6 +27,7 @@ import type {
   Takeaway,
 } from "./contracts/investigation";
 import { modeForInput, toPublicCandidate } from "./contracts/investigation";
+import { PUBLIC_IMAGES } from "../media/public-images";
 import type { PairwiseContextJudgment } from "./contracts/judgment";
 import { SearchBudget, type BaseSearchSlot, type SearchTicket } from "./budget";
 import { dedupeByCanonicalUrl, applyRetentionCaps, selectForClassification } from "./candidates";
@@ -72,7 +74,7 @@ import {
 } from "../jev/questions";
 import { createLimiter, ProviderError } from "../providers/http";
 import type { FetchedPage } from "../pages/fetch";
-import { buildExcerpt, extractPage } from "../pages/extract";
+import { buildExcerpt, extractPage, selectDisplayQuote } from "../pages/extract";
 import {
   normalizeAboutThisImageResponse,
   normalizeExactMatchesResponse,
@@ -141,7 +143,8 @@ function logProviderFailure(surface: string, err: unknown): void {
 
 /**
  * §18 — choose up to 5 pages for deep reading in the frozen order:
- * earliest dated core, strongest conflict from another domain with
+ * earliest dated core (or strongest judged undated core if none is dated),
+ * strongest conflict from another domain with
  * unresolved origin, strongest same-context/support, strongest fact-check,
  * strongest current-reporting candidate.
  */
@@ -166,9 +169,16 @@ export function selectDeepReadCandidates(
     );
 
   const datedCore = datedCoreOccurrences(candidates);
-  take(datedCore[0]);
+  // Sparse exact-match metadata often has no date. Preserve one opportunity
+  // to read that image occurrence before higher-scoring contextual pages
+  // consume the five-page cap. Selection acquires evidence; it does not
+  // change relevance, identity, dates, origins, or final-policy thresholds.
+  const coreAnchor = datedCore[0] ?? byRel(
+    coreOccurrences(candidates).filter((c) => c.judgment !== null),
+  )[0];
+  take(coreAnchor);
 
-  const firstDomain = datedCore[0]?.registrableDomain;
+  const firstDomain = coreAnchor?.registrableDomain;
   const conflicts = byRel(
     candidates.filter(
       (c) =>
@@ -204,6 +214,22 @@ export function selectDeepReadCandidates(
     )[0],
   );
 
+  // When dates are missing, use unclaimed slots to inspect additional image
+  // occurrences before contextual filler. A failed anchor must not be the
+  // only opportunity to acquire source-bound dates. Fixed priorities above
+  // and the five-page ceiling stay intact; selection does not promote evidence.
+  if (datedCore.length === 0) {
+    const unreadCore = byRel(coreOccurrences(candidates).filter((c) => c.judgment !== null && !seen.has(c.id)));
+    const domains = new Set(picked.map((c) => c.registrableDomain));
+    for (const c of unreadCore) {
+      if (!domains.has(c.registrableDomain)) {
+        take(c);
+        domains.add(c.registrableDomain);
+      }
+    }
+    for (const c of unreadCore) take(c);
+  }
+
   // Fill any remaining budget with the strongest unseen judged candidates —
   // the frozen categories pick one winner each and must not leave slots
   // empty while unexamined relevant evidence exists (§18).
@@ -230,7 +256,7 @@ export async function runInvestigation(
   const now = deps.now ?? (() => Date.now());
   const mode = modeForInput(input);
   const claim = mode === "claim_check" ? input.claim!.trim() : null;
-  const budget = new SearchBudget(mode);
+  const budget = new SearchBudget(mode, false);
   const startedAt = now();
   const deadlineAt = startedAt + TIMEOUTS.investigationDeadlineMs;
   const retrievedAt = new Date(startedAt).toISOString();
@@ -450,8 +476,10 @@ export async function runInvestigation(
     imageIdForLens: string | null,
   ): Promise<SearchJobResult> => {
     const params: SerpapiParams = { ...choice.params };
-    if (choice.slot === "adaptive_lens_refined" && imageIdForLens !== null) {
-      params.image_id = imageIdForLens;
+    if (choice.slot === "adaptive_lens_refined") {
+      if (input.publicImageUrl) params.url = input.publicImageUrl;
+      else if (input.publicImageId) params.url = PUBLIC_IMAGES[input.publicImageId].url;
+      else if (imageIdForLens !== null) params.image_id = imageIdForLens;
     }
     const t0 = now();
     try {
@@ -593,6 +621,8 @@ export async function runInvestigation(
 
     /* ------------------------- INITIAL_RETRIEVAL ------------------------- */
     stage("INITIAL_RETRIEVAL", "started");
+    // Google discontinued this surface; never spend credit on its unsupported type.
+    limitations.add("about_this_image_unavailable");
     const jobs: Promise<void>[] = [];
 
     /**
@@ -656,7 +686,6 @@ export async function runInvestigation(
       const slots: Array<[BaseSearchSlot, string]> = [
         ["lens_all", "google_lens"],
         ["lens_exact_matches", "google_lens_exact_matches"],
-        ["lens_about_this_image", "google_lens_about_this_image"],
       ];
       return slots.map(([slot, engineLabel]) => {
         budget.reserveBase(slot)?.fail();
@@ -665,41 +694,36 @@ export async function runInvestigation(
     };
 
     const uploadAndLens = async (): Promise<void> => {
-      if (deps.serpapi === null || !budget.tryReserveUpload()) {
+      if (deps.serpapi === null || (!input.publicImageId && !input.publicImageUrl && !budget.tryReserveUpload())) {
         uploadFailed = deps.serpapi !== null;
         for (const res of failedLensJobs()) processResult(res);
         return;
       }
       try {
-        imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
+        if (!input.publicImageId && !input.publicImageUrl) imageId = await deps.serpapi.uploadImage(input.media, shared.signal);
       } catch (err) {
         logProviderFailure("serpapi image upload", err);
         uploadFailed = true;
         for (const res of failedLensJobs()) processResult(res);
         return;
       }
-      // The three Lens calls fan out concurrently AND settle
-      // independently (§6.3, §9.1): each job's evidence is discovered as
-      // soon as it resolves — a slow About-this-image call can never
-      // hold back fast exact-match results.
+      // Supported Lens calls settle independently. A reviewed public URL avoids
+      // Image API upload entirely; private uploads retain their original path.
+      const imageParams: SerpapiParams = input.publicImageUrl ? { url: input.publicImageUrl } : input.publicImageId
+        ? { url: PUBLIC_IMAGES[input.publicImageId].url }
+        : { image_id: imageId! };
       await Promise.all([
         runSearch(
           "lens_all",
           "google_lens",
-          { engine: "google_lens", type: "all", image_id: imageId },
+          { engine: "google_lens", type: "all", ...imageParams },
           (j) => normalizeLensAllResponse(j, { retrievedAt }),
         ).then(processResult),
         runSearch(
           "lens_exact_matches",
           "google_lens_exact_matches",
-          { engine: "google_lens", type: "exact_matches", image_id: imageId },
+          { engine: "google_lens", type: "exact_matches", ...imageParams },
           (j) => normalizeExactMatchesResponse(j, { requestFailed: false, retrievedAt }),
-        ).then(processResult),
-        runSearch(
-          "lens_about_this_image",
-          "google_lens_about_this_image",
-          { engine: "google_lens", type: "about_this_image", image_id: imageId },
-          (j) => normalizeAboutThisImageResponse(j, { retrievedAt }),
         ).then(processResult),
       ]);
     };
@@ -892,14 +916,23 @@ export async function runInvestigation(
     stage("DEEP_READ", "started");
     const pageLimiter = createLimiter(CONCURRENCY.pageFetch);
     const pages = deadlineHit() ? [] : selectDeepReadCandidates(pool);
+    const selectedPageIds = new Set(pages.map(c => c.id));
+    const pageReads: PageReadOutcome[] = pool.map(c => ({ evidenceId: c.id,
+      requestedUrl: auditUrl(c.sourceUrl), finalUrl: null,
+      selection: selectedPageIds.has(c.id) ? 'selected' : 'not_selected',
+      fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null }));
     let pageFailures = 0;
     await Promise.all(
       pages.map(async (c) => {
+        const read = pageReads.find(r => r.evidenceId === c.id)!;
         telemetry.pagesAttempted += 1;
         try {
           const page = await pageLimiter(() => deps.fetchPage(c.sourceUrl, shared.signal));
+          read.fetch = "succeeded";
+          read.finalUrl = auditUrl(page.url);
           telemetry.pagesSucceeded += 1;
           const ex = extractPage(page.html, page.url);
+          read.extraction = ex.text ? "usable_text" : "empty_text";
           if (ex.text !== null) {
             c.pageText = ex.text;
             pageTexts.set(c.id, ex.text);
@@ -931,7 +964,7 @@ export async function runInvestigation(
             // The composite (Title:/Snippet:/paragraphs) is model input —
             // the displayed quote must be verbatim page text. Only when a
             // real paragraph exists may the excerpt be labeled page_text.
-            const quote = ex.paragraphs[0] ?? null;
+            const quote = selectDisplayQuote({ title: c.title, claim, paragraphs: ex.paragraphs });
             if (quote !== null) {
               displayExcerpts.set(c.id, quote.slice(0, EXCERPT_MAX_CHARS));
               c.excerptSource = "page_text";
@@ -939,7 +972,9 @@ export async function runInvestigation(
               c.excerptSource = "page_composite";
             }
           }
-        } catch {
+        } catch (err) {
+          if (read.fetch === 'succeeded') { read.extraction = 'failed'; read.failureCode = 'extraction_failed'; }
+          else { read.fetch = 'failed'; Object.assign(read, readFailure(err)); }
           pageFailures += 1; // §29: page fetch failure is non-fatal
         }
       }),
@@ -1109,6 +1144,7 @@ export async function runInvestigation(
             webContextAvailable,
             takeaways,
             requestLog,
+            pageReads,
             graph,
           })
         : buildTraceResult({
@@ -1119,6 +1155,7 @@ export async function runInvestigation(
             undatedEvidence: built.undatedEvidence,
             limitations: [...limitations],
             requestLog,
+            pageReads,
             graph,
           });
     // Stage completion precedes the terminal event — a client that stops

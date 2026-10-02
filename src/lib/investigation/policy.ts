@@ -8,6 +8,7 @@
  * uncertainty defaults to INSUFFICIENT_EVIDENCE / limited history.
  */
 
+import { deriveReport, type PageReadOutcome } from "./report";
 import type { EvidenceCandidate } from "./contracts/evidence";
 import {
   RELEVANCE_THRESHOLD,
@@ -336,6 +337,7 @@ export function deriveTakeaways(input: {
 }
 
 export interface ResultAssemblyInput {
+  pageReads?: PageReadOutcome[];
   candidates: readonly EvidenceCandidate[];
   timeline: TimelineItem[];
   supportingEvidence: TimelineItem[];
@@ -349,6 +351,17 @@ export interface ResultAssemblyInput {
    *  observed divergence and context-segment count; the summary
    *  projection reads those owned fields, never parallel inputs. */
   graph: ProvenanceGraph;
+}
+
+function sourceLinkedReport(input: ResultAssemblyInput, claimMode: boolean) {
+  return deriveReport({
+    candidates: input.candidates,
+    items: [...input.timeline, ...input.supportingEvidence, ...input.contextualEvidence, ...input.undatedEvidence],
+    coverage: input.graph.coverage,
+    earliestObservedOccurrence: input.graph.metrics.earliestObservedOccurrence,
+    pageReads: input.pageReads,
+    claimMode,
+  });
 }
 
 /** Assemble the shared metrics both result modes carry. All
@@ -393,6 +406,7 @@ export function buildTraceResult(input: ResultAssemblyInput): InvestigationResul
   );
   return {
     mode: "trace",
+    sourceLinkedReport: sourceLinkedReport(input, false),
     headline:
       relevantCore.length >= 2 && input.graph.coverage.displayedDatedCore >= 2
         ? "MEDIA_HISTORY_RECONSTRUCTED"
@@ -420,6 +434,7 @@ export function buildClaimResult(
   }
   return {
     mode: "claim_check",
+    sourceLinkedReport: sourceLinkedReport(input, true),
     status: policy.status,
     statusBasis: policy.basis,
     policyReasons: policy.gates,

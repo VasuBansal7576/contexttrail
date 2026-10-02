@@ -1820,6 +1820,24 @@ judged demo
 
 ---
 
+## 7.4 Zero-budget live admission
+
+September 30, 2026 safety requirement: production requests are keyless and
+provider-disabled by default. Live execution requires operator-verified free
+allowances, fixed model identity, validated server-only configuration, a durable
+upfront worst-case reservation, per-dispatch ceilings, and exclusive run ownership.
+No user request may override those settings. Failed or cancelled work is never
+refunded automatically.
+
+The current implementation supports a single host sharing one persistent local
+ledger. Vercel/serverless live execution remains disabled until a reviewed shared
+atomic quota store is available. This is an explicit temporary limitation on
+Section 5.2, not a replacement deployment or additional database dependency.
+The ledger cannot verify provider balances or free billing. See
+`docs/live-usage.md` for operator prerequisites, budgets and recovery boundaries.
+
+---
+
 # 8. Adaptive search policy
 
 The search graph is adaptive but bounded.
@@ -2559,6 +2577,15 @@ Selection order:
 ```
 
 Skip duplicates.
+
+September 30, 2026 clarification: when no core occurrence has a usable date,
+the first category selects the strongest already-retained, already-classified
+undated EXACT_MATCH / verified NEAR_MATCH instead. Rank by measured relevance,
+then earlier SERP position, then candidate ID. A disputed date remains unresolved.
+When a usable dated core exists, keep the dated-first rule without reserving an
+additional undated slot. The remaining categories and total five-page cap stay
+unchanged. This read may recover source text or date evidence; selection alone
+never promotes identity, relevance, context, date, reporting origin, or status.
 
 ---
 

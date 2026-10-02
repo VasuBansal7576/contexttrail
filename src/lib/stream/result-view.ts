@@ -146,7 +146,7 @@ export const LIMITATION_COPY: Record<string, string> = {
   no_exact_occurrences_returned: "No exact occurrences were returned.",
   web_context_unavailable: "Web context search was unavailable.",
   news_unavailable: "News search was unavailable.",
-  about_this_image_unavailable: "About This Image context was unavailable.",
+  about_this_image_unavailable: "Google discontinued About This Image. This trail uses supported search results and inspected source pages; missing history remains unknown.",
   semantic_classification_unavailable: "Semantic evidence classification was unavailable.",
   semantic_classification_partial: "Semantic classification failed for some evidence.",
   reporting_origins_unresolved: "Reporting origins are unresolved for some evidence.",

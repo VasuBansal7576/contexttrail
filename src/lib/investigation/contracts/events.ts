@@ -58,6 +58,9 @@ export type InvestigationErrorCode =
   | "INVALID_REQUEST"
   | "IMAGE_UPLOAD_FAILED"
   | "DEADLINE_EXCEEDED"
+  /** Admission was rejected before the evidence DAG started. */
+  | "LIVE_USAGE_DISABLED"
+  | "LIVE_USAGE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 /** §24.2 — the complete NDJSON event union. */

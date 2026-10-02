@@ -330,6 +330,8 @@ export interface ProvenanceProjection {
 }
 
 export interface SharedResultMetrics {
+  /** Additive report projection; older cached results legitimately omit it. */
+  sourceLinkedReport?: import("../report").SourceLinkedReport;
   /** Earliest usable observed date among core occurrences; never "original". */
   earliestObservedOccurrence: string | null;
   /** Distinct registrable domains among core visual occurrences. Not "independent sources". */
@@ -456,6 +458,10 @@ export interface InvestigationInput {
   locale: string;
   /** Client-preprocessed image bytes (<= ~450 KB client target). */
   media: Uint8Array;
+  /** Reviewed public-media catalogue ID; never an arbitrary remote URL. */
+  publicImageId?: import("../../media/public-images").PublicImageId;
+  /** Already-public HTTPS image; server validates public DNS and every redirect. */
+  publicImageUrl?: string;
 }
 
 export function modeForInput(input: Pick<InvestigationInput, "claim">): InvestigationMode {

@@ -1,13 +1,16 @@
 /**
  * Safe source-page fetch (spec §18.1, §30).
  *
- * http/https only; localhost, literal private IPs, and .local/.internal
- * destinations are rejected to reduce SSRF risk; at most 3 redirects with
- * each hop revalidated; 5s timeout; 2 MB body cap; content-type must be
+ * Canonical http/https URLs, only public IP literals and DNS answers; each
+ * fresh socket is pinned to an approved address. At most 3 redirects with
+ * each hop re-resolved and revalidated; 5s timeout; 2 MB body cap; content-type must be
  * text/html. Fetched bytes are untrusted data — callers must never execute
  * or render them raw.
  */
 
+import { lookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
+import { pinnedPageRequest, type PageAddress } from "./pinned-http";
 import { TIMEOUTS, PAGE_FETCH_MAX_BYTES, PAGE_FETCH_MAX_REDIRECTS } from "../investigation/limits";
 import { ProviderError, deadlineSignal, readBodyCapped, sanitizeFetchError } from "../providers/http";
 
@@ -17,138 +20,134 @@ export interface FetchedPage {
   html: string;
 }
 
-/** IPv4 private/loopback/link-local ranges — shared by dotted literals
- *  and IPv4-mapped/compatible IPv6 literals. */
-function ipv4Rejected(a: number, b: number): boolean {
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  return false;
+// Conservative special-use exclusions from IANA's IPv4/IPv6 registries:
+// https://www.iana.org/assignments/iana-ipv4-special-registry
+// https://www.iana.org/assignments/iana-ipv6-special-registry
+const blocked = new BlockList();
+for (const [network, prefix] of [
+  ["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8],
+  ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.0.0.0", 24],
+  ["192.0.2.0", 24], ["192.88.99.0", 24], ["192.168.0.0", 16],
+  ["198.18.0.0", 15], ["198.51.100.0", 24], ["203.0.113.0", 24],
+  ["224.0.0.0", 4], ["240.0.0.0", 4],
+] as const) blocked.addSubnet(network, prefix, "ipv4");
+// Fail closed outside global unicast, and exclude special-use/transition ranges
+// within it. Mapped IPv4, NAT64, ULA, link-local and multicast never qualify.
+const globalV6 = new BlockList();
+globalV6.addSubnet("2000::", 3, "ipv6");
+for (const [network, prefix] of [
+  ["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["3fff::", 20],
+] as const) blocked.addSubnet(network, prefix, "ipv6");
+
+export function isPublicPageAddress(address: string): boolean {
+  const family = isIP(address);
+  return family === 4 ? !blocked.check(address, "ipv4")
+    : family === 6 && globalV6.check(address, "ipv6") && !blocked.check(address, "ipv6");
 }
 
-/**
- * Parse an IPv6 literal (with or without brackets) into 16 bytes, or null
- * when the host is not an IPv6 literal. Handles `::` compression and a
- * trailing dotted-quad (IPv4-mapped/compatible forms).
- */
-function ipv6Bytes(host: string): number[] | null {
-  const s = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-  if (!s.includes(":")) return null;
-  if ((s.match(/::/g) ?? []).length > 1) return null;
-  const hasCompression = s.includes("::");
-  const [headRaw, tailRaw] = hasCompression ? s.split("::") : [s, ""];
-  const toShorts = (part: string): number[] | null => {
-    if (part === "") return [];
-    const segs = part.split(":");
-    const out: number[] = [];
-    for (let i = 0; i < segs.length; i++) {
-      const seg = segs[i];
-      const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(seg);
-      if (v4 !== null && i === segs.length - 1) {
-        const b = v4.slice(1).map(Number);
-        if (b.some((n) => n > 255)) return null;
-        out.push((b[0] << 8) | b[1], (b[2] << 8) | b[3]);
-        continue;
-      }
-      if (!/^[0-9a-fA-F]{1,4}$/.test(seg)) return null;
-      out.push(parseInt(seg, 16));
-    }
-    return out;
-  };
-  const head = toShorts(headRaw);
-  const tail = toShorts(tailRaw);
-  if (head === null || tail === null) return null;
-  const zeros = 8 - head.length - tail.length;
-  if (zeros < 0 || (!hasCompression && zeros !== 0)) return null;
-  const shorts = [...head, ...new Array<number>(zeros).fill(0), ...tail];
-  const bytes: number[] = [];
-  for (const w of shorts) bytes.push((w >> 8) & 0xff, w & 0xff);
-  return bytes;
-}
-
-function hostnameRejected(hostname: string): boolean {
-  const h = hostname.toLowerCase();
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal")) {
-    return true;
-  }
-  // Literal IPv6 — parsed canonically so unique-local (fc00::/7),
-  // link-local (fe80::/10) and mapped/compatible private IPv4 are covered.
-  const ip6 = ipv6Bytes(h);
-  if (ip6 !== null) {
-    const first12Zero = ip6.slice(0, 12).every((b) => b === 0);
-    // Unspecified (::) and loopback (::1)
-    if (first12Zero && ip6[12] === 0 && ip6[13] === 0 && ip6[14] === 0 && ip6[15] <= 1) return true;
-    // IPv4-mapped ::ffff:a.b.c.d and compatible ::a.b.c.d → IPv4 rules.
-    const mapped = ip6.slice(0, 10).every((b) => b === 0) && ip6[10] === 0xff && ip6[11] === 0xff;
-    if ((mapped || first12Zero) && ipv4Rejected(ip6[12], ip6[13])) return true;
-    // Unique-local fc00::/7
-    if ((ip6[0] & 0xfe) === 0xfc) return true;
-    // Link-local fe80::/10
-    if (ip6[0] === 0xfe && (ip6[1] & 0xc0) === 0x80) return true;
-    return false;
-  }
-  // Literal IPv4 dotted-decimal.
-  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
-  if (m && ipv4Rejected(Number(m[1]), Number(m[2]))) return true;
-  return false;
-}
-
-function validatedHttpUrl(raw: string): URL | null {
+export function validatedHttpUrl(raw: string): URL | null {
   let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return null;
+  try { url = new URL(raw); } catch { return null; }
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
+  const host = url.hostname.toLowerCase().replace(/\.+$/, "");
+  const literal = host.replace(/^\[|\]$/g, "");
+  if (isIP(literal)) {
+    if (!isPublicPageAddress(literal)) return null;
+  } else {
+    if (!host.includes(".") || host.length > 253 || host.split(".").some(
+      (label) => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
+    )) return null;
+    if (["localhost", "local", "internal", "home.arpa"].some(
+      (name) => host === name || host.endsWith(`.${name}`),
+    )) return null;
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  if (url.username !== "" || url.password !== "") return null;
-  if (hostnameRejected(url.hostname)) return null;
+  url.hostname = host;
+  url.hash = "";
   return url;
+}
+
+export interface PageFetchDeps {
+  resolve?: (host: string) => Promise<Array<{ address: string; family: number }>>;
+  request?: (url: URL, address: PageAddress, signal: AbortSignal) => Promise<Response>;
+}
+
+async function resolvePublicAddress(url: URL, signal: AbortSignal, deps: PageFetchDeps): Promise<PageAddress> {
+  signal.throwIfAborted();
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const family = isIP(host);
+  let addresses: Array<{ address: string; family: number }>;
+  if (family) addresses = [{ address: host, family }];
+  else {
+    const resolve = deps.resolve ?? ((hostname: string) => lookup(hostname, { all: true, verbatim: true }));
+    // DNS lookup has no AbortSignal API. Stop waiting at the shared deadline,
+    // remove our listener, and never dispatch if its eventual result arrives late.
+    addresses = await new Promise((accept, reject) => {
+      const cleanup = () => signal.removeEventListener("abort", onAbort);
+      const onAbort = () => { cleanup(); reject(signal.reason); };
+      signal.addEventListener("abort", onAbort, { once: true });
+      Promise.resolve().then(() => resolve(host)).then(
+        (result) => { cleanup(); accept(result); },
+        (error) => { cleanup(); reject(error); },
+      );
+    });
+  }
+  signal.throwIfAborted();
+  if (!addresses.length || addresses.some((a) =>
+    isIP(a.address) !== a.family || !isPublicPageAddress(a.address),
+  )) throw new ProviderError("malformed", "page DNS destination rejected");
+  return { address: addresses[0].address, family: addresses[0].family as 4 | 6 };
 }
 
 /**
  * Fetch one page safely. Throws ProviderError (sanitized) on any failure —
  * callers treat failure as non-fatal (§29).
  */
-export async function fetchPageHtml(
+async function fetchPublicResource(
   rawUrl: string,
   signal?: AbortSignal,
-  fetchImpl?: typeof fetch,
+  deps: PageFetchDeps = {},
+  image = false,
 ): Promise<FetchedPage> {
   let url = validatedHttpUrl(rawUrl);
   if (url === null) {
     throw new ProviderError("malformed", "page destination rejected");
   }
   const { signal: bound, cancel } = deadlineSignal(signal, TIMEOUTS.pageFetchMs);
-  const doFetch = fetchImpl ?? fetch;
   try {
     for (let redirects = 0; ; redirects += 1) {
-      const res = await doFetch(url.toString(), {
-        signal: bound,
-        redirect: "manual",
-        headers: { accept: "text/html,*/*;q=0.1" },
-      });
+      const address = await resolvePublicAddress(url, bound, deps);
+      const res = await (deps.request ?? pinnedPageRequest)(url, address, bound);
       if (res.status >= 300 && res.status < 400) {
         const loc = res.headers.get("location");
-        void res.body?.cancel().catch(() => undefined);
+        await res.body?.cancel().catch(() => undefined);
         if (loc === null || redirects >= PAGE_FETCH_MAX_REDIRECTS) {
           throw new ProviderError("http", `page fetch stopped after ${redirects} redirects`, res.status);
         }
         const next = validatedHttpUrl(new URL(loc, url).toString());
-        if (next === null) {
+        if (next === null || (image && (next.protocol !== "https:" || next.search || next.port))) {
           throw new ProviderError("malformed", "page redirect destination rejected");
         }
         url = next;
         continue;
       }
       if (!res.ok) {
+        await res.body?.cancel().catch(() => undefined);
         throw new ProviderError("http", `page fetch failed (HTTP ${res.status})`, res.status);
       }
       const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (!contentType.includes("text/html")) {
-        void res.body?.cancel().catch(() => undefined);
-        throw new ProviderError("malformed", "page response was not text/html");
+      if (image ? !/^(image\/jpeg|image\/png|image\/webp)(;|$)/.test(contentType) : !contentType.includes("text/html")) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new ProviderError("malformed", image ? "public image content type rejected" : "page response was not text/html");
+      }
+      const encoding = res.headers.get("content-encoding");
+      if (encoding && encoding.toLowerCase() !== "identity") {
+        await res.body?.cancel().catch(() => undefined);
+        throw new ProviderError("malformed", "page response ignored identity encoding");
+      }
+      const length = res.headers.get("content-length");
+      if (length !== null && Number(length) > PAGE_FETCH_MAX_BYTES) {
+        await res.body?.cancel().catch(() => undefined);
+        throw new ProviderError("malformed", "page response exceeded byte limit");
       }
       const html = await readBodyCapped(res, PAGE_FETCH_MAX_BYTES, "page");
       return { url: url.toString(), html };
@@ -158,4 +157,22 @@ export async function fetchPageHtml(
   } finally {
     cancel();
   }
+}
+
+export async function fetchPageHtml(rawUrl: string, signal?: AbortSignal, deps: PageFetchDeps = {}): Promise<FetchedPage> {
+  return fetchPublicResource(rawUrl, signal, deps);
+}
+
+/** Validate a public image using the same pinned DNS/redirect/body boundary.
+ * The provider later fetches the public URL on its own infrastructure; this
+ * pins only ContextTrail's connection. No image is uploaded to a provider. */
+export async function validatePublicImageUrl(rawUrl: string, signal?: AbortSignal, deps: PageFetchDeps = {}): Promise<string> {
+  const url = validatedHttpUrl(rawUrl);
+  if (!url || rawUrl.length > 2048 || url.protocol !== "https:" || url.search || url.port) {
+    throw new ProviderError("malformed", "Use an already public HTTPS image URL without login, tokens, query parameters or a custom port");
+  }
+  const resource = await fetchPublicResource(url.toString(), signal, deps, true);
+  const final = validatedHttpUrl(resource.url);
+  if (!final || final.protocol !== "https:" || final.search || final.port) throw new ProviderError("malformed", "public image redirect rejected");
+  return final.toString();
 }
