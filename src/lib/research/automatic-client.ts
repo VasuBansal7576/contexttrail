@@ -5,6 +5,7 @@ import { parseClaimReport } from './claim-report';
 import type { CaseEvidence } from '../cases/model';
 import type { ClaimStatus, Takeaway } from '../investigation/contracts/investigation';
 import type { AutomaticResearchResult } from './automatic-contract';
+import { projectCaptionFindings, type CaptionFindingsView } from './caption-findings';
 
 export interface AutomaticFrameSource {
   evidenceId: string;
@@ -16,11 +17,13 @@ export interface AutomaticFrameSource {
   excerpt: string | null;
   displayAttribution: string | null;
   excerptSource: string;
+  classificationContext: string | null;
+  mediaRelationship: string | null;
 }
 export type AutomaticResearchView = Omit<AutomaticResearchResult, 'frames'> & {
   /** Exact completed video report archive; never input media bytes. */
   retainedResult?: RetainedVideoResult;
-  frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
+  frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; captionFindings: CaptionFindingsView; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
 };
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The research service returned an invalid result.');
@@ -37,7 +40,7 @@ function sources(value: unknown): AutomaticFrameSource[] {
     let url: URL;
     try { url = new URL(sourceUrl); } catch { return []; }
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return [];
-    return [{ evidenceId: nullableText(source.evidenceId) ?? sourceUrl, title: nullableText(source.title), sourceUrl, dateStatus: nullableText(source.dateStatus) ?? 'unknown', observedAt: nullableText(source.observedAt), identityBasis: nullableText(source.identityBasis) ?? 'unknown', excerpt: nullableText(source.excerpt), displayAttribution: nullableText(source.displayAttribution), excerptSource: nullableText(source.excerptSource) ?? 'attribution_unknown' }];
+    return [{ evidenceId: nullableText(source.evidenceId) ?? sourceUrl, title: nullableText(source.title), sourceUrl, dateStatus: nullableText(source.dateStatus) ?? 'unknown', observedAt: nullableText(source.observedAt), identityBasis: nullableText(source.identityBasis) ?? 'unknown', excerpt: nullableText(source.excerpt), displayAttribution: nullableText(source.displayAttribution), excerptSource: nullableText(source.excerptSource) ?? 'attribution_unknown', classificationContext: nullableText(source.classificationContext), mediaRelationship: nullableText(source.mediaRelationship) }];
   });
 }
 function captionComparison(image: Record<string, unknown>, evidence: AutomaticFrameSource[], retained: CaseEvidence[]): AutomaticResearchView['frames'][number]['imageResult']['captionComparison'] {
@@ -92,8 +95,10 @@ export function parseAutomaticResearchResult(value: unknown): AutomaticResearchV
     const frame = record(item), image = record(frame.imageResult);
     if (typeof frame.timestampMs !== 'number' || !Number.isFinite(frame.timestampMs) || frame.timestampMs < 0) throw new Error('The research service returned an invalid frame timestamp.');
     const timeline = sources(image.timeline), undatedEvidence = sources(image.undatedEvidence), supportingEvidence = sources(image.supportingEvidence), contextualEvidence = sources(image.contextualEvidence);
-    const comparison = captionComparison(image, [...timeline, ...undatedEvidence, ...supportingEvidence, ...contextualEvidence], caseRecord.evidence);
-    return { timestampMs: frame.timestampMs, imageResult: { ...(comparison ? { captionComparison: comparison } : {}), limitations: strings(image.limitations), timeline, undatedEvidence, supportingEvidence, contextualEvidence } };
+    const frameSources = [...timeline, ...undatedEvidence, ...supportingEvidence, ...contextualEvidence];
+    const comparison = captionComparison(image, frameSources, caseRecord.evidence);
+    const captionFindings = projectCaptionFindings(image.sourceLinkedReport, frameSources, caseRecord.evidence, image.policyReasons);
+    return { timestampMs: frame.timestampMs, imageResult: { ...(comparison ? { captionComparison: comparison } : {}), captionFindings, limitations: strings(image.limitations), timeline, undatedEvidence, supportingEvidence, contextualEvidence } };
   }) };
 }
 export async function investigateAutomatically(body: FormData, signal: AbortSignal, onProgress: (message: string) => void): Promise<AutomaticResearchView> {

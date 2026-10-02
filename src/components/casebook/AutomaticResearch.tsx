@@ -7,6 +7,7 @@ import { investigateAutomatically, type AutomaticResearchView, type AutomaticFra
 import { formatTimestamp } from '@/lib/video/matching/client';
 import { CasebookShell, ChapterHeading } from './CasebookShell';
 import { ClaimReportView } from './ClaimReportView';
+import { CaptionFindings } from './CaptionFindings';
 import { EvidenceCollection, EvidencePassage, SourceActions } from './EvidenceCollection';
 import SaveToCasebook from './SaveToCasebook';
 import { researchLimitationCopy, researchProgressCopy } from '@/lib/research/display-copy';
@@ -64,7 +65,7 @@ export function AutomaticResult({ result, saved = false }: { result: AutomaticRe
     <h2 id="research-result-title">{result.question}</h2>
     {result.claimReport ? <><ClaimReportView report={result.claimReport} caseRecord={result.caseRecord} />{!saved ? <SaveToCasebook value={result.caseRecord} question={result.question} claimReport={result.claimReport} /> : null}</> : null}
     {!saved && result.kind === 'video' && result.retainedResult ? <SaveToCasebook value={result.caseRecord} question={result.question} videoReport={{ schemaVersion: 'contexttrail-video-report-v1', result: result.retainedResult }} /> : null}
-    {result.frames.map((frame, index) => frame.imageResult.captionComparison ? <CaptionComparison key={index} comparison={frame.imageResult.captionComparison} /> : null)}
+    {result.frames.map((frame, index) => frame.imageResult.captionComparison ? <div key={index}><CaptionComparison comparison={frame.imageResult.captionComparison} /><CaptionFindings view={frame.imageResult.captionFindings} /></div> : null)}
     <p className="fine-print">Original publication unknown. {result.caseRecord.coverage.originalPublication.reason}</p>
     <ResearchLimitations values={limitations} />
     <div className="button-row automatic-view-switch" aria-label="Evidence views"><button className="paper-button" aria-pressed={view === 'sources'} onClick={() => setView('sources')}>Source explorer ({result.caseRecord.evidence.length})</button>{result.kind === 'video' ? <button className="paper-button" aria-pressed={view === 'frames'} onClick={() => setView('frames')}>Sampled frames ({result.frames.length})</button> : null}</div>
