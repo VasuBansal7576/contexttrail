@@ -29,23 +29,32 @@ it('offers save for completed video, safely retries a lost response and reopens 
     const id = new URL(path, 'http://localhost').searchParams.get('caseId');
     return Response.json(id ? await service.get(id) : await service.list());
   });
-  const settle = async () => act(async () => { await new Promise(resolve => setTimeout(resolve, 80)); });
+  const waitForUi = async (assertion: () => void) => {
+    const deadline = Date.now() + 3000;
+    for (;;) {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      try { assertion(); return; }
+      catch (error) { if (Date.now() >= deadline) throw error; }
+    }
+  };
   try {
     await act(async () => root.render(React.createElement(AutomaticResult, { result })));
     expect(container.textContent).toContain('Save video report');
     expect(container.textContent).toContain('Original video bytes and sampled image bytes are excluded');
-    await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === 'Save video report')?.click(); }); await settle();
-    expect(container.textContent).toContain('Lost response'); expect(requests).toHaveLength(1);
+    await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === 'Save video report')?.click(); });
+    await waitForUi(() => expect(container.textContent).toContain('Lost response')); expect(requests).toHaveLength(1);
     await act(async () => root.render(React.createElement(AutomaticResult, { result, key: 'remount' })));
-    await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === 'Save video report')?.click(); }); await settle();
+    await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === 'Save video report')?.click(); });
+    await waitForUi(() => expect(container.querySelector('a[href*="chapter=evidence"]')).not.toBeNull());
     expect(requests[1]).toEqual(requests[0]); expect((await service.list()).cases).toHaveLength(1);
     expect(container.querySelector('a[href*="chapter=evidence"]')).not.toBeNull();
-    await act(async () => root.render(React.createElement(Casebook))); await settle();
-    expect(container.querySelector('[aria-label="Saved video report"]')?.textContent).toContain('Insufficient evidence');
+    await act(async () => root.render(React.createElement(Casebook)));
+    await waitForUi(() => expect(container.querySelector('[aria-label="Saved video report"]')?.textContent).toContain('Insufficient evidence'));
     expect(container.textContent).toContain('Synthetic offline uncertainty.');
     expect(container.textContent).not.toContain('Save video report');
     await service.apply({ kind: 'update', caseId: fixture.caseRecord.id, operationId: 'correct', expectedRevision: 1, change: { kind: 'evidence', value: { ...fixture.caseRecord.evidence[0], content: { kind: 'text', text: 'Corrected source excerpt.', attribution: 'page_quote' } }, assets: [] } });
-    await act(async () => root.render(React.createElement(Casebook, { key: 'reload' }))); await settle();
+    await act(async () => root.render(React.createElement(Casebook, { key: 'reload' })));
+    await waitForUi(() => expect(container.querySelector('[aria-label="Saved video report"]')?.textContent).toContain('Needs review'));
     const report = container.querySelector('[aria-label="Saved video report"]');
     expect(report?.textContent).toContain('Needs review'); expect(report?.querySelector('details')?.open).toBe(false);
     expect(report?.textContent).toContain('Retained synthetic excerpt.'); expect(container.textContent).toContain('Corrected source excerpt.');

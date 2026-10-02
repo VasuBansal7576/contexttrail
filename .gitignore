@@ -18,3 +18,5 @@ data/
 .source-dependencies-build/
 
 .media-match-build/
+
+.topic-coverage-build/

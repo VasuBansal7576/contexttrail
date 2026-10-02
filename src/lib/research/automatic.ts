@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { CASE_SCHEMA_VERSION, type CaseRecord, type CaseEvidence, type SourcedDate, type CaseSourceRead } from '../cases/model';
 import { parseCaseRecord } from '../cases/parse';
 import { caseFromImageInvestigation } from '../cases/from-image-investigation';
-import { type EvidenceCandidate } from '../investigation/contracts/evidence';
 import { type InvestigationResult } from '../investigation/contracts/investigation';
 import { resolveEvidenceDate, type EvidenceDateSources } from '../investigation/dates';
 import { runInvestigation, type RunDeps } from '../investigation/run';
@@ -16,6 +15,7 @@ import { hasSearchResultSurface, normalizeSearchResponse } from '../serpapi/norm
 import { serpapiResponseFailed } from '../serpapi/client';
 import { prepareVideo, type PreparedVideo } from '../video/ingest';
 import { AUTOMATIC_RESEARCH_LIMITS as LIMITS, type AutomaticResearchInput, type AutomaticResearchEvent, type AutomaticResearchResult } from './automatic-contract';
+import { selectTopicSources, type TopicCandidate } from './topic-selection';
 import { researchStageCopy } from './display-copy';
 
 type Progress = (event: AutomaticResearchEvent) => void;
@@ -46,12 +46,12 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   if (!deps.serpapi) throw new Error('Search provider unavailable.');
   const now = new Date(deps.now?.() ?? Date.now());
   const record = emptyCase(now.toISOString());
-  const limitations = ['Bounded web sample; coverage is incomplete.', 'Search results are leads, not independent corroboration.', 'Relevance assessments do not verify claims.', 'Source snapshots are not retained; links may change.', 'Credential-bearing or unsafe source links are omitted rather than rewritten.'];
-  const candidates = new Map<string, { candidate: EvidenceCandidate; dates: EvidenceDateSources; search: number }>();
+  const limitations = ['Bounded web sample; coverage is incomplete.', 'Primary-source coverage has not been independently established. Original-account cues in titles or snippets guide selection; they do not verify source authority or completeness.', 'Search results are leads, not independent corroboration.', 'Relevance assessments do not verify claims.', 'Source snapshots are not retained; links may change.', 'Credential-bearing or unsafe source links are omitted rather than rewritten.'];
+  const candidates = new Map<string, TopicCandidate>();
   const searches = [
     { engine: 'google', q: topic, kind: 'google_search' },
     { engine: 'google_news', q: topic, kind: 'google_news' },
-    { engine: 'google', q: `${topic} counterevidence alternative explanation correction`, kind: 'google_search' },
+    { engine: 'google', q: `${topic} original statement primary source policy document counterevidence alternative explanation correction`, kind: 'google_search' },
   ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news' }>;
   for (const [index, query] of searches.entries()) {
     check(deps);
@@ -75,12 +75,9 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
       check(deps); limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
     }
   }
-  // Round-robin search surfaces: a long first result list must not crowd out news.
-  const selected: Array<{ candidate: EvidenceCandidate; dates: EvidenceDateSources; search: number }> = [];
-  const groups = searches.map((_, index) => [...candidates.values()].filter(entry => entry.search === index));
-  for (let offset = 0; selected.length < LIMITS.topicSources && groups.some(group => offset < group.length); offset++) {
-    for (const group of groups) if (group[offset] && selected.length < LIMITS.topicSources) selected.push(group[offset]);
-  }
+  // Safe topic-matching document leads get bounded priority; round-robin
+  // still prevents a long first result list from crowding out other surfaces.
+  const selected = selectTopicSources(topic, [...candidates.values()]);
   record.coverage.omittedEvidenceCount = Math.max(0, candidates.size - selected.length);
   const assessments: AutomaticResearchResult['assessments'] = [];
   const sourceReads: CaseSourceRead[] = [];
