@@ -49,7 +49,7 @@ These are integration gaps, not simulated functionality:
 - Editing the main inquiry question through the current application API
 - Binding findings to individual hypotheses; the existing contract binds them to questions
 - Re-reviewing a multi-support finding in the single-source UI. Such records stay readable and the UI preserves them rather than dropping supports
-- Resolving the exact old text-source digest in the viewer. Stale text findings show their saved quote separately from the current source and direct the reader to Changes; they do not guess a historical match
+- Historical time-span media playback. Original audiovisual bytes are not retained; the saved time selection remains inspectable in the finding
 - Lossless in-app edits for table cells containing literal tabs/newlines. Unchanged content can be carried into a metadata correction; edited complex cells remain a local-workflow task
 - Broader visual reskin of the existing image-progress/result screens
 
@@ -61,4 +61,8 @@ These are integration gaps, not simulated functionality:
 
 `scripts/verify-casebook-ui.mjs` is the real-browser follow-on. It launches its own isolated production server, uses synthetic inputs, blocks remote requests, captures desktop/mobile screenshots, and exercises Back, reload, focus, exact evidence, source corrections, and retained table/image paths. It must be run where Chromium may launch. `CONTEXTTRAIL_TEST_CHROMIUM` can name an available supported binary.
 
-Rendered verification is blocked in this execution environment. Playwright's bundled browser is absent. Installed Chromium fails before a page opens with `socket() failed: Operation not permitted`, including the one approved outside-sandbox attempt. No local screenshot or visual acceptance is claimed, and the blocked browser route was not bypassed.
+The original broad casebook browser attempt was blocked in its execution environment. The focused `scripts/verify-historical-evidence.mjs` now verifies the built UI through real loopback HTTP and disk-backed source snapshots for missing-current text/image/table evidence, changed sources and withdrawn materials. It captures desktop/mobile screenshots, blocks external requests and confirms that inspection makes no mutation or retrieval calls. This is synthetic workflow evidence, not source authenticity or retrieval-quality proof.
+
+## Inspecting original evidence
+
+Findings with changed or unavailable support offer **Inspect original evidence** when the exact original source and selection are retained. The read-only viewer highlights the saved text quote, image region or table cell and preserves the historical source URL, source revision, retrieval/capture provenance and material digest/revision. It never rebinds the finding, renews its review status or starts retrieval. Missing current evidence, changed sources/materials, explicit material withdrawal and absent matching history are labeled separately. Similar text or the current material is never substituted for the bound historical record. Source digest matches exclude capture/retrieval timestamps, so the displayed timestamps describe the retained snapshot rather than prove the original review time.
