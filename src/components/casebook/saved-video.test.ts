@@ -29,10 +29,14 @@ it('offers save for completed video, safely retries a lost response and reopens 
     const id = new URL(path, 'http://localhost').searchParams.get('caseId');
     return Response.json(id ? await service.get(id) : await service.list());
   });
-  const waitForUi = async (assertion: () => void) => vi.waitFor(async () => {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-    assertion();
-  }, { timeout: 3000, interval: 20 });
+  const waitForUi = async (assertion: () => void) => {
+    const deadline = Date.now() + 3000;
+    for (;;) {
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+      try { assertion(); return; }
+      catch (error) { if (Date.now() >= deadline) throw error; }
+    }
+  };
   try {
     await act(async () => root.render(React.createElement(AutomaticResult, { result })));
     expect(container.textContent).toContain('Save video report');
