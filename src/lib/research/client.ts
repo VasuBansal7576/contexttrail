@@ -23,6 +23,8 @@ export interface ResearchFindingSupport extends FindingSupport {
   retainedMaterial: ResearchMaterialReference | null;
   currentMaterial: ResearchMaterialReference | null;
   historicalText: { caseRevision: number; evidence: CaseEvidence } | null;
+  /** Exact source binding for retained image/table selections, including missing current sources. */
+  historicalEvidence?: { caseRevision: number; evidence: CaseEvidence } | null;
 }
 export interface ResearchFindingView {
   finding: Finding; reviewStatus: 'current' | 'needs_review';
@@ -218,7 +220,16 @@ function findingView(value: unknown, path: string, record: CaseRecord, caseHisto
       if (status === 'current' || parsed.anchor.kind !== 'text' || evidenceId !== parsed.evidenceId || !prior || prior.content.kind !== 'text' || prior.content.text.slice(parsed.anchor.start, parsed.anchor.start + parsed.anchor.quote.length) !== parsed.anchor.quote) return fail(p, 'invalid historical text reference');
       historicalText = { caseRevision, evidence: prior };
     }
-    return { ...parsed, status, evidence, historicalText, reason: retained ? nullableText(s.reason, `${p}.reason`) : null,
+    let historicalEvidence: ResearchFindingSupport['historicalEvidence'] = null;
+    if (s.historicalEvidence !== undefined && s.historicalEvidence !== null) {
+      const reference = object(s.historicalEvidence, `${p}.historicalEvidence`);
+      const caseRevision = integer(reference.caseRevision, `${p}.historicalEvidence.caseRevision`, 1);
+      const evidenceId = id(reference.evidenceId, `${p}.historicalEvidence.evidenceId`);
+      const prior = [...caseHistory, record].find(c => c.id === record.id && c.revision === caseRevision)?.evidence.find(e => e.id === evidenceId);
+      if (!retained || evidenceId !== parsed.evidenceId || !prior || !s.retainedMaterial) return fail(p, 'invalid historical material source');
+      historicalEvidence = { caseRevision, evidence: prior };
+    }
+    return { ...parsed, status, evidence, historicalText, historicalEvidence, reason: retained ? nullableText(s.reason, `${p}.reason`) : null,
       retainedMaterial: retained ? materialReference(s.retainedMaterial, `${p}.retainedMaterial`) : null,
       currentMaterial: retained ? materialReference(s.currentMaterial, `${p}.currentMaterial`) : null };
   });
@@ -234,7 +245,7 @@ function checkMaterialReferences(findings: ResearchFindingView[], store: Materia
     for (const reference of [support.retainedMaterial, support.currentMaterial]) {
       if (!reference) continue;
       const material = store.versions.find(m => m.materialId === reference.materialId && m.digest === reference.digest);
-      if (!material || material.materialId !== anchor.materialId || reference.revision !== material.revision || reference.evidenceId !== material.evidenceId) fail('findings.material', 'reference does not match retained material');
+      if (!material || (reference === support.retainedMaterial && material.evidenceId !== support.evidenceId) || material.materialId !== anchor.materialId || reference.revision !== material.revision || reference.evidenceId !== material.evidenceId) fail('findings.material', 'reference does not match retained material');
       const content = material.content;
       const expected = content.kind === 'image' ? { kind: content.kind, mimeType: content.mimeType, width: content.width, height: content.height } : { kind: content.kind, rowCount: content.rows.length, columnCount: content.columns.length };
       if (JSON.stringify(reference.content) !== JSON.stringify(expected)) fail('findings.material', 'reference dimensions differ from retained material');

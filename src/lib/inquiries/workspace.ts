@@ -62,7 +62,16 @@ export function findingViews(w: InquiryWorkspace) {
       const evidence = c?.evidence.find(e => e.id === s.evidenceId) ?? null;
       if (s.anchor.kind === 'image_region' || s.anchor.kind === 'table_cell') {
         const { binding, ...resolved } = materialSupport(w.schemaVersion === WORKSPACE_VERSION_V2 ? w.materials : null, c, evidence, s.anchor);
-        return { ...s, ...resolved, historicalText: null, status: resolved.status === 'current' && binding !== bindings[i] ? 'changed' : resolved.status, evidence };
+        const anchor = s.anchor;
+        const retained = w.schemaVersion === WORKSPACE_VERSION_V2 ? w.materials.versions.find(m => m.materialId === anchor.materialId && m.digest === anchor.materialDigest && m.evidenceId === s.evidenceId) : null;
+        let historicalEvidence: { caseRevision: number; evidenceId: string } | null = null;
+        if (retained && materialHash({ evidence: retained.evidenceDigest, material: retained.digest }) === bindings[i]) {
+          for (const previous of [...w.collection.caseHistory, ...(c ? [c] : [])].filter(r => r.id === w.inquiry.caseId).sort((a, b) => b.revision - a.revision)) {
+            const old = previous.evidence.find(e => e.id === s.evidenceId);
+            if (old && evidenceDigest(previous, old) === retained.evidenceDigest) { historicalEvidence = { caseRevision: previous.revision, evidenceId: old.id }; break; }
+          }
+        }
+        return { ...s, ...resolved, historicalText: null, historicalEvidence, status: resolved.status === 'current' && binding !== bindings[i] ? 'changed' : resolved.status, evidence };
       }
       const status = !evidence || !c ? 'unavailable' : evidenceDigest(c, evidence) !== bindings[i] || !anchorMatches(c, evidence, s.anchor) ? 'changed' : 'current';
       let historicalText: { caseRevision: number; evidenceId: string } | null = null;
