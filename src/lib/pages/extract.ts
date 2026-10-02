@@ -210,11 +210,11 @@ function collectEntityDates(
 
   for (const [k, v] of Object.entries(o)) {
     // Only a `mainEntity` edge binds a child to the page — and only when the
-    // parent itself is the page (bound) or the document root. Ordinary
+    // parent itself is the page (bound) or an uncontradicted document root. Ordinary
     // containment (hasPart, ItemList members, related articles) never
     // inherits page identity.
     const childBound =
-      k === "mainEntity" && (selfBound !== "nested" || depth === 0)
+      k === "mainEntity" && !contradicted && (selfBound !== "nested" || depth === 0)
         ? "main_entity"
         : "nested";
     collectEntityDates(v, out, pageUrl, childBound, depth + 1, metaOut);
