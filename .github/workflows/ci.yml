@@ -2,7 +2,6 @@ name: Offline CI
 
 on:
   pull_request:
-    branches: [main, "codex/contexttrail-free-usage-recovery"]
   push:
     branches: [main]
 
