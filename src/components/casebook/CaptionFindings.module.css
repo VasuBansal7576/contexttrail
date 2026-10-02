@@ -1,0 +1,7 @@
+.report { margin-top: 1.25rem; }
+.report h4 { margin-bottom: .5rem; }
+.finding { margin-block: .75rem; min-width: 0; }
+.finding h4, .context, .inspection { overflow-wrap: anywhere; }
+.inspection { margin-block: .75rem; }
+.inspection summary { cursor: pointer; }
+.context { white-space: pre-wrap; border-inline-start: 2px solid currentColor; padding-inline-start: .75rem; }

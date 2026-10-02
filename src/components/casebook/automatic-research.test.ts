@@ -103,8 +103,8 @@ describe('automatic research UI', () => {
     expect(container.textContent).toContain('113 questions');
   });
   it('opens timestamped frame sources with explicit incomplete coverage', async () => {
-    const source = { evidenceId: 'frame-source', sourceUrl: 'https://example.com/frame', title: 'Frame source', excerpt: 'Frame passage.', dateStatus: 'unknown', observedAt: null, identityBasis: 'unknown', excerptSource: 'search_snippet', displayAttribution: null };
-    await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, kind: 'video', frames: [{ timestampMs: 1250, imageResult: { limitations: ['One frame only.'], timeline: [], undatedEvidence: [source], supportingEvidence: [], contextualEvidence: [] } }] } })));
+    const source = { evidenceId: 'frame-source', sourceUrl: 'https://example.com/frame', title: 'Frame source', excerpt: 'Frame passage.', dateStatus: 'unknown', observedAt: null, identityBasis: 'unknown', excerptSource: 'search_snippet', displayAttribution: null, classificationContext: null, mediaRelationship: null };
+    await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, kind: 'video', frames: [{ timestampMs: 1250, imageResult: { captionFindings: { kind: 'unavailable', reason: 'not_retained' }, limitations: ['One frame only.'], timeline: [], undatedEvidence: [source], supportingEvidence: [], contextualEvidence: [] } }] } })));
     await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent?.startsWith('Sampled frames'))?.click(); });
     expect(container.textContent).toContain('Frame passage.'); expect(container.textContent).toContain('One frame only.'); expect(container.textContent).toContain('Identity basis: unknown'); expect(container.querySelector('a[href="https://example.com/frame"]')).not.toBeNull();
   });
@@ -172,7 +172,7 @@ it('keeps exact model probabilities, user claim, scope and source disagreements 
 });
 
 it('shows the sampled-frame caption outcome without hiding it behind the frame toggle', async () => {
-  const imageResult = { limitations: [], timeline: [], undatedEvidence: [], supportingEvidence: [], contextualEvidence: [], captionComparison: { mode: 'claim_check' as const, claim: 'This clip is current.', status: 'NO_CONFLICT_FOUND' as const, takeaways: [] } };
+  const imageResult = { captionFindings: { kind: 'unavailable' as const, reason: 'not_retained' as const }, limitations: [], timeline: [], undatedEvidence: [], supportingEvidence: [], contextualEvidence: [], captionComparison: { mode: 'claim_check' as const, claim: 'This clip is current.', status: 'NO_CONFLICT_FOUND' as const, takeaways: [] } };
   await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, kind: 'video', frames: [{ timestampMs: 1000, imageResult }] } })));
   expect(container.textContent).toContain('Sampled-frame caption comparison');
   expect(container.textContent).toContain('This clip is current.');
@@ -226,4 +226,27 @@ it('keeps running and cancelled status beside keyboard controls without moving f
   await act(async () => { progress?.('Late update'); });
   expect(live?.textContent).toContain('Investigation cancelled.');
   expect(scrollIntoView).toHaveBeenCalledTimes(2);
+});
+
+it.each([false, true])('explains bound caption leads in the shared result, saved=%s, without fabricating title quotes', async saved => {
+  const { parseAutomaticResearchResult } = await vi.importActual<typeof import('@/lib/research/automatic-client')>('@/lib/research/automatic-client');
+  const { captionFindingsFixture } = await import('@/lib/research/caption-findings-fixture');
+  const parsed = parseAutomaticResearchResult(captionFindingsFixture());
+  await act(async () => root.render(React.createElement(AutomaticResult, { result: parsed, saved })));
+  const leads = container.querySelector('[aria-label="Source-linked caption leads"]');
+  expect(container.textContent).toContain('Insufficient evidence to compare this caption');
+  expect(leads?.textContent).toContain('Source challenges the supplied caption');
+  expect(leads?.textContent).toContain('Source supports the supplied caption');
+  expect(leads?.textContent).toContain('not factual truth');
+  const cards = leads?.querySelectorAll('article');
+  expect(cards).toHaveLength(3);
+  expect(cards?.[0].textContent).toContain('Title used for classification');
+  expect(cards?.[0].textContent).toContain('No page quote can be shown');
+  expect(cards?.[0].querySelector('.evidence-passage')).toBeNull();
+  expect(cards?.[0].querySelector('a')?.getAttribute('href')).toBe('https://example.com/article?id=old-context');
+  expect(cards?.[1].textContent).toContain('Retained search snippet');
+  expect(cards?.[2].textContent).toContain('Retained page excerpt');
+  expect(cards?.[0].querySelector('details')?.open).toBe(false);
+  expect(leads?.textContent).toContain('not met in the recorded result');
+  expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Save video report')).toBe(!saved);
 });
