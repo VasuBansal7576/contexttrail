@@ -189,3 +189,16 @@ describe('comparison component request lifecycle', () => {
     } finally { if (!closed) await view.close(); }
   });
 });
+
+it('uses a separate light-page style scope only for saved comparisons', async () => {
+  const React = await import('react');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { ComparisonResult } = await import('@/components/casebook/VideoCompare');
+  vi.stubGlobal('React', React);
+  const saved = renderToStaticMarkup(React.createElement(ComparisonResult, { result: fixture(), saved: true }));
+  const current = renderToStaticMarkup(React.createElement(ComparisonResult, { result: fixture() }));
+  expect(saved).toContain('video-results video-results-saved');
+  expect(saved).toContain('Saved comparison snapshot.');
+  expect(current).not.toContain('video-results-saved');
+  expect(current).toContain('Save comparison to casebook');
+});

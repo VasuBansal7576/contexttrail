@@ -309,3 +309,19 @@ body {
 .case-title-note { color:var(--cb-ink); }
 .chapter-nav { --cb-muted:#606259; --cb-rule:#c8c4b3; }
 .casebook-app button:disabled { cursor:not-allowed; opacity:.55; }
+
+/* Saved comparisons live on the light casebook page, unlike the blue upload chapter. */
+.video-results-saved { color:var(--cb-ink); border-color:var(--cb-rule); }
+.video-results-saved .video-result-stamp,
+.video-results-saved .video-result-caution,
+.video-results-saved .video-result-frame figcaption,
+.video-results-saved .video-pair-status,
+.video-results-saved .video-pair-strip-status,
+.video-results-saved .video-persistence-note { color:var(--cb-muted); }
+.video-results-saved .video-pair-status.video-is-candidate,
+.video-results-saved .video-pair-arrow,
+.video-results-saved .video-persistence-note strong { color:var(--cb-rust); }
+.video-results-saved .video-pair-strip { border-color:var(--cb-rule); }
+.video-results-saved .video-pair-strip button { border-color:var(--cb-rule); }
+.video-results-saved .video-pair-strip button[aria-pressed=true] { background:var(--cb-ink); color:var(--cb-paper); border-color:var(--cb-ink); }
+.video-results-saved .video-pair-strip button[aria-pressed=true] .video-pair-strip-status { color:var(--cb-paper); }

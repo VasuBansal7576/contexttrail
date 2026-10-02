@@ -67,7 +67,7 @@ export function ComparisonResult({ result, saved = false }: { result: LocalCompa
   const left = result.frames.left.find(frame => frame.frameId === pair.left.frameId), right = result.frames.right.find(frame => frame.frameId === pair.right.frameId);
   if (!left || !right) return <p role="alert">The selected pair is unavailable. Start a new comparison.</p>;
   const candidateCount = result.report.candidates.length;
-  return <section className="video-results" aria-labelledby="comparison-heading">
+  return <section className={`video-results${saved ? " video-results-saved" : ""}`} aria-labelledby="comparison-heading">
     <div className="video-results-heading"><div><p className="eyebrow">02 / inspect the sampled pairs</p><h2 id="comparison-heading">{candidateCount ? <>{candidateCount} candidate {candidateCount === 1 ? 'overlap' : 'overlaps'}. <em>Look closer.</em></> : <>No candidate overlap. <em>Keep the gaps in view.</em></>}</h2></div><span className="video-result-stamp">{result.report.comparedFramePairs} pairs compared<br />Supplied files only</span></div>
     <p className="video-result-caution">A candidate is a sampled visual overlap for human inspection. It does not establish identity, copying, authenticity, a publication date, or a verdict. No candidate does not establish absence of reuse.</p>
     <div className="video-pair-stage"><ComparisonFrame frame={left} label="File A" region={pair.leftRegion} showRegion={showRegion} /><svg className="video-pair-arrow" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 12h18M7 8l-4 4 4 4m10-8 4 4-4 4" /></svg><ComparisonFrame frame={right} label="File B" region={pair.rightRegion} showRegion={showRegion} /></div>
