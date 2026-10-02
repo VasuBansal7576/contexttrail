@@ -4,6 +4,7 @@ import { JEV_MODEL } from '../jev/model';
 import { STRONG_RELATION_THRESHOLD } from '../investigation/contracts/judgment';
 import type { SourceLinkedReport } from '../investigation/report';
 import { DHASH_HAMMING_ELIGIBILITY } from '../investigation/limits';
+import { safeReferenceParameters } from '../pages/source-reference-policy';
 
 type SignalKind = SourceLinkedReport['captionFindings'][number]['signals'][number]['kind'];
 export interface CaptionFinding {
@@ -30,6 +31,12 @@ function auditUrl(value: string): string | null {
     url.search = ''; url.hash = ''; return url.toString();
   } catch { return null; }
 }
+/** Match the persisted reference's URL normalization without losing its query. */
+function retainedResourceUrl(value: string): string | null {
+  try { const url = new URL(value); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || !safeReferenceParameters(url)) return null;
+    url.hostname = url.hostname.toLowerCase().replace(/\.+$/, ''); url.hash = ''; return url.toString();
+  } catch { return null; }
+}
 function signal(value: unknown): CaptionFinding['signals'][number] | null {
   const item = object(value); if (!item) return null;
   const kind = item.kind, probability = item.probability;
@@ -44,7 +51,7 @@ function finding(value: unknown, sources: readonly AutomaticFrameSource[], retai
   const records = retained.filter(source => source.id === item.evidenceId);
   if (rows.length !== 1 || records.length !== 1) return null;
   const row = rows[0], source = records[0];
-  if (row.sourceUrl !== source.sourceUrl || typeof item.sourceUrl !== 'string' || item.sourceUrl !== auditUrl(row.sourceUrl)) return null;
+  if (retainedResourceUrl(row.sourceUrl) !== source.sourceUrl || typeof item.sourceUrl !== 'string' || item.sourceUrl !== auditUrl(row.sourceUrl)) return null;
   const identity = object(item.mediaIdentity), basis = identity?.basis;
   if (!identity || (basis !== 'unverified' && basis !== 'contextual' && basis !== 'lens_exact_collection' && basis !== 'local_spatial_verification') || basis !== row.identityBasis) return null;
   const verification = identity.verificationStatus;
@@ -81,12 +88,14 @@ export function projectCaptionFindings(value: unknown, sources: readonly Automat
   const findings: CaptionFinding[] = [], seen = new Set<string>();
   const duplicateIds = new Set(report.captionFindings.flatMap(item => { const id = object(item)?.evidenceId; if (typeof id !== 'string') return []; if (seen.has(id)) return [id]; seen.add(id); return []; }));
   for (const raw of report.captionFindings) { const parsed = finding(raw, sources, retained); if (parsed && !duplicateIds.has(parsed.evidenceId)) findings.push(parsed); }
-  const ids = new Set(sources.filter(source => retained.some(item => item.id === source.evidenceId && item.sourceUrl === source.sourceUrl && auditUrl(item.sourceUrl) !== null)).map(source => source.evidenceId));
+  const ids = new Set(sources.filter(source => retained.some(item => item.id === source.evidenceId && item.sourceUrl === retainedResourceUrl(source.sourceUrl))).map(source => source.evidenceId));
   const gates: Extract<CaptionFindingsView, { kind: 'available' }>['gates'] = [];
   const seenGates = new Set<string>();
+  const minimumSupport = { qualifying_conflicts: 2, corroborating_pair: 2, relevant_core_coverage: 3, distinct_domains: 2, distinct_reporting_groups: 2, strong_support: 1 };
   if (Array.isArray(reasons)) for (const raw of reasons) {
     const reason = object(raw), gate = reason?.gate;
     if (!reason || (gate !== 'qualifying_conflicts' && gate !== 'corroborating_pair' && gate !== 'relevant_core_coverage' && gate !== 'distinct_domains' && gate !== 'distinct_reporting_groups' && gate !== 'strong_support') || typeof reason.passed !== 'boolean' || !Array.isArray(reason.supportIds) || reason.supportIds.some(id => typeof id !== 'string' || !ids.has(id)) || seenGates.has(gate)) continue;
+    if (reason.passed && new Set(reason.supportIds).size < minimumSupport[gate]) continue;
     seenGates.add(gate); gates.push({ gate, passed: reason.passed });
   }
   return { kind: 'available', findings, withheldCount: report.captionFindings.length - findings.length, gates };

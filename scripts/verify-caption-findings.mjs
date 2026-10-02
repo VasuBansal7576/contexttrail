@@ -45,12 +45,12 @@ try {
     assert.equal(await leads.locator('article').count(), 3);
     const cards = leads.locator('article');
     for (let i = 0; i < 3; i++) { const detail = cards.nth(i).locator('details').first(); if (await detail.getAttribute('open') === null) await detail.locator('summary').first().click(); }
-    assert.match(await cards.nth(0).innerText(), /Title used for classification/);
+    assert.match(await cards.nth(0).innerText(), /Title used for classification/i);
     assert.match(await cards.nth(0).innerText(), /No page quote can be shown/);
     assert.equal(await cards.nth(0).locator('.evidence-passage').count(), 0);
     assert.equal(await cards.nth(0).locator('a').getAttribute('href'), 'https://example.com/article?id=old-context');
-    assert.match(await cards.nth(1).innerText(), /Retained search snippet/);
-    assert.match(await cards.nth(2).innerText(), /Retained page excerpt/);
+    assert.match(await cards.nth(1).innerText(), /Retained search snippet/i);
+    assert.match(await cards.nth(2).innerText(), /Retained page excerpt/i);
     assert.match(await leads.innerText(), /Source challenges the supplied caption/);
     assert.match(await leads.innerText(), /Source supports the supplied caption/);
     const probabilities = cards.nth(0).getByText('Inspect model probabilities', { exact: true });

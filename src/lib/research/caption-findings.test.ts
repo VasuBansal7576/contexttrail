@@ -67,6 +67,30 @@ describe('readable automatic caption findings', () => {
     const changed = captionFindingsFixture(); changed.caseRecord.evidence[0].sourceUrl = 'https://example.com/article?id=different-resource';
     expect(view(changed).captionFindings).toMatchObject({ kind: 'available', withheldCount: 1 });
   });
+  it('keeps fragment and host normalization while preserving the exact semantic query in live and saved links', () => {
+    const fixture = captionFindingsFixture();
+    expect(fixture.frames[0].imageResult.undatedEvidence[0].sourceUrl).toBe('HTTPS://EXAMPLE.COM.:443/article?id=old-context#article');
+    expect(fixture.caseRecord.evidence[0].sourceUrl).toBe('https://example.com/article?id=old-context');
+    const live = view(fixture).captionFindings;
+    expect(live).toMatchObject({ kind: 'available', withheldCount: 0, findings: [{ sourceUrl: 'https://example.com/article?id=old-context' }, {}, {}] });
+    const saved = parseSavedVideoReport({ schemaVersion: 'contexttrail-video-report-v1', result: fixture });
+    expect(savedVideoView(saved).frames[0].imageResult.captionFindings).toEqual(live);
+  });
+  it('withholds passed gates without their minimum unique safe bound support', () => {
+    const fixture = captionFindingsFixture(), image = fixture.frames[0].imageResult;
+    for (const gate of ['qualifying_conflicts', 'corroborating_pair', 'relevant_core_coverage', 'distinct_domains', 'distinct_reporting_groups', 'strong_support']) {
+      for (const supportIds of [[], ['support-lead', 'support-lead']]) {
+        if (gate === 'strong_support' && supportIds.length) continue;
+        image.policyReasons = [{ gate, passed: true, supportIds, detail: 'Malformed passed gate.' }];
+        expect(view(fixture).captionFindings).toMatchObject({ kind: 'available', gates: [] });
+        expect(view(fixture).captionComparison?.status).toBe('INSUFFICIENT_EVIDENCE');
+      }
+    }
+    image.policyReasons = [{ gate: 'corroborating_pair', passed: false, supportIds: [], detail: 'No corroborating pair.' }];
+    expect(view(fixture).captionFindings).toMatchObject({ kind: 'available', gates: [{ gate: 'corroborating_pair', passed: false }] });
+    image.policyReasons = [{ gate: 'strong_support', passed: true, supportIds: ['support-lead'], detail: 'One bound recorded support.' }];
+    expect(view(fixture).captionFindings).toMatchObject({ kind: 'available', gates: [{ gate: 'strong_support', passed: true }] });
+  });
   it('does not reclassify snippets/composites as page quotes or accept forged policy gates', () => {
     const fixture = captionFindingsFixture(), image = fixture.frames[0].imageResult;
     image.sourceLinkedReport.captionFindings[1].excerptSource = 'page_text';
