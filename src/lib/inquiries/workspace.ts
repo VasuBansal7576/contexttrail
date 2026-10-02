@@ -62,10 +62,19 @@ export function findingViews(w: InquiryWorkspace) {
       const evidence = c?.evidence.find(e => e.id === s.evidenceId) ?? null;
       if (s.anchor.kind === 'image_region' || s.anchor.kind === 'table_cell') {
         const { binding, ...resolved } = materialSupport(w.schemaVersion === WORKSPACE_VERSION_V2 ? w.materials : null, c, evidence, s.anchor);
-        return { ...s, ...resolved, status: resolved.status === 'current' && binding !== bindings[i] ? 'changed' : resolved.status, evidence };
+        return { ...s, ...resolved, historicalText: null, status: resolved.status === 'current' && binding !== bindings[i] ? 'changed' : resolved.status, evidence };
       }
       const status = !evidence || !c ? 'unavailable' : evidenceDigest(c, evidence) !== bindings[i] || !anchorMatches(c, evidence, s.anchor) ? 'changed' : 'current';
-      return { ...s, status, evidence };
+      let historicalText: { caseRevision: number; evidenceId: string } | null = null;
+      if (status !== 'current' && s.anchor.kind === 'text') {
+        for (const previous of [...w.collection.caseHistory].filter(r => r.id === w.inquiry.caseId).sort((a, b) => b.revision - a.revision)) {
+          const old = previous.evidence.find(e => e.id === s.evidenceId);
+          if (old && evidenceDigest(previous, old) === bindings[i] && anchorMatches(previous, old, s.anchor)) {
+            historicalText = { caseRevision: previous.revision, evidenceId: old.id }; break;
+          }
+        }
+      }
+      return { ...s, status, evidence, historicalText };
     });
     return { finding, reviewStatus: support.every(s => s.status === 'current') ? 'current' : 'needs_review', support, limitation: 'Operator-supplied assessment. Matching content does not prove entailment or truth. A selected image region does not establish image authenticity; supplied table data is not independently verified.' };
   });

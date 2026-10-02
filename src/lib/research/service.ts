@@ -1,4 +1,6 @@
+import type { LocalComparisonResponse } from '../video/matching/application-contract';
 /** Single-user, explicitly enabled local application storage. No hosted account boundary. */
+import type { CaseRecord } from '../cases/model';
 import { createHash } from 'node:crypto';
 import { mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -8,6 +10,8 @@ import { inquiryCase, parseResearchDocument, researchWorkflow, reviewResearch, t
 export const MAX_RESEARCH_BYTES = 5 * 1024 * 1024;
 export type ResearchApplicationRequest =
   | { kind: 'start'; operationId: string; question: string; createdAt: string }
+  | { kind: 'import_case'; operationId: string; question: string; createdAt: string; caseRecord: CaseRecord }
+  | { kind: 'import_comparison'; operationId: string; question: string; createdAt: string; comparison: LocalComparisonResponse }
   | { kind: 'update'; caseId: string; operationId: string; expectedRevision: number; change: ResearchChange };
 export class ResearchServiceError extends Error {
   constructor(readonly status: number, readonly code: string, message: string) { super(message); }
@@ -87,13 +91,13 @@ export function localResearchService(directory: string) {
   }
   async function apply(input: unknown): Promise<ResearchReview> {
     const request = object(input);
-    if (request.kind === 'start') {
+    if (request.kind === 'start' || request.kind === 'import_case' || request.kind === 'import_comparison') {
       const candidate = researchWorkflow(request);
       const id = candidate.document.workspace.inquiry.caseId;
       return withLock(id, async () => {
         const existing = await read(id);
         if (existing) {
-          if (existing.workspace.inquiry.question !== candidate.document.workspace.inquiry.question || inquiryCase(existing.workspace).createdAt !== inquiryCase(candidate.document.workspace).createdAt) throw new ResearchServiceError(409, 'OPERATION_CONFLICT', 'Creation operation ID reused with different input');
+          if (existing.applied.find(item => item.operationId === request.operationId)?.digest !== candidate.document.applied[0].digest) throw new ResearchServiceError(409, 'OPERATION_CONFLICT', 'Creation operation ID reused with different input');
           return reviewResearch(existing);
         }
         await write(candidate.document);

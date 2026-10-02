@@ -169,7 +169,7 @@ describe('comparison component request lifecycle', () => {
     try {
       await view.prepare(); await act(async () => view.pending[0].resolve(Response.json(fixture())));
       expect(view.container.querySelector('.video-results')).not.toBeNull();
-      expect(view.container.textContent).toContain('Comparison not saved to case.');
+      expect(view.container.textContent).toContain('Save comparison to casebook');
       await view.choose('Choose file A', 'replacement.png');
       expect(view.container.querySelector('.video-results')).toBeNull(); expect(view.container.textContent).toContain('replacement.png'); expect(view.revoke).toHaveBeenCalled();
       const submit = view.container.querySelector('button[type="submit"]'); expect(submit?.hasAttribute('disabled')).toBe(true);

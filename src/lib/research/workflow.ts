@@ -1,3 +1,5 @@
+import type { LocalComparisonResponse } from '../video/matching/application-contract';
+import { parseSavedComparison } from './saved-comparison';
 /** Stateless manual-workflow adapter. No retrieval, storage, provider, or credential access. */
 import { createHash } from 'node:crypto';
 import type { CaseEvidence, CaseRecord, MediaAsset } from '../cases/model';
@@ -14,14 +16,18 @@ export class ResearchOperationConflict extends Error {}
 
 export const RESEARCH_VERSION = 'contexttrail-research-v1';
 export const RESEARCH_VERSION_V2 = 'contexttrail-research-v2';
-export interface ResearchDocument {
-  schemaVersion: typeof RESEARCH_VERSION | typeof RESEARCH_VERSION_V2;
+export const RESEARCH_VERSION_V3 = "contexttrail-research-v3";
+interface ResearchDocumentBase {
   /** Includes citation-only edits, which do not alter inquiry semantics. */
   revision: number;
   workspace: InquiryWorkspace;
   citations: SuppliedCitation[];
   applied: Array<{ operationId: string; digest: string }>;
 }
+export type ResearchDocument = ResearchDocumentBase & (
+  | { schemaVersion: typeof RESEARCH_VERSION | typeof RESEARCH_VERSION_V2 }
+  | { schemaVersion: typeof RESEARCH_VERSION_V3; comparison: LocalComparisonResponse }
+);
 export type ResearchChange =
   | { kind: 'subquestion'; value: Subquestion }
   | { kind: 'hypothesis'; value: Hypothesis }
@@ -31,6 +37,8 @@ export type ResearchChange =
   | { kind: 'citation'; value: SuppliedCitation };
 export type ResearchRequest =
   | { kind: 'start'; operationId: string; question: string; createdAt: string }
+  | { kind: 'import_case'; operationId: string; question: string; createdAt: string; caseRecord: CaseRecord }
+  | { kind: 'import_comparison'; operationId: string; question: string; createdAt: string; comparison: LocalComparisonResponse }
   | { kind: 'read'; document: ResearchDocument }
   | { kind: 'update'; operationId: string; expectedRevision: number; document: ResearchDocument; change: ResearchChange };
 
@@ -60,14 +68,15 @@ export function inquiryCase(workspace: InquiryWorkspace): CaseRecord {
 }
 export function parseResearchDocument(value: unknown): ResearchDocument {
   const o = object(value);
-  if (o.schemaVersion !== RESEARCH_VERSION && o.schemaVersion !== RESEARCH_VERSION_V2) throw new Error('Unsupported research version. Keep the original file; it has not been changed.');
+  if (o.schemaVersion !== RESEARCH_VERSION && o.schemaVersion !== RESEARCH_VERSION_V2 && o.schemaVersion !== RESEARCH_VERSION_V3) throw new Error('Unsupported research version. Keep the original file; it has not been changed.');
   const workspace = parseWorkspace(o.workspace);
-  if ((o.schemaVersion === RESEARCH_VERSION) !== (workspace.schemaVersion === WORKSPACE_VERSION)) throw new Error('Research and inquiry versions do not match');
+  if (o.schemaVersion !== RESEARCH_VERSION_V3 && (o.schemaVersion === RESEARCH_VERSION) !== (workspace.schemaVersion === WORKSPACE_VERSION)) throw new Error('Research and inquiry versions do not match');
   const report = sourceDependencyReport({ caseRecord: inquiryCase(workspace), citations: o.citations });
   if (!Array.isArray(o.applied) || o.applied.length > 1000) throw new Error('Invalid research operation history');
   const applied = o.applied.map(value => { const a = object(value); const digest = text(a.digest); if (!/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error('Invalid research operation digest'); return { operationId: operationId(a.operationId), digest }; });
   if (new Set(applied.map(a => a.operationId)).size !== applied.length) throw new Error('Duplicate research operation IDs');
-  return { schemaVersion: o.schemaVersion, revision: revision(o.revision), workspace, citations: report.citationChecks.map(check => check.citation), applied };
+  const base = { revision: revision(o.revision), workspace, citations: report.citationChecks.map(check => check.citation), applied };
+  return o.schemaVersion === RESEARCH_VERSION_V3 ? { ...base, schemaVersion: o.schemaVersion, comparison: parseSavedComparison(o.comparison) } : { ...base, schemaVersion: o.schemaVersion };
 }
 export function reviewResearch(document: ResearchDocument) {
   const record = inquiryCase(document.workspace);
@@ -79,9 +88,15 @@ export function researchWorkflow(input: unknown): ResearchReview {
   const request = object(input);
   if (request.kind === 'read') return reviewResearch(parseResearchDocument(request.document));
   const id = operationId(request.operationId);
-  if (request.kind === 'start') {
+  if (request.kind === 'start' || request.kind === 'import_case' || request.kind === 'import_comparison') {
     const workspace = applyInquiry(null, { kind: 'start', operationId: id, inquiry: { kind: 'inquiry', id: `question:${id}`, caseId: `case:${id}`, question: text(request.question) }, createdAt: text(request.createdAt) }).workspace;
-    return reviewResearch({ schemaVersion: RESEARCH_VERSION, revision: 1, workspace, citations: [], applied: [{ operationId: id, digest: digest({ kind: 'start', question: text(request.question), createdAt: text(request.createdAt) }) }] });
+    const imported = request.kind === 'import_case' ? parseCaseRecord(request.caseRecord) : null;
+    if (imported) {
+      workspace.inquiry.caseId = imported.id;
+      workspace.collection.cases = [imported];
+    }
+    const comparison = request.kind === 'import_comparison' ? parseSavedComparison(request.comparison) : null;
+    return reviewResearch(parseResearchDocument({ schemaVersion: comparison ? RESEARCH_VERSION_V3 : RESEARCH_VERSION, ...(comparison ? { comparison } : {}), revision: 1, workspace, citations: [], applied: [{ operationId: id, digest: digest({ kind: request.kind, question: text(request.question), createdAt: text(request.createdAt), ...(imported ? { caseRecord: imported } : {}), ...(comparison ? { comparison } : {}) }) }] }));
   }
   if (request.kind !== 'update') throw new Error('Unsupported research request');
   const document = parseResearchDocument(request.document), change = object(request.change);
@@ -117,7 +132,7 @@ export function researchWorkflow(input: unknown): ResearchReview {
     default: throw new Error('Unsupported research edit');
   }
   if (change.kind !== 'citation') document.workspace = applyInquiry(document.workspace, workspaceInput).workspace;
-  if (document.workspace.schemaVersion === WORKSPACE_VERSION_V2) document.schemaVersion = RESEARCH_VERSION_V2;
+  if (document.schemaVersion !== RESEARCH_VERSION_V3 && document.workspace.schemaVersion === WORKSPACE_VERSION_V2) document.schemaVersion = RESEARCH_VERSION_V2;
   document.revision += 1;
   document.applied.push({ operationId: id, digest: requestDigest });
   return reviewResearch(parseResearchDocument(document));

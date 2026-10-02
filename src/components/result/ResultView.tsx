@@ -57,6 +57,7 @@ import type { SearchCount, StageState } from "@/lib/stream/useInvestigation";
 import { Badge } from "@/components/ui";
 import { cn } from "@/components/cn";
 import TimelineView, { type DivergenceLink, type TimelineGroups } from "./TimelineView";
+import SaveToCasebook from "../casebook/SaveToCasebook";
 import EvidenceViewer from "./EvidenceViewer";
 
 type Tab = "overview" | "timeline" | "sources" | "analysis";
@@ -332,6 +333,7 @@ export default function ResultView({
       </nav>
 
       <main className="mx-auto max-w-[1280px] px-5 py-10 sm:px-8">
+        <SaveToCasebook value={result.caseRecord} question={claim?.trim() || "What does the retrieved history of this image show?"} />
         {restoredNotice ? (
           <p role="note" className="mb-6 rounded-xl bg-ink/5 px-4 py-3 text-sm leading-relaxed text-ink/75 ring-1 ring-ink/10">
             {restoredNotice}

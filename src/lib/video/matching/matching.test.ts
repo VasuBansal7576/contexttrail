@@ -55,8 +55,16 @@ describe.skipIf(!available)('actual local pixel comparison', () => {
     }
     const report = comparePreparedMedia(await image(PNG.sync.write(left)), await image(PNG.sync.write(right)));
     expect(report.candidates).toHaveLength(1);
-    expect(report.candidates[0].distance).toMatchObject({ meanAbsoluteRgbError: 0.0625, trimmedAbsoluteRgbError: 0, edgeError: 0 });
-    expect(report.candidates[0].distance.tiles.find(tile => tile.column === 0 && tile.row === 0)).toMatchObject({ rgbError: 1, edgeError: 2, retained: false });
+    // Native FFmpeg versions can differ by one decoded 8-bit colour level.
+    const distance = report.candidates[0].distance;
+    expect(Math.abs(distance.meanAbsoluteRgbError - 0.0625)).toBeLessThanOrEqual(1 / 255);
+    expect(distance.trimmedAbsoluteRgbError).toBe(0);
+    expect(distance.edgeError).toBe(0);
+    const opposing = distance.tiles.find(tile => tile.column === 0 && tile.row === 0);
+    expect(opposing?.retained).toBe(false);
+    expect(Math.abs((opposing?.rgbError ?? NaN) - 1)).toBeLessThanOrEqual(1 / 255 + Number.EPSILON);
+    expect(Math.abs((opposing?.edgeError ?? NaN) - 2)).toBeLessThanOrEqual(2 / 255 + Number.EPSILON);
+    expect(opposing?.edgeError).toBeGreaterThan(1);
     expect(report).not.toHaveProperty('verdict');
   });
   it('decodes real MP4/WebM, maps reordered sampled moments and compares image-to-video', async () => {
@@ -91,14 +99,12 @@ describe.skipIf(!available)('actual local pixel comparison', () => {
     for (let i = 0; i < half.data.length; i += 4) { half.data[i] = 255; half.data[i + 3] = 128; }
     const decoded = await decodeMatchImage(PNG.sync.write(half));
     expect([...decoded.pixels.subarray(0, 3)]).toEqual([128, 0, 0]);
-    const directory = await mkdtemp(join(tmpdir(), 'contexttrail-alpha-test-'));
-    try {
-      await writeFile(join(directory, 'hidden.png'), hiddenBytes);
-      execFileSync('ffmpeg', ['-v', 'error', '-i', join(directory, 'hidden.png'), '-frames:v', '1', '-threads', '1', '-c:v', 'libwebp', '-lossless', '1', join(directory, 'hidden.webp')], { timeout: 10000 });
-      const webp = await decodeMatchImage(await readFile(join(directory, 'hidden.webp')));
-      expect(webp.mimeType).toBe('image/webp');
-      expect([...webp.pixels].every(value => value === 0)).toBe(true);
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    // Fixed 96×96 fully transparent lossless WebP, generated with FFmpeg/libwebp.
+    // Only decoding is a runtime requirement; do not require a local WebP encoder.
+    const webpBytes = Buffer.from('UklGRiAAAABXRUJQVlA4TBQAAAAvX8AXEAcQEREGICH83y9F9D/1Aw==', 'base64');
+    const webp = await decodeMatchImage(webpBytes);
+    expect(webp.mimeType).toBe('image/webp');
+    expect([...webp.pixels].every(value => value === 0)).toBe(true);
   });
   it('rejects animated image containers before decoder work and excessive decoded dimensions', async () => {
     const animatedWebp = Buffer.from('524946461000000057454250414e494d0400000000000000', 'hex');

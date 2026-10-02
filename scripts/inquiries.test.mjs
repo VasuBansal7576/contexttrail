@@ -9,7 +9,7 @@ it('runs the saved question, evidence, correction and reload journey through rea
     const build = spawnSync(process.execPath, ['node_modules/typescript/bin/tsc', '--module', 'commonjs', '--moduleResolution', 'node', '--target', 'ES2020', '--esModuleInterop', '--skipLibCheck', '--strict', '--outDir', dir, 'scripts/inquiries.ts'], { encoding: 'utf8' });
     expect(build.status, build.stdout + build.stderr).toBe(0);
     const state = join(dir, 'state.json'), cli = join(dir, 'scripts/inquiries.js');
-    const run = name => spawnSync(process.execPath, [cli, state, name === '--show' ? name : resolve(`scripts/fixtures/inquiries/${name}.json`)], { encoding: 'utf8' });
+    const run = name => spawnSync(process.execPath, [cli, state, name === '--show' ? name : resolve(`scripts/fixtures/inquiries/${name}.json`)], { encoding: 'utf8', env: { ...process.env, NODE_PATH: resolve('node_modules') } });
     for (const name of ['start', 'evidence', 'correction']) { const result = run(name); expect(result.status, result.stderr).toBe(0); }
     const saved = JSON.parse(readFileSync(state, 'utf8'));
     expect(saved.findings[0].reviewStatus).toBe('needs_review');

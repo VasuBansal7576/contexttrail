@@ -1,3 +1,5 @@
+import type { LocalComparisonResponse } from '../video/matching/application-contract';
+import { parseComparisonResponse } from '../video/matching/client';
 /** Browser boundary for the opt-in local research service. No retrieval or storage. */
 import { parseCaseRecord } from '../cases/parse';
 import type { CaseEvidence, CaseRecord, NonEmpty } from '../cases/model';
@@ -17,6 +19,7 @@ export interface ResearchFindingSupport extends FindingSupport {
   evidence: CaseEvidence | null;
   retainedMaterial: ResearchMaterialReference | null;
   currentMaterial: ResearchMaterialReference | null;
+  historicalText: { caseRevision: number; evidence: CaseEvidence } | null;
 }
 export interface ResearchFindingView {
   finding: Finding; reviewStatus: 'current' | 'needs_review';
@@ -38,6 +41,7 @@ export interface ResearchCaseView extends ResearchCaseSummary {
   materials: MaterialStore;
   citations: SuppliedCitation[];
   dependencies: ResearchDependencies;
+  comparison: LocalComparisonResponse | null;
 }
 export interface ResearchClientOptions { signal?: AbortSignal }
 export class ResearchClientError extends Error {
@@ -189,7 +193,7 @@ function materialReference(value: unknown, path: string): ResearchMaterialRefere
   return { materialId: id(v.materialId, `${path}.materialId`), revision: integer(v.revision, `${path}.revision`, 1), digest: digest(v.digest, `${path}.digest`), evidenceId: id(v.evidenceId, `${path}.evidenceId`),
     content: kind === 'image' ? { kind, mimeType: choice(c.mimeType, ['image/png'], `${path}.mimeType`), width: integer(c.width, `${path}.width`, 1, 2048), height: integer(c.height, `${path}.height`, 1, 2048) } : { kind, rowCount: integer(c.rowCount, `${path}.rowCount`, 1, 1000), columnCount: integer(c.columnCount, `${path}.columnCount`, 1, 64) } };
 }
-function findingView(value: unknown, path: string, record: CaseRecord): ResearchFindingView {
+function findingView(value: unknown, path: string, record: CaseRecord, caseHistory: CaseRecord[]): ResearchFindingView {
   const v = object(value, path), parsedFinding = finding(v.finding, `${path}.finding`);
   const supports = list(v.support, `${path}.support`, (value, p): ResearchFindingSupport => {
     const s = object(value, p), parsed = support(value, p), status = choice(s.status, ['current', 'changed', 'unavailable'], `${p}.status`);
@@ -197,7 +201,16 @@ function findingView(value: unknown, path: string, record: CaseRecord): Research
     if (s.evidence === null ? evidence !== null : !evidence || object(s.evidence, `${p}.evidence`).id !== evidence.id) return fail(p, 'support evidence does not match current case');
     if (!evidence && status !== 'unavailable') return fail(p, 'missing evidence cannot be current');
     const retained = parsed.anchor.kind === 'image_region' || parsed.anchor.kind === 'table_cell';
-    return { ...parsed, status, evidence, reason: retained ? nullableText(s.reason, `${p}.reason`) : null,
+    let historicalText: ResearchFindingSupport['historicalText'] = null;
+    if (s.historicalText !== undefined && s.historicalText !== null) {
+      const reference = object(s.historicalText, `${p}.historicalText`);
+      const caseRevision = integer(reference.caseRevision, `${p}.historicalText.caseRevision`, 1);
+      const evidenceId = id(reference.evidenceId, `${p}.historicalText.evidenceId`);
+      const prior = caseHistory.find(c => c.id === record.id && c.revision === caseRevision)?.evidence.find(e => e.id === evidenceId);
+      if (status === 'current' || parsed.anchor.kind !== 'text' || evidenceId !== parsed.evidenceId || !prior || prior.content.kind !== 'text' || prior.content.text.slice(parsed.anchor.start, parsed.anchor.start + parsed.anchor.quote.length) !== parsed.anchor.quote) return fail(p, 'invalid historical text reference');
+      historicalText = { caseRevision, evidence: prior };
+    }
+    return { ...parsed, status, evidence, historicalText, reason: retained ? nullableText(s.reason, `${p}.reason`) : null,
       retainedMaterial: retained ? materialReference(s.retainedMaterial, `${p}.retainedMaterial`) : null,
       currentMaterial: retained ? materialReference(s.currentMaterial, `${p}.currentMaterial`) : null };
   });
@@ -273,9 +286,9 @@ export function parseResearchCaseList(value: unknown): ResearchCaseSummary[] {
 /** Project only UI-consumed fields. Server-side validation remains authoritative. */
 export function parseResearchCaseView(value: unknown): ResearchCaseView {
   const v = object(value, 'response'), document = object(v.document, 'document'), workspace = object(document.workspace, 'workspace');
-  const version = choice(document.schemaVersion, ['contexttrail-research-v1', 'contexttrail-research-v2'], 'document.schemaVersion');
+  const version = choice(document.schemaVersion, ['contexttrail-research-v1', 'contexttrail-research-v2', 'contexttrail-research-v3'], 'document.schemaVersion');
   const workspaceVersion = choice(workspace.schemaVersion, ['contexttrail-inquiry-v1', 'contexttrail-inquiry-v2'], 'workspace.schemaVersion');
-  if ((version === 'contexttrail-research-v1') !== (workspaceVersion === 'contexttrail-inquiry-v1')) return fail('workspace.schemaVersion', 'incompatible versions');
+  if (version !== 'contexttrail-research-v3' && (version === 'contexttrail-research-v1') !== (workspaceVersion === 'contexttrail-inquiry-v1')) return fail('workspace.schemaVersion', 'incompatible versions');
   const question = inquiry(workspace.inquiry, 'workspace.inquiry'), collection = object(workspace.collection, 'collection');
   choice(collection.schemaVersion, ['contexttrail-collection-v1'], 'collection.schemaVersion');
   let cases: CaseRecord[], caseHistory: CaseRecord[];
@@ -291,7 +304,7 @@ export function parseResearchCaseView(value: unknown): ResearchCaseView {
   const hypotheses = unique(list(workspace.hypotheses, 'hypotheses', hypothesis), h => h.id, 'hypotheses');
   const questionIds = new Set([question.id, ...subquestions.map(s => s.id)]);
   if (questionIds.size !== subquestions.length + 1 || hypotheses.some(h => !questionIds.has(h.questionId))) return fail('hypotheses', 'unknown or duplicate question identity');
-  const findingViews = unique(list(v.findings, 'findings', (item, p) => findingView(item, p, caseRecord)), f => f.finding.id, 'findings');
+  const findingViews = unique(list(v.findings, 'findings', (item, p) => findingView(item, p, caseRecord, caseHistory)), f => f.finding.id, 'findings');
   if (findingViews.some(f => !questionIds.has(f.finding.questionId))) return fail('findings', 'unknown question');
   const anchorSources = unique(list(v.anchorSources, 'anchorSources', (value, p) => {
     const a = object(value, p); return { evidenceId: id(a.evidenceId, `${p}.evidenceId`), evidenceDigest: digest(a.evidenceDigest, `${p}.evidenceDigest`) };
@@ -310,7 +323,7 @@ export function parseResearchCaseView(value: unknown): ResearchCaseView {
   if (report.citationChecks.length !== citations.length || report.citationChecks.some(check => !citations.some(c => JSON.stringify(c) === JSON.stringify(check.citation)))) return fail('dependencies.citationChecks', 'citation report differs from saved citations');
   return { caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
     subquestions, hypotheses, caseRecord, caseHistory, anchorSources, findingViews, history: list(workspace.history, 'history', history), changes,
-    materials, citations, dependencies: report };
+    materials, citations, dependencies: report, comparison: version === 'contexttrail-research-v3' ? parseComparisonResponse(document.comparison) : null };
 }
 
 async function request(path: string, init: RequestInit): Promise<unknown> {
@@ -345,4 +358,12 @@ export function startResearchCase(input: Omit<Extract<ResearchApplicationRequest
 }
 export function updateResearchCase(input: Omit<Extract<ResearchApplicationRequest, { kind: 'update' }>, 'kind'>, options: ResearchClientOptions = {}): Promise<ResearchCaseView> {
   return applyResearch({ ...input, kind: 'update' }, options);
+}
+
+export function importResearchCase(input: Omit<Extract<ResearchApplicationRequest, { kind: 'import_case' }>, 'kind'>, options: ResearchClientOptions = {}): Promise<ResearchCaseView> {
+  return applyResearch({ ...input, kind: 'import_case' }, options);
+}
+
+export function importResearchComparison(input: Omit<Extract<ResearchApplicationRequest, { kind: 'import_comparison' }>, 'kind'>, options: ResearchClientOptions = {}): Promise<ResearchCaseView> {
+  return applyResearch({ ...input, kind: 'import_comparison' }, options);
 }

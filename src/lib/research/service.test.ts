@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { CaseEvidence, MediaAsset, Provenance } from '../cases/model';
 import type { Finding } from '../inquiries/model';
 import { localResearchService } from './service';
+import { parseResearchCaseView } from './client';
+import { findingViews } from '../inquiries/workspace';
 import { inquiryCase, type ResearchChange } from './workflow';
 
 const directories: string[] = [];
@@ -94,6 +96,17 @@ describe('local research application service', () => {
     await service.apply(correction);
     const reopened = await localResearchService(directory).get(id);
     expect(reopened.findings[0].reviewStatus).toBe('needs_review');
+    const support = parseResearchCaseView(reopened).findingViews[0].support[0];
+    expect(support.historicalText?.evidence.content).toEqual(evidence('a').content);
+    const altered = structuredClone(reopened.document.workspace);
+    for (const c of altered.collection.caseHistory) for (const e of c.evidence) e.title = 'Changed metadata, same quote';
+    expect(findingViews(altered)[0].support[0].historicalText).toBeNull();
+    altered.collection.caseHistory = [];
+    expect(findingViews(altered)[0].support[0].historicalText).toBeNull();
+    const corrupt = structuredClone(reopened);
+    corrupt.findings[0].support[0].historicalText = { caseRevision: 999, evidenceId: 'a' };
+    expect(() => parseResearchCaseView(corrupt)).toThrow('historical text reference');
+
     expect(reopened.findings[0].support[0].anchor).toEqual(f.support[0].anchor);
     expect(reopened.dependencies.citationChecks[0].quoteChecks[0].result).toBe('offset_mismatch');
     expect(reopened.dependencies.citationChecks[0].entailment.status).toBe('unknown');

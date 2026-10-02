@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import SaveComparison from './SaveComparison';
 import { CasebookShell, ChapterHeading } from './CasebookShell';
 import type { LocalComparisonFrame, LocalComparisonResponse } from '@/lib/video/matching/application-contract';
 import type { FramePairComparison, MatchRegion, MediaCoverage } from '@/lib/video/matching/model';
@@ -58,7 +59,7 @@ function ComparisonFrame({ frame, label, region, showRegion }: { frame: LocalCom
 function CoverageNote({ coverage, label }: { coverage: MediaCoverage; label: string }) {
   return <div className="video-coverage-note"><p className="eyebrow">{label} / sampling coverage</p>{coverage.kind === 'still_image' ? <><h3>One still image</h3><p>The full supplied image was decoded. The matcher may compare an approximate crop.</p></> : <><h3>{coverage.sampleCount} frames / {formatTimestamp(coverage.durationMs)}</h3><p>Decoded at {coverage.decodedTimestampsMs.map(formatTimestamp).join(', ')}. Largest unsampled gap: {formatTimestamp(coverage.largestUnsampledGapMs)}.</p><p>No temporal coverage percentage is established. Audio was not analyzed.</p></>}</div>;
 }
-function ComparisonResult({ result }: { result: LocalComparisonResponse }) {
+export function ComparisonResult({ result, saved = false }: { result: LocalComparisonResponse; saved?: boolean }) {
   const initial = result.report.comparisons.findIndex(pair => pair.status === 'candidate_visual_overlap');
   const [selectedIndex, setSelectedIndex] = useState(initial >= 0 ? initial : 0);
   const [showRegion, setShowRegion] = useState(false);
@@ -80,7 +81,7 @@ function ComparisonResult({ result }: { result: LocalComparisonResponse }) {
       <div className="video-coverage-grid"><CoverageNote label="File A" coverage={result.report.inputs.left.coverage} /><CoverageNote label="File B" coverage={result.report.inputs.right.coverage} /></div>
       <details className="video-details"><summary>What this comparison cannot establish</summary><ul>{result.report.limitations.map((limitation, index) => <li key={index}>{limitation}</li>)}</ul></details>
     </div>
-    <p className="video-persistence-note"><strong>Comparison not saved to case.</strong> {result.persistence.reason.replace(/^Comparison not saved to case\.\s*/, '')} Your files and this result stay in this tab until you leave or replace them.</p>
+    {saved ? <p className="video-persistence-note">Saved comparison snapshot. Sampled frames and the original report are retained; the original video files are not. The report’s initial not-saved status describes its original response.</p> : <SaveComparison result={result} />}
   </section>;
 }
 
@@ -130,7 +131,7 @@ export function VideoCompare() {
       <div className="video-input-grid"><FileSlot side="A" selection={left} capabilities={capabilities} onChange={selection => replace('left', selection)} /><svg className="video-pair-arrow" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 12h18M7 8l-4 4 4 4m10-8 4 4-4 4" /></svg><FileSlot side="B" selection={right} capabilities={capabilities} onChange={selection => replace('right', selection)} /></div>
       <div className="video-form-bottom"><div><label className="video-rights"><input type="checkbox" checked={rights} disabled={state.kind === 'running'} onChange={event => setRights(event.target.checked)} /><span>I have the right to supply and compare both files on this local server.</span></label><p className="video-boundary-note">Choose two videos, or one video and a still image. Use trusted media: a native decoder is not a security sandbox. Files are sent only when you choose Compare.</p>{needsVideo ? <p className="video-file-error" role="alert">At least one file must be a video.</p> : null}</div><div className="video-submit-actions"><button type="submit" className="paper-button primary" disabled={!ready || state.kind === 'running'}>{state.kind === 'running' ? 'Comparing sampled frames…' : state.kind === 'complete' ? 'Compare again' : 'Compare sampled frames'}</button>{state.kind === 'running' ? <button type="button" className="video-cancel" onClick={cancel}>Cancel comparison</button> : null}</div></div>
     </form>
-    <div className="video-request-status" aria-live="polite" aria-atomic="true">{state.kind === 'running' ? <p role="status">Decoding the supplied files and comparing bounded frame pairs. This can take several minutes. You can cancel without losing the selected files.</p> : state.kind === 'cancelled' ? <p role="status">Comparison cancelled. Your files remain selected. The local decoder may need a moment to clean up before a retry.</p> : state.kind === 'error' ? <p role="alert">{state.message} Your selected files remain available. Retry with the same files or replace them.</p> : state.kind === 'complete' ? <p role="status">Comparison complete. {state.result.report.comparedFramePairs} sampled pairs inspected, {state.result.report.candidates.length} candidate overlaps. Nothing was saved to a case.</p> : null}</div>
-    {state.kind === 'complete' ? <ComparisonResult key={requestId.current} result={state.result} /> : <div className="video-empty-note"><p className="eyebrow">Keep the question open</p><h2>A sampled match is <em>a place to look.</em></h2><p>The comparison checks a few decoded frames. It cannot search for an earlier source, assess a whole video, or establish what an image proves. Results are temporary and are not saved to your casebook.</p></div>}
+    <div className="video-request-status" aria-live="polite" aria-atomic="true">{state.kind === 'running' ? <p role="status">Decoding the supplied files and comparing bounded frame pairs. This can take several minutes. You can cancel without losing the selected files.</p> : state.kind === 'cancelled' ? <p role="status">Comparison cancelled. Your files remain selected. The local decoder may need a moment to clean up before a retry.</p> : state.kind === 'error' ? <p role="alert">{state.message} Your selected files remain available. Retry with the same files or replace them.</p> : state.kind === 'complete' ? <p role="status">Comparison complete. {state.result.report.comparedFramePairs} sampled pairs inspected, {state.result.report.candidates.length} candidate overlaps. Comparison itself does not save a case. Use the save control below to retain this result.</p> : null}</div>
+    {state.kind === 'complete' ? <ComparisonResult key={requestId.current} result={state.result} /> : <div className="video-empty-note"><p className="eyebrow">Keep the question open</p><h2>A sampled match is <em>a place to look.</em></h2><p>The comparison checks a few decoded frames. It cannot search for an earlier source, assess a whole video, or establish what an image proves. Results can be explicitly saved to your local casebook after comparison.</p></div>}
   </main></CasebookShell>;
 }

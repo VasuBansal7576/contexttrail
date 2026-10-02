@@ -226,6 +226,6 @@ describe('same-origin research API client', () => {
       }
     }
     inspect(resolve('src/lib/research/client.ts'));
-    expect(seen.size).toBe(3);
+    expect(seen.size).toBe(4);
   });
 });
