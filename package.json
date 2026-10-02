@@ -13,6 +13,7 @@
     "inquiries": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .inquiries-build scripts/inquiries.ts && node .inquiries-build/scripts/inquiries.js",
     "source-dependencies": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .source-dependencies-build scripts/source-dependencies.ts && node .source-dependencies-build/scripts/source-dependencies.js",
     "research:verify": "node scripts/verify-research-http.mjs",
+    "research:coverage": "tsc --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --strict --outDir .topic-coverage-build scripts/topic-coverage.ts && node .topic-coverage-build/scripts/topic-coverage.js",
     "media:match": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/match-media.ts && node .media-match-build/scripts/match-media.js",
     "media:evaluate": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/evaluate-media-matching.ts && node .media-match-build/scripts/evaluate-media-matching.js"
   },
