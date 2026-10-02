@@ -55,14 +55,15 @@ function CaptionComparison({ comparison }: { comparison: NonNullable<AutomaticRe
   const takeaways = { temporal_conflict: 'Retrieved dates conflict with the caption timing.', location_conflict: 'Retrieved location context conflicts with the caption.', historical_reuse: 'Historical reuse is indicated in retrieved evidence.', no_current_media_corroboration: 'Current media corroboration was not established.' };
   return <section className="claim-report" aria-label="Sampled-frame caption comparison"><h3>Sampled-frame caption comparison</h3><p className="eyebrow">User assertion to investigate</p><p>{comparison.claim}</p><h4>{labels[comparison.status]}</h4>{comparison.evidenceWarning ? <p className="fine-print">{comparison.evidenceWarning}</p> : null}<p className="fine-print">This compares one sampled frame with retrieved context. It does not verify the entire video or its audio. No conflict found does not prove the caption is true. Original author and capture time remain unestablished.</p>{comparison.takeaways.length ? <ul>{comparison.takeaways.map((takeaway, index) => <li key={index}>{takeaways[takeaway.code]} <span className="fine-print">Retained evidence: {takeaway.evidenceIds.join(', ')}</span></li>)}</ul> : null}</section>;
 }
-export function AutomaticResult({ result }: { result: AutomaticResearchView }) {
+export function AutomaticResult({ result, saved = false }: { result: AutomaticResearchView; saved?: boolean }) {
   const [view, setView] = useState<'sources' | 'frames'>('sources');
   const limitations = [...new Set([...result.limitations, ...result.caseRecord.coverage.limitations])];
   return <section className="automatic-results" aria-labelledby="research-result-title">
     <div className="sheet-topline"><p className="eyebrow">Retrieved evidence / {result.kind}</p><span className="state-label">{result.caseRecord.coverage.completeness} coverage</span></div>
     <p className="eyebrow">Research question or input</p>
     <h2 id="research-result-title">{result.question}</h2>
-    {result.claimReport ? <><ClaimReportView report={result.claimReport} caseRecord={result.caseRecord} /><SaveToCasebook value={result.caseRecord} question={result.question} claimReport={result.claimReport} /></> : null}
+    {result.claimReport ? <><ClaimReportView report={result.claimReport} caseRecord={result.caseRecord} />{!saved ? <SaveToCasebook value={result.caseRecord} question={result.question} claimReport={result.claimReport} /> : null}</> : null}
+    {!saved && result.kind === 'video' && result.retainedResult ? <SaveToCasebook value={result.caseRecord} question={result.question} videoReport={{ schemaVersion: 'contexttrail-video-report-v1', result: result.retainedResult }} /> : null}
     {result.frames.map((frame, index) => frame.imageResult.captionComparison ? <CaptionComparison key={index} comparison={frame.imageResult.captionComparison} /> : null)}
     <p className="fine-print">Original publication unknown. {result.caseRecord.coverage.originalPublication.reason}</p>
     <ResearchLimitations values={limitations} />

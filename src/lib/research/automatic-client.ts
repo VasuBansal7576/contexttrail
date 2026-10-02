@@ -1,8 +1,9 @@
-import { JEV_MODEL } from '@/lib/jev/model';
-import { parseCaseRecord } from '@/lib/cases/parse';
+import { retainVideoResult, type RetainedVideoResult } from './video-retention';
+import { JEV_MODEL } from '../jev/model';
+import { parseCaseRecord } from '../cases/parse';
 import { parseClaimReport } from './claim-report';
-import type { CaseEvidence } from '@/lib/cases/model';
-import type { ClaimStatus, Takeaway } from '@/lib/investigation/contracts/investigation';
+import type { CaseEvidence } from '../cases/model';
+import type { ClaimStatus, Takeaway } from '../investigation/contracts/investigation';
 import type { AutomaticResearchResult } from './automatic-contract';
 
 export interface AutomaticFrameSource {
@@ -17,6 +18,8 @@ export interface AutomaticFrameSource {
   excerptSource: string;
 }
 export type AutomaticResearchView = Omit<AutomaticResearchResult, 'frames'> & {
+  /** Exact completed video report archive; never input media bytes. */
+  retainedResult?: RetainedVideoResult;
   frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
 };
 function record(value: unknown): Record<string, unknown> {
@@ -85,7 +88,7 @@ export function parseAutomaticResearchResult(value: unknown): AutomaticResearchV
   });
   const claimReport = result.claimReport === undefined ? null : parseClaimReport(result.claimReport, caseRecord, result.question);
   if (result.claimReport !== undefined && !claimReport) throw new Error('The research service returned an invalid or stale claim report.');
-  return { kind: result.kind, question: result.question, caseRecord, assessments, ...(claimReport ? { claimReport } : {}), limitations: strings(result.limitations), frames: result.frames.map(item => {
+  return { ...(result.kind === 'video' ? { retainedResult: retainVideoResult(result) } : {}), kind: result.kind, question: result.question, caseRecord, assessments, ...(claimReport ? { claimReport } : {}), limitations: strings(result.limitations), frames: result.frames.map(item => {
     const frame = record(item), image = record(frame.imageResult);
     if (typeof frame.timestampMs !== 'number' || !Number.isFinite(frame.timestampMs) || frame.timestampMs < 0) throw new Error('The research service returned an invalid frame timestamp.');
     const timeline = sources(image.timeline), undatedEvidence = sources(image.undatedEvidence), supportingEvidence = sources(image.supportingEvidence), contextualEvidence = sources(image.contextualEvidence);

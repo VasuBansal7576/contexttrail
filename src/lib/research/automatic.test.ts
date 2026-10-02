@@ -1,3 +1,5 @@
+import { parseAutomaticResearchResult } from './automatic-client';
+import { parseSavedVideoReport } from './saved-video';
 import { describe, expect, it, vi } from 'vitest';
 import { JevClient, JEV_MODEL } from '../jev/client';
 import { investigateTopic, runAutomaticResearch, type AutomaticResearchDeps } from './automatic';
@@ -161,5 +163,9 @@ describe('one-video automatic orchestration (offline providers only)', () => {
     expect(result.caseRecord.assets[0]).toMatchObject({ kind: 'video', durationMs: 3000, location: { kind: 'not_retained' } });
     expect(result.limitations.some(item => item.includes('Other frames and audio were not searched'))).toBe(true);
     expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
+    const streamed: unknown = JSON.parse(JSON.stringify(result));
+    const parsed = parseAutomaticResearchResult(streamed);
+    expect(parsed.retainedResult).toEqual(streamed);
+    expect(parseSavedVideoReport({ schemaVersion: 'contexttrail-video-report-v1', result: parsed.retainedResult }).result).toEqual(streamed);
   });
 });
