@@ -51,7 +51,7 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   const searches = [
     { engine: 'google', q: topic, kind: 'google_search' },
     { engine: 'google_news', q: topic, kind: 'google_news' },
-    { engine: 'google', q: `${topic} original statement primary source policy document counterevidence alternative explanation correction`, kind: 'google_search' },
+    { engine: 'google', q: `${topic} statement clarification counterevidence correction`, kind: 'google_search' },
   ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news' }>;
   for (const [index, query] of searches.entries()) {
     check(deps);
@@ -75,8 +75,8 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
       check(deps); limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
     }
   }
-  // Safe topic-matching document leads get bounded priority; round-robin
-  // still prevents a long first result list from crowding out other surfaces.
+  // Safe document leads get bounded priority, then lexical tiers balance
+  // search surfaces. Returned order also determines the five page reads.
   const selected = selectTopicSources(topic, [...candidates.values()]);
   record.coverage.omittedEvidenceCount = Math.max(0, candidates.size - selected.length);
   const assessments: AutomaticResearchResult['assessments'] = [];
