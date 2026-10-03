@@ -182,14 +182,14 @@ later descriptions outside that passage reject the structured reference. The red
 publisher-layout fixture preserves observed URLs and structure with synthetic prose.
 The full inspected response's structured references are withheld because the ownership
 scan is incomplete. Each explicit media field is independently checked, so an unsafe,
-empty or same-page URL cannot mask a valid embed URL; the locator names the selected
+empty or conservatively normalized same-page URL cannot mask a valid embed URL; the locator names the selected
 field. Complete supported
 documents still expose explicit structured references. The inspected response has
 1,671 readable characters and is distinct from the original live capture. References
 without a historical cue receive no historical priority; no particular video URL or
 answer is promoted.
 
-The combined code passed 1,484 tests with 17 intentional skips across 86 files,
+The combined code passed 1,488 tests with 17 intentional skips across 86 files,
 typechecking, a production build and all eight reference plus two topic-binding
 offline coverage controls. Production Chrome checked the final topic-audit code
 with six synthetic completed research/save flows and 54 live/open/reload observations
