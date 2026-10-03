@@ -32,6 +32,21 @@ async function run(count = 12, failFirst = false, rejectedRead = false) {
 }
 
 describe('future-only bounded topic candidate references', () => {
+  it('preserves separately deduplicated candidate ownership when trailing-dot source references normalize to the same URL', async () => {
+    const result = await investigateTopic(topic, () => {}, {
+      serpapi: { uploadImage: async () => 'unused', search: async params => ({ [params.engine === 'google_news' ? 'news_results' : 'organic_results']: [
+        { link: 'https://source.example./article?id=1', title: 'Reef recovery programme context' },
+        { link: 'https://source.example/article?id=1', title: 'Reef recovery programme context' },
+      ] }) }, jev: null, fetchPage: async url => ({ url, html: '<html><body></body></html>' }),
+    });
+    const audit = result.caseRecord.coverage.topicCandidateAudit;
+    expect(audit).toMatchObject({ uniqueNormalizedCount: 2, safeReferenceCount: 2, retainedCount: 2, withheldReferenceCount: 0, uncapturedSafeReferenceCount: 0 });
+    expect(audit?.references.map(row => row.sourceUrl)).toEqual(['https://source.example/article?id=1', 'https://source.example/article?id=1']);
+    expect(new Set(audit?.references.map(row => row.candidateId)).size).toBe(2);
+    expect(audit?.searches.map(search => search.duplicateCount)).toEqual([0, 2, 2]);
+    expect(result.caseRecord.coverage.sourceReads?.map(read => read.requestedUrl)).toEqual(audit?.references.map(row => row.sourceUrl));
+    expect(parseAutomaticResearchResult(result).caseRecord.coverage.topicCandidateAudit).toEqual(audit);
+  });
   it('captures safe omitted identities without promoting them to evidence or retaining provider text', async () => {
     const { result, search, fetchPage, requests } = await run();
     const audit = result.caseRecord.coverage.topicCandidateAudit;

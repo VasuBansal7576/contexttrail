@@ -1,5 +1,4 @@
 import { diagnosticReferenceUrl } from '../pages/diagnostic-reference';
-import { canonicalizeUrl } from '../investigation/url';
 
 export const TOPIC_CANDIDATE_AUDIT_LIMIT = 100;
 export interface TopicCandidateReference {
@@ -59,7 +58,9 @@ export function parseTopicCandidateAudit(value: unknown, logs: readonly { return
     if (!sourceUrl || searches[searchIndex]?.outcome !== 'succeeded' || (row.disposition !== 'retained' && row.disposition !== 'not_retained')) return invalid();
     return { candidateId: row.candidateId, sourceUrl, searchIndex, providerRank: row.providerRank === null ? null : integer(row.providerRank), disposition: row.disposition };
   });
-  if (new Set(references.map(row => row.candidateId)).size !== references.length || new Set(references.map(row => canonicalizeUrl(row.sourceUrl)?.canonicalUrl)).size !== references.length) return invalid();
+  // Existing pool dedup and safe reference normalization are different steps:
+  // trailing-dot aliases can remain separate candidates but share a safe URL.
+  if (new Set(references.map(row => row.candidateId)).size !== references.length) return invalid();
   const uniqueNormalizedCount = integer(v.uniqueNormalizedCount), safeReferenceCount = integer(v.safeReferenceCount), withheldReferenceCount = integer(v.withheldReferenceCount);
   const retainedCount = integer(v.retainedCount, 8), notRetainedCount = integer(v.notRetainedCount), uncapturedSafeReferenceCount = integer(v.uncapturedSafeReferenceCount);
   if (uniqueNormalizedCount !== searches.reduce((total, search) => total + (search.normalizedCount ?? 0) - (search.duplicateCount ?? 0), 0)
