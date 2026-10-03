@@ -34,7 +34,10 @@ original-plan, inspected-link, alternate-fact-check, deadline or no-final-page c
 separately. Later classification cannot rewrite these frozen scores. Unsafe references
 are counted as withheld; their URLs are not stored and remaining positions are not
 renumbered. The browser boundary checks bounds, finite probabilities, enums, unique
-IDs/positions and source ownership against the original frame snapshot. An alternate
+IDs/positions and source ownership against the original frame snapshot.
+Unassessed selected rows remain valid for the existing dated-core anchor and
+Google News current-reporting paths; the trace retains `unassessed` and invents no
+model probability when Jev is unavailable or its calls fail. An alternate
 decision must also match its declared failed winner, role guard and unprotected
 displaced slot. A decision referencing a withheld source is withheld from the
 validated projection rather than inventing a binding. Missing, malformed and legacy

@@ -16,6 +16,10 @@ describe('additive frozen read selection boundary', () => {
     expect(parseDeepReadSelectionAudit(JSON.parse(before), sources)).toEqual(value);
     expect(JSON.stringify(value)).toBe(before);
   });
+  it('preserves selected unassessed core anchors and news priorities without fabricating model signals', () => {
+    const value = fixture(); value.candidates[0].judgment = { kind: 'unassessed' }; value.candidates[2].judgment = { kind: 'unassessed' };
+    expect(parseDeepReadSelectionAudit(value, sources)).toEqual(value);
+  });
   it.each([undefined, null, 'legacy', {}, { schemaVersion: 'future' }])('withholds absent/unsupported diagnostics without rejecting an old report: %j', value => {
     expect(parseDeepReadSelectionAudit(value, sources)).toBeNull();
   });
@@ -32,7 +36,7 @@ describe('additive frozen read selection boundary', () => {
     ['missing cue', (value: DeepReadSelectionAudit) => { value.candidates[5].historicalMediaCue = false; }],
     ['unbound final ID', (value: DeepReadSelectionAudit) => { value.finalDecision = { kind: 'inspected_link', evidenceId: 'absent' }; }],
     ['ambiguous winner', (value: DeepReadSelectionAudit) => { value.candidates[5].factCheckWinner = true; }],
-    ['unassessed selected source', (value: DeepReadSelectionAudit) => { value.candidates[0].judgment = { kind: 'unassessed' }; }],
+    ['unassessed recovery source', (value: DeepReadSelectionAudit) => { value.candidates[3].judgment = { kind: 'unassessed' }; }],
     ['oversized audit', (value: DeepReadSelectionAudit) => { value.withheldCandidateCount = DEEP_READ_AUDIT_LIMIT; }],
   ])('withholds malformed diagnostics: %s', (_label, change) => {
     const value = fixture(); change(value);

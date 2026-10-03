@@ -53,7 +53,9 @@ export function parseDeepReadSelectionAudit(value: unknown, sources: readonly { 
     if (row.plan.kind === 'not_selected') plan = { kind: 'not_selected' };
     else if (row.plan.kind === 'selected' && typeof row.plan.position === 'number' && Number.isSafeInteger(row.plan.position)
       && row.plan.position >= 1 && row.plan.position <= MAX_DEEP_READ_PAGES && !positions.has(row.plan.position) && reason(row.plan.reason)) {
-      if (judgment.kind === 'unassessed') return null;
+      // Existing acquisition can select a dated core without Jev, or an
+      // unassessed google_news priority. Other planned roles depend on judgment.
+      if (judgment.kind === 'unassessed' && row.plan.reason !== 'core_anchor' && row.plan.reason !== 'current_reporting') return null;
       plan = { kind: 'selected', position: row.plan.position, reason: row.plan.reason }; positions.add(plan.position);
     } else return null;
     ids.add(row.evidenceId); candidates.push({ evidenceId: row.evidenceId, sourceUrl, judgment, historicalMediaCue: row.historicalMediaCue, factCheckWinner: row.factCheckWinner, plan });

@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { localResearchService } from '../../research/service';
 import { parseResearchCaseView } from '../../research/client';
 import { parseSavedVideoReport, savedVideoView } from '../../research/saved-video';
+import { parseAutomaticResearchResult } from '../../research/automatic-client';
 
 const factUrl = 'https://fact.example/article';
 const alternateUrl = 'https://alternate.example/article';
@@ -20,7 +21,7 @@ const originalUrl = 'https://original.example/video?id=2015';
 const prose = 'Retrieved alternate passage describes a historical video without verifying the submitted media. '.repeat(25);
 const article = (url: string, linked = false) => `<html><head><title>Retrieved source</title><script type="application/ld+json">${JSON.stringify({ '@type': 'Article', url, datePublished: '2015-02-01' })}</script></head><body><article><p>${prose}</p>${linked ? `<p>The original video appeared in 2015. <a href="${originalUrl}">Earlier post</a></p>` : ''}</article></body></html>`;
 
-async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', options: { link?: boolean; deadline?: boolean; abort?: boolean; weaker?: boolean; plannedHistory?: boolean } = {}) {
+async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', options: { link?: boolean; deadline?: boolean; abort?: boolean; weaker?: boolean; plannedHistory?: boolean; jevAvailability?: 'unavailable' | 'failed' } = {}) {
   let now = Date.parse('2026-10-03T00:00:00Z');
   const controller = new AbortController();
   const searches: string[] = [], fetches: string[] = [], asks: string[] = [];
@@ -34,11 +35,16 @@ async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', 
         { position: 2, title: 'Alternate fact-check: earlier video in 2015', link: alternateUrl },
       ] };
       if (params.engine === 'google_news') return { news_results: [{ position: 1, title: 'Current reporting', link: reportingUrl }] };
+      // A separate web result supplies a date to the same canonical exact
+      // occurrence through production dedupe/date consolidation. Lens exact
+      // metadata itself carries no provider date in the normalizer.
+      if (params.engine === 'google' && options.jevAvailability) return { organic_results: [{ position: 1, title: 'Core 0', link: coreUrls[0], date: '2020-01-01' }] };
       return {};
     },
   };
   const jev = new JevClient({ apiKey: 'offline-only', fetchImpl: async (_url, init) => {
     const input = String(init?.body); asks.push(input);
+    if (options.jevAvailability === 'failed') throw new Error('Controlled unavailable model response');
     const alternate = input.includes('Alternate fact-check');
     const frozen = input.includes('Frozen fact-check');
     const refined = alternate && input.includes('Retrieved alternate passage');
@@ -54,7 +60,7 @@ async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', 
   } });
   const events: InvestigationEvent[] = [];
   await runInvestigation({ media: new Uint8Array([1]), claim: 'This video shows a current event', timezone: 'UTC', locale: 'en' }, event => events.push(event), {
-    serpapi, jev, now: () => now, signal: controller.signal,
+    serpapi, jev: options.jevAvailability === 'unavailable' ? null : jev, now: () => now, signal: controller.signal,
     fetchPage: async url => {
       fetches.push(url);
       if (url === factUrl) {
@@ -74,6 +80,37 @@ async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', 
 }
 
 describe('bounded adaptive final fact-check read (synthetic offline sources)', () => {
+  it.each(['unavailable', 'failed'] as const)('retains valid unassessed anchor/reporting selection through live projection, save and legacy reopen after Jev is %s', async availability => {
+    const { terminal, fetches, asks } = await investigate('empty', { jevAvailability: availability });
+    expect(fetches).toEqual([coreUrls[0], reportingUrl]);
+    expect(fetches).not.toContain(alternateUrl);
+    if (terminal?.type !== 'investigation.completed' || !terminal.result.caseRecord) throw new Error('Missing completed case');
+    const result = { kind: 'video', question: 'Claim: This video shows a current event', caseRecord: terminal.result.caseRecord,
+      frames: [{ timestampMs: 0, imageResult: terminal.result }], limitations: [], assessments: [] };
+    const projected = parseAutomaticResearchResult(result).frames[0].imageResult.readSelectionAudit;
+    expect(projected?.candidates.filter(row => row.plan.kind === 'selected')).toMatchObject([
+      { sourceUrl: coreUrls[0], judgment: { kind: 'unassessed' }, plan: { reason: 'core_anchor', position: 1 } },
+      { sourceUrl: reportingUrl, judgment: { kind: 'unassessed' }, plan: { reason: 'current_reporting', position: 2 } },
+    ]);
+    expect(projected?.finalDecision).toEqual({ kind: 'no_final_page' });
+    expect(terminal.result.mode === 'claim_check' && terminal.result.status).toBe('INSUFFICIENT_EVIDENCE');
+    if (availability === 'unavailable') expect(asks).toHaveLength(0);
+    const directory = await mkdtemp(join(tmpdir(), 'ct-unassessed-read-save-'));
+    const counts = [fetches.length, asks.length];
+    try {
+      const report = parseSavedVideoReport({ schemaVersion: 'contexttrail-video-report-v1', result });
+      await localResearchService(directory).apply({ kind: 'import_case', operationId: 'save', question: result.question, createdAt: result.caseRecord.createdAt, caseRecord: result.caseRecord, videoReport: report });
+      const reopened = parseResearchCaseView(await localResearchService(directory).get(result.caseRecord.id));
+      expect(reopened.videoReportStatus).toBe('current');
+      if (!reopened.videoReport) throw new Error('Lost original report');
+      expect(savedVideoView(reopened.videoReport).frames[0].imageResult.readSelectionAudit).toEqual(projected);
+      expect(reopened.videoReport.result).toEqual(result);
+      expect([fetches.length, asks.length]).toEqual(counts);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+    const legacy = structuredClone(result);
+    if (legacy.frames[0].imageResult.sourceLinkedReport) delete legacy.frames[0].imageResult.sourceLinkedReport.readSelectionAudit;
+    expect(savedVideoView(parseSavedVideoReport({ schemaVersion: 'contexttrail-video-report-v1', result: legacy })).frames[0].imageResult.readSelectionAudit).toBeNull();
+  });
   it.each(['empty', 'failed', 'rejected'] as const)('uses the tied-role historical alternative after a %s frozen fact-check read', async outcome => {
     const { terminal, fetches, searches, events } = await investigate(outcome);
     expect(fetches).toHaveLength(5);
