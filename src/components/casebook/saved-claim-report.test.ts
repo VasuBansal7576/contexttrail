@@ -14,15 +14,38 @@ vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAn
 let root: Root, container: HTMLDivElement;
 beforeEach(() => { vi.stubGlobal('React', React); vi.stubGlobal('crypto', webcrypto); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.mocked(listResearchCases).mockResolvedValue({ cases: [], warnings: [] }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
-function fixture() {
+function fixture(text = 'Original retained text.') {
   const question = 'What is in the record?';
   const record = inquiryCase(researchWorkflow({ kind: 'start', operationId: 'source', question, createdAt: '2026-10-01T00:00:00Z' }).document.workspace);
-  record.evidence = [{ id: 'e1', sourceUrl: 'https://example.com/record', title: 'Original source', content: { kind: 'text', text: 'Original retained text.', attribution: 'page_quote' }, publicationDate: { status: 'unknown', reason: 'No known date' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'public_reference', retention: 'reference_only', contentHash: null } }];
+  record.evidence = [{ id: 'e1', sourceUrl: 'https://example.com/record', title: 'Original source', content: { kind: 'text', text, attribution: 'page_quote' }, publicationDate: { status: 'unknown', reason: 'No known date' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'public_reference', retention: 'reference_only', contentHash: null } }];
   record.coverage.limitations = ['Primary-source coverage has not been independently established.', 'Source 3 could not be read; its original search lead remains.', 'Source 5 led to an unrelated destination; destination text and dates were not used.', 'Some relevance assessments were unavailable; those sources remain unassessed leads.'];
   const claimReport = buildClaimReport(question, record, [assessClaimSource(record.evidence[0], null, null)]);
   const saved = researchWorkflow({ kind: 'import_case', operationId: 'save', question, createdAt: record.createdAt, caseRecord: record, claimReport });
   return { question, record, claimReport, saved };
 }
+it.each(['current', 'stale', 'legacy'])('selects a clean saved %s passage without rewriting the original report or snapshot', async status => {
+  const prefix = 'PostLog inSign upPostLog inSign up';
+  const body = 'Synthetic publisher: “The agency described the current launch programme and its commercial partners.”';
+  const f = fixture(prefix + body);
+  const { claimReportCase: _snapshot, claimReportCaseOrigin: _origin, ...legacyDocument } = f.saved.document;
+  const saved = status === 'current' ? f.saved : status === 'legacy' ? { ...f.saved, document: legacyDocument } : researchWorkflow({ kind: 'update', document: f.saved.document, operationId: 'correct', expectedRevision: 1, change: { kind: 'evidence', value: { ...f.record.evidence[0], sourceUrl: 'https://corrected.example.org/record', title: 'Corrected source', content: { kind: 'text', text: 'Corrected current passage.', attribution: 'page_quote' } }, assets: [] } });
+  const before = JSON.stringify(saved.document);
+  const view = parseResearchCaseView(saved);
+  expect(view.reportStatus).toBe(status === 'stale' ? 'stale' : 'current');
+  vi.mocked(getResearchCase).mockResolvedValue(view);
+  await act(async () => root.render(React.createElement(Casebook)));
+  const report = container.querySelector('[aria-label="Saved grounded report"]');
+  expect(report?.querySelector('blockquote')?.textContent).toBe(body);
+  expect(report?.textContent).toContain(`characters ${prefix.length}–${prefix.length + body.length}`);
+  expect(report?.textContent).toContain('Model assessment applies to the full retained excerpt');
+  expect(report?.querySelector('details.claim-original-excerpt')?.textContent).toContain(prefix + body);
+  expect(report?.querySelector('a[href="https://example.com/record"]')).not.toBeNull();
+  expect(report?.querySelector('a[href="https://corrected.example.org/record"]')).toBeNull();
+  expect(view.claimReport).toEqual(f.claimReport);
+  expect(view.claimReportCase).toEqual(f.record);
+  expect(JSON.stringify(saved.document)).toBe(before);
+  expect(importResearchCase).not.toHaveBeenCalled();
+});
 it('shows retained investigation warnings beside a reopened report, independent of mutable current coverage', async () => {
   const f = fixture();
   f.saved.document.workspace.collection.cases[0].coverage.limitations = ['Current case coverage changed later.'];

@@ -148,6 +148,27 @@ it('renders source-quoted candidates with unknown scope and no invented user ass
   expect(container.textContent).not.toContain('User assertion to investigate');
 });
 
+it('displays a clean exact span while retaining the original assessed excerpt and probabilities', async () => {
+  const prefix = 'PostLog inSign upPostLog inSign up';
+  const body = 'Synthetic publisher: “The agency described its current launch programme and the role of commercial partners.”';
+  const evidence = { ...result.caseRecord.evidence[0], content: { kind: 'text' as const, attribution: 'page_quote' as const, text: prefix + body } };
+  const record = { ...result.caseRecord, evidence: [evidence] };
+  const report = buildClaimReport(result.question, record, [assessClaimSource(evidence, null, {
+    model: 'jev-1.13.0', identity: { requested: 'jev-1.13.0', reported: 'jev-1.13.0', status: 'verified', pinned: true },
+    answers: { relevance: { type: 'noul', noul: 0.84 }, relation: { type: 'choice', choice: 'insufficient', probabilities: { support: 0.02, challenge: 0.02, context: 0.12, insufficient: 0.84 } } },
+  })]);
+  const before = structuredClone({ record, report });
+  await act(async () => root.render(React.createElement(AutomaticResult, { result: { ...result, caseRecord: record, claimReport: report } })));
+  expect(container.querySelector('blockquote')?.textContent).toBe(body);
+  expect(container.textContent).toContain(`characters ${prefix.length}–${prefix.length + body.length}`);
+  expect(container.textContent).toContain('Model assessment applies to the full retained excerpt');
+  const original = container.querySelector('details.claim-original-excerpt');
+  expect(original?.textContent).toContain(prefix + body);
+  expect(container.textContent).toContain('Insufficient evidence');
+  expect(container.textContent).toContain('0.84');
+  expect({ record, report }).toEqual(before);
+});
+
 it('keeps exact model probabilities, user claim, scope and source disagreements visible', async () => {
   const question = 'Claim: This hotel is closed during 2026.';
   const first = { ...result.caseRecord.evidence[0], content: { kind: 'text' as const, attribution: 'page_quote' as const, text: 'The hotel is closed during 2026.' } };

@@ -2,6 +2,7 @@
 import { EvidenceCollection, EvidencePassage, SourceActions, safeSourceUrl } from './EvidenceCollection';
 import type { CaseRecord } from '@/lib/cases/model';
 import type { ClaimReport, ClaimSourceAssessment } from '@/lib/research/claim-report';
+import { selectClaimQuotePassage } from '@/lib/research/claim-quote-passage';
 
 const relationLabels = { support: 'Supporting excerpt', challenge: 'Challenging excerpt', context: 'Context only', insufficient: 'Insufficient evidence' } satisfies Record<ClaimSourceAssessment['relation'], string>;
 
@@ -18,11 +19,13 @@ export function ClaimReportView({ report, caseRecord }: { report: ClaimReport; c
     <p className="fine-print">Excerpt relationships are model assessments. Independent corroboration is not established. No overall truth, credibility, authenticity or original-author verdict is produced.</p>
     <div className="claim-report-sources">{report.sources.length ? <EvidenceCollection items={report.sources} label="Source assessments">{source => {
       const evidence = caseRecord.evidence.find(item => item.id === source.evidenceId);
+      const passage = selectClaimQuotePassage(source.quote, evidence);
       return <article className="source-card claim-report-source" key={source.evidenceId}>
         <p className="eyebrow">{relationLabels[source.relation]}</p>
         <details className="source-inspection"><summary><h4>{evidence?.title ?? "Untitled source"}</h4><span className="text-link">Inspect assessment and retained quote</span></summary>
-        {source.candidateAssertion ? <p className="fine-print">Source-quoted candidate assertion</p> : <p className="fine-print">Retained source excerpt</p>}
-        {source.quote ? <><blockquote><EvidencePassage text={source.quote.text} /></blockquote><p className="fine-print">{source.quote.attribution.replaceAll('_', ' ')} · Exact retained text, characters {source.quote.start}–{source.quote.end}. Matching these words establishes the quotation, not its truth.</p></> : <p className="fine-print">No exact source quote is available.</p>}
+        {source.candidateAssertion && passage.quote ? <p className="fine-print">Source-quoted candidate assertion</p> : <p className="fine-print">Retained source excerpt</p>}
+        {passage.quote ? <><blockquote><EvidencePassage text={passage.quote.text} /></blockquote><p className="fine-print">{passage.quote.attribution.replaceAll('_', ' ')} · Exact retained text, characters {passage.quote.start}–{passage.quote.end}. Matching these words establishes the quotation, not its truth.</p></> : <p className="fine-print">{passage.kind === 'navigation_only' ? 'Only recognizable navigation text remains; the original excerpt is retained as a lead.' : 'No exact source quote is available.'}</p>}
+        {passage.original ? <><p className="fine-print">{passage.kind === 'selected' ? 'Recognizable navigation text was omitted from this displayed passage. ' : ''}Model assessment applies to the full retained excerpt, not an independently assessed passage.</p><details className="claim-original-excerpt"><summary>Inspect full retained excerpt and model input</summary><EvidencePassage text={passage.original.text} /><p className="fine-print">{passage.original.attribution.replaceAll('_', ' ')} · Exact retained text, characters {passage.original.start}–{passage.original.end}.</p></details></> : null}
         <dl className="claim-report-scope"><div><dt>Entity / property</dt><dd>{source.scope.entityProperty}</dd></div><div><dt>Time</dt><dd>{source.scope.time}</dd></div><div><dt>Variant / location / population</dt><dd>{source.scope.variant}</dd></div></dl>
         <p className="fine-print">Retrieved: {evidence?.provenance.retrievedAt ?? 'Unknown'} · Method: {evidence?.provenance.method.replaceAll('_', ' ') ?? 'Unknown'}</p>
         <ul className="fine-print">{source.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
