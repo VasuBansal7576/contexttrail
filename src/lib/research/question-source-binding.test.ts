@@ -89,7 +89,7 @@ it('persists source-read audit on save/reload, keeps old cases valid and rejects
     const reopened = await localResearchService(directory).get(result.caseRecord.id);
     expect(inquiryCase(reopened.document.workspace).coverage.sourceReads).toEqual(result.caseRecord.coverage.sourceReads);
     expect(inquiryCase(reopened.document.workspace).evidence).toEqual(result.caseRecord.evidence);
-    const legacy = structuredClone(result.caseRecord); delete legacy.coverage.sourceReads;
+    const legacy = structuredClone(result.caseRecord); delete legacy.coverage.sourceReads; delete legacy.coverage.topicCandidateAudit;
     expect(parseCaseRecord(legacy)).toEqual(legacy);
     for (const row of [
       { ...result.caseRecord.coverage.sourceReads?.[0], finalUrl: 'https://different.example/?access_token=private' },

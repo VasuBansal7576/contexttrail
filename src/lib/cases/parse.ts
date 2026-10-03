@@ -5,6 +5,7 @@ import {
   type SourcedDate, type TextClaim,
 } from './model';
 import { safeReferenceParameters } from '../pages/source-reference-policy';
+import { parseTopicCandidateAudit } from './topic-candidate-audit';
 
 export class CaseValidationError extends Error {
   constructor(readonly path: string, message: string) {
@@ -190,6 +191,10 @@ export function parseCaseRecord(value: unknown): CaseRecord {
       }) }),
     },
   };
+  if (coverage.topicCandidateAudit !== undefined) {
+    try { result.coverage.topicCandidateAudit = parseTopicCandidateAudit(coverage.topicCandidateAudit, result.coverage.searches, result.coverage.sourceReads); }
+    catch { fail('case.coverage.topicCandidateAudit', 'invalid bounded topic candidate audit'); }
+  }
   const unique = <T extends { id: string }>(items: T[], path: string) => {
     const map = new Map<string, T>();
     for (const item of items) {

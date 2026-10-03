@@ -7,6 +7,7 @@ import { investigateAutomatically, type AutomaticResearchView, type AutomaticFra
 import { formatTimestamp } from '@/lib/video/matching/client';
 import { CasebookShell, ChapterHeading } from './CasebookShell';
 import { ClaimReportView } from './ClaimReportView';
+import { TopicCandidateAuditView } from './TopicCandidateAuditView';
 import { CaptionFindings } from './CaptionFindings';
 import { EvidenceCollection, EvidencePassage, SourceActions } from './EvidenceCollection';
 import SaveToCasebook from './SaveToCasebook';
@@ -63,6 +64,7 @@ export function AutomaticResult({ result, saved = false }: { result: AutomaticRe
     <div className="sheet-topline"><p className="eyebrow">Retrieved evidence / {result.kind}</p><span className="state-label">{result.caseRecord.coverage.completeness} coverage</span></div>
     <p className="eyebrow">Research question or input</p>
     <h2 id="research-result-title">{result.question}</h2>
+    {result.kind === 'topic' ? <TopicCandidateAuditView audit={result.caseRecord.coverage.topicCandidateAudit} /> : null}
     {result.claimReport ? <><ClaimReportView report={result.claimReport} caseRecord={result.caseRecord} />{!saved ? <SaveToCasebook value={result.caseRecord} question={result.question} claimReport={result.claimReport} /> : null}</> : null}
     {!saved && result.kind === 'video' && result.retainedResult ? <SaveToCasebook value={result.caseRecord} question={result.question} videoReport={{ schemaVersion: 'contexttrail-video-report-v1', result: result.retainedResult }} /> : null}
     {result.frames.map((frame, index) => frame.imageResult.captionComparison ? <div key={index}><CaptionComparison comparison={frame.imageResult.captionComparison} /><CaptionFindings view={frame.imageResult.captionFindings} /></div> : null)}
