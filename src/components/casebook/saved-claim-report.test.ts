@@ -18,10 +18,20 @@ function fixture() {
   const question = 'What is in the record?';
   const record = inquiryCase(researchWorkflow({ kind: 'start', operationId: 'source', question, createdAt: '2026-10-01T00:00:00Z' }).document.workspace);
   record.evidence = [{ id: 'e1', sourceUrl: 'https://example.com/record', title: 'Original source', content: { kind: 'text', text: 'Original retained text.', attribution: 'page_quote' }, publicationDate: { status: 'unknown', reason: 'No known date' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'public_reference', retention: 'reference_only', contentHash: null } }];
+  record.coverage.limitations = ['Primary-source coverage has not been independently established.', 'Source 3 could not be read; its original search lead remains.', 'Source 5 led to an unrelated destination; destination text and dates were not used.', 'Some relevance assessments were unavailable; those sources remain unassessed leads.'];
   const claimReport = buildClaimReport(question, record, [assessClaimSource(record.evidence[0], null, null)]);
   const saved = researchWorkflow({ kind: 'import_case', operationId: 'save', question, createdAt: record.createdAt, caseRecord: record, claimReport });
   return { question, record, claimReport, saved };
 }
+it('shows retained investigation warnings beside a reopened report, independent of mutable current coverage', async () => {
+  const f = fixture();
+  f.saved.document.workspace.collection.cases[0].coverage.limitations = ['Current case coverage changed later.'];
+  vi.mocked(getResearchCase).mockResolvedValue(parseResearchCaseView(f.saved));
+  await act(async () => root.render(React.createElement(Casebook)));
+  const report = container.querySelector('[aria-label="Saved grounded report"]');
+  for (const warning of f.record.coverage.limitations) expect(report?.textContent).toContain(warning);
+  expect(report?.textContent).not.toContain('Current case coverage changed later.');
+});
 it('Save report sends the exact grounded report through the existing import path', async () => {
   const f = fixture(); vi.mocked(importResearchCase).mockResolvedValue(parseResearchCaseView(f.saved));
   await act(async () => root.render(React.createElement(SaveToCasebook, { value: f.record, question: f.question, claimReport: f.claimReport })));
@@ -39,10 +49,47 @@ it('reopened corrected cases show needs review with original report collapsed as
   const report = container.querySelector('[aria-label="Saved grounded report"]');
   expect(report?.textContent).toContain('Needs review');
   expect(report?.textContent).toContain('historical record');
-  const details = report?.querySelector('details');
+  const details = report?.querySelector<HTMLDetailsElement>('.saved-original-report');
   expect(details?.open).toBe(false);
   expect(details?.textContent).toContain('Original retained text.');
+  const coverage = report?.querySelector('[aria-label="Saved investigation coverage"]');
+  expect(coverage?.closest('details')).toBeNull();
+  expect(coverage?.textContent).toContain('original historical report');
+  expect(coverage?.textContent).toContain(f.record.coverage.limitations[0]);
   expect(container.textContent).toContain('Corrected retained text.');
+});
+it('does not claim original coverage for an older report with no retained snapshot', async () => {
+  const f = fixture(); delete f.saved.document.claimReportCase; delete f.saved.document.claimReportCaseOrigin;
+  vi.mocked(getResearchCase).mockResolvedValue(parseResearchCaseView(f.saved));
+  await act(async () => root.render(React.createElement(Casebook)));
+  const coverage = container.querySelector('[aria-label="Saved investigation coverage"]');
+  expect(coverage?.textContent).toContain('original investigation coverage snapshot was not retained');
+  expect(coverage?.textContent).not.toContain(f.record.coverage.limitations[0]);
+  expect(container.textContent).toContain('Source-quoted candidate assertion');
+});
+it('labels absent limitation text and read audit without implying complete or successful coverage', async () => {
+  const f = fixture();
+  if (!f.saved.document.claimReportCase) throw new Error('Missing fixture snapshot');
+  f.saved.document.claimReportCase.coverage.limitations = [];
+  vi.mocked(getResearchCase).mockResolvedValue(parseResearchCaseView(f.saved));
+  await act(async () => root.render(React.createElement(Casebook)));
+  const coverage = container.querySelector('[aria-label="Saved investigation coverage"]');
+  expect(coverage?.textContent).toContain('No investigation-wide limitation text was retained');
+  expect(coverage?.textContent).toContain('Missing audit metadata does not establish successful reads');
+});
+it('shows known failed and rejected reads even when limitation prose is absent', async () => {
+  const f = fixture(); if (!f.saved.document.claimReportCase) throw new Error('Missing fixture snapshot');
+  f.saved.document.claimReportCase.coverage.limitations = [];
+  f.saved.document.claimReportCase.coverage.sourceReads = [
+    { evidenceId: 'e1', requestedUrl: 'https://example.com/record', finalUrl: null, sourceBinding: 'not_established', outcome: 'fetch_failed' },
+    { evidenceId: 'e2', requestedUrl: 'https://example.com/other', finalUrl: 'https://example.com/login', sourceBinding: 'blocked_destination', outcome: 'binding_rejected' },
+  ];
+  vi.mocked(getResearchCase).mockResolvedValue(parseResearchCaseView(f.saved));
+  await act(async () => root.render(React.createElement(Casebook)));
+  const coverage = container.querySelector('[aria-label="Saved investigation coverage"]');
+  expect(coverage?.textContent).toContain('Failed reads: 1');
+  expect(coverage?.textContent).toContain('Rejected destinations: 1');
+  expect(coverage?.textContent).toContain('do not establish complete coverage');
 });
 it('shows recovery warnings without hiding the readable saved case', async () => {
   const f = fixture();

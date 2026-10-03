@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { assessClaimSource, buildClaimReport } from './claim-report';
 import { localResearchService } from './service';
-import { inquiryCase, researchWorkflow } from './workflow';
+import { inquiryCase, researchWorkflow, parseResearchDocument } from './workflow';
 import { parseResearchCaseView } from './client';
 import type { CaseEvidence } from '../cases/model';
 const dirs: string[] = [];
@@ -33,6 +33,67 @@ it('saves and reopens the exact grounded report without changing existing v1 con
   expect(view.caseRecord).toEqual(request.caseRecord);
   expect(saved.document.schemaVersion).toBe('contexttrail-research-v1');
   expect(view.claimReportCase).toEqual(request.caseRecord);
+  expect(view.claimReportCaseOrigin).toBe('retained_snapshot');
+});
+it('keeps missing original coverage provenance sticky through legacy corrections, replay and revert without rewriting reads', async () => {
+  const { dir, service, request } = await setup();
+  const initial = await service.apply(request), legacy = structuredClone(initial.document);
+  delete legacy.claimReportCase; delete legacy.claimReportCaseOrigin;
+  const file = join(dir, (await readdir(dir))[0]);
+  await writeFile(file, JSON.stringify(legacy));
+  const bytes = await readFile(file, 'utf8');
+  const reopened = parseResearchCaseView(await service.get(request.caseRecord.id));
+  expect(reopened.claimReportCaseOrigin).toBe('legacy_fallback');
+  expect(reopened.claimReport).toEqual(request.claimReport);
+  await service.list(); expect(await readFile(file, 'utf8')).toBe(bytes);
+  const changed = await service.apply({ kind: 'update', caseId: request.caseRecord.id, operationId: 'legacy-correct', expectedRevision: 1, change: { kind: 'evidence', value: { ...request.caseRecord.evidence[0], title: 'Corrected legacy source' }, assets: [] } });
+  expect(changed.reportStatus).toBe('stale');
+  expect(changed.document.claimReportCaseOrigin).toBe('legacy_fallback');
+  expect(changed.document.claimReportCase?.evidence[0].title).toBe('Original source');
+  expect((await service.apply(request)).document).toEqual(changed.document);
+  const reverted = await service.apply({ kind: 'update', caseId: request.caseRecord.id, operationId: 'legacy-revert', expectedRevision: 2, change: { kind: 'evidence', value: request.caseRecord.evidence[0], assets: [] } });
+  const after = parseResearchCaseView(await localResearchService(dir).get(request.caseRecord.id));
+  expect(after.reportStatus).toBe('stale');
+  expect(after.claimReportCaseOrigin).toBe('legacy_fallback');
+  expect(after.claimReport).toEqual(request.claimReport);
+  expect(reverted.document.applied[0]).toEqual(legacy.applied[0]);
+});
+it('rejects malformed, orphan and falsely retained coverage provenance at server and browser boundaries', () => {
+  const original = researchWorkflow(input());
+  const { claimReportCase: _snapshot, ...withoutSnapshot } = original.document;
+  const noReport = researchWorkflow({ kind: 'start', operationId: 'empty', question: 'What changed?', createdAt: '2026-10-01T00:00:00Z' });
+  const malformed = [
+    { ...original.document, claimReportCaseOrigin: 'invented' },
+    { ...original.document, claimReportCaseOrigin: null },
+    { ...withoutSnapshot, claimReportCaseOrigin: 'retained_snapshot' },
+    { ...original.document, claimReportCase: null },
+    { ...noReport.document, claimReportCaseOrigin: 'legacy_fallback' },
+  ];
+  for (const document of malformed) {
+    expect(() => parseResearchDocument(document)).toThrow();
+    expect(() => parseResearchCaseView({ ...original, document })).toThrow();
+  }
+});
+it('treats a historical null snapshot like absent original coverage while retaining fallback evidence', () => {
+  const original = researchWorkflow(input());
+  const { claimReportCaseOrigin: _origin, ...legacy } = original.document;
+  const read = researchWorkflow({ kind: 'read', document: { ...legacy, claimReportCase: null } });
+  expect(read.document.claimReportCaseOrigin).toBe('legacy_fallback');
+  expect(parseResearchCaseView(read).claimReportCaseOrigin).toBe('legacy_fallback');
+  expect(read.document.claimReport).toEqual(original.document.claimReport);
+  expect(read.document.claimReportCase).toEqual(original.document.claimReportCase);
+});
+it('preserves legacy coverage absence through retained material changes', async () => {
+  const { dir, service, request } = await setup();
+  request.caseRecord.evidence[0].content = { kind: 'reference' };
+  request.claimReport = buildClaimReport(request.question, request.caseRecord, [assessClaimSource(request.caseRecord.evidence[0], 'The supplied sample is historical.', null)]);
+  const initial = await service.apply(request), legacy = structuredClone(initial.document);
+  delete legacy.claimReportCase; delete legacy.claimReportCaseOrigin;
+  await writeFile(join(dir, (await readdir(dir))[0]), JSON.stringify(legacy));
+  const updated = await service.apply({ kind: 'update', caseId: request.caseRecord.id, operationId: 'legacy-material', expectedRevision: 1, change: { kind: 'material', value: { kind: 'retain', material: { materialId: 'legacy-table', revision: 1, evidenceId: 'source-one', evidenceDigest: initial.anchorSources[0].evidenceDigest, capturedAt: request.createdAt, rights: 'user_provided', content: { kind: 'table', columns: ['Year'], rows: [['2026']] } } } } });
+  expect(updated.reportStatus).toBe('stale');
+  expect(parseResearchCaseView(await service.get(request.caseRecord.id)).claimReportCaseOrigin).toBe('legacy_fallback');
+  expect(updated.document.claimReport).toEqual(request.claimReport);
 });
 it('keeps historical assessments after evidence correction and repeated import preserves the correction', async () => {
   const { dir, service, request } = await setup();

@@ -10,6 +10,7 @@ import { CasebookShell, ChapterHeading } from "./CasebookShell";
 import PaperDialog from "./PaperDialog";
 import EvidenceEditor, { newId, type SaveEvidence } from "./EvidenceEditor";
 import { ClaimReportView } from "./ClaimReportView";
+import { SavedInvestigationCoverage } from './SavedInvestigationCoverage';
 import { ComparisonResult } from "./VideoCompare";
 import EvidenceDetail, { currentMaterial } from "./EvidenceDetail";
 import { EvidenceCollection, EvidencePassage, SourceActions } from "./EvidenceCollection";
@@ -133,7 +134,8 @@ function CaseWorkspace({ initialView, chapter, onReload }: { initialView: Resear
           <div className="button-row"><Link className="paper-button primary" href={`/casebook?case=${encodeURIComponent(view.caseId)}&chapter=evidence`}>Work with the evidence</Link></div>
         </section></> : null}
       {(chapter === "evidence" || chapter === "changes") && view.claimReport && view.claimReportCase ? <section aria-label="Saved grounded report">
-        {view.reportStatus === "stale" ? <><p className="error-note" role="status">Needs review: evidence, retained material, the claim, or report presentation rules have changed since this report was saved. The original report is preserved as a historical record; review it before using its assessments.</p><details><summary>Inspect the original report and its original evidence</summary><ClaimReportView report={view.claimReport} caseRecord={view.claimReportCase} /></details></> : <><p className="fine-print">Saved report · exact retained evidence · no new retrieval or model assessment on reopen</p><ClaimReportView report={view.claimReport} caseRecord={view.caseRecord} /></>}
+        <SavedInvestigationCoverage snapshot={view.claimReportCaseOrigin === 'retained_snapshot' ? view.claimReportCase : null} historical={view.reportStatus === 'stale'} />
+        {view.reportStatus === "stale" ? <><p className="error-note" role="status">Needs review: evidence, retained material, the claim, or report presentation rules have changed since this report was saved. The original report is preserved as a historical record; review it before using its assessments.</p><details className="saved-original-report"><summary>Inspect the original report and its original evidence</summary><ClaimReportView report={view.claimReport} caseRecord={view.claimReportCase} /></details></> : <><p className="fine-print">Saved report · exact retained evidence · no new retrieval or model assessment on reopen</p><ClaimReportView report={view.claimReport} caseRecord={view.claimReportCase} /></>}
       </section> : null}
       {(chapter === "evidence" || chapter === "changes") && view.videoReport ? <section aria-label="Saved video report">
         <p className={view.videoReportStatus === "stale" ? "error-note" : "fine-print"} role="status">{view.videoReportStatus === "stale" ? "Needs review: sources or retained materials have changed. This original sampled-frame report is preserved with its original evidence and has not been reassessed." : "Saved sampled-frame report and exact evidence. Reopening makes no retrieval or model requests."}</p>
