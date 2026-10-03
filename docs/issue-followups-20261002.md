@@ -167,13 +167,18 @@ Recognized structured story media must bind to the fetched page, a unique origin
 card and the nearest retained supporting paragraph. Script index and JSON pointer
 identify the explicit URL. Bounds, source ownership and conservative identity/date
 gates remain in force. Independent review caught historical support borrowed from
-an earlier paragraph; that case now uses only the nearest paragraph. A separately
-inspected publisher response yields nine inspectable references after the fix. It has
+an earlier paragraph; that case now uses only the nearest paragraph. Built-in review
+also caught premature link-cap application and ambiguous ownership after a truncated
+scan. Bounded items now reach the shared deduplication/retention policy, and incomplete
+ownership scans decline structured references. The separately inspected full publisher
+response yields seven DOM references, including a historical lead. Its structured
+references are withheld because the ownership scan is incomplete. Complete supported
+documents still expose explicit structured references. The inspected response has
 1,671 readable characters and is distinct from the original live capture. References
 without a historical cue receive no historical priority; no particular video URL or
 answer is promoted.
 
-The combined code passed 1,451 tests with 17 intentional skips across 86 files,
+The combined code passed 1,462 tests with 17 intentional skips across 86 files,
 typechecking, a production build and all eight reference plus two topic-binding
 offline coverage controls. Production Chrome checked the final topic-audit code
 with six synthetic completed research/save flows and 54 live/open/reload observations
