@@ -2,6 +2,7 @@
 import { investigateTopic, type AutomaticResearchDeps } from '../../../src/lib/research/automatic';
 import { JevClient, JEV_MODEL } from '../../../src/lib/jev/client';
 import { TOPIC_REFERENCES, type TopicReference } from './references';
+import { measureTopicBinding } from './binding';
 
 export type ReferenceCondition = 'available' | 'secondary_only' | 'unsafe' | 'read_failed' | 'wrong_resource' | 'no_quote';
 function page(title: string, passage: string, reference?: TopicReference): string {
@@ -83,5 +84,9 @@ export async function runTopicCoverageBenchmark() {
   return { benchmark: 'topic-coverage-v1', basis: 'offline_controlled_synthetic', references: TOPIC_REFERENCES,
     observedLiveTrial: { question: TOPIC_REFERENCES[0]?.question, source: 'issue-30-recorded-audit', primaryRetained: false,
       omittedPool: 'unknown_not_captured', providerVariability: 'not_measured', freshLiveAcceptance: 'not_authorized_or_performed' },
-    measurements: measurements.map(({ result: _result, ...measurement }) => measurement) };
+    measurements: measurements.map(({ result: _result, ...measurement }) => measurement),
+    topicBindingControls: await Promise.all([false, true].map(async failed => {
+      const { result: _result, reads: _reads, ...measurement } = await measureTopicBinding(failed);
+      return measurement;
+    })) };
 }

@@ -1,9 +1,8 @@
 /** Controlled candidate pools, not reconstructed unretained live search results. */
 import { describe, expect, it } from 'vitest';
 import { normalizeSearchResponse } from '../serpapi/normalize';
-import { JevClient, JEV_MODEL } from '../jev/client';
-import { investigateTopic, type AutomaticResearchDeps } from './automatic';
 import { selectTopicSources, type TopicCandidate } from './topic-selection';
+import { measureTopicBinding } from '../../../scripts/fixtures/topic-coverage/binding';
 
 type Lead = { title?: string; snippet?: string; link?: string };
 function entries(groups: Lead[][]): TopicCandidate[] {
@@ -19,6 +18,22 @@ const unrelated: Lead[] = [
 ];
 
 describe('topic binding before bounded admission and page reads', () => {
+  it.each([false, true])('measures the synthetic high-ranked zero-overlap pool with first-search-unavailable=%s through the actual bounded pipeline', async unavailable => {
+    const measured = await measureTopicBinding(unavailable);
+    expect(measured.actual).toMatchObject({ searches: 3, uploads: 0, requests: 8, questions: 40, sources: 8, pageReads: 5, zeroOverlapReadCount: 0, broadQuestionMode: 'source_assertions' });
+    expect(measured.actual.retainedBySearch).toEqual(unavailable ? [0, 4, 4] : [3, 3, 2]);
+    expect(measured.actual.queries).toEqual([topic, topic, `${topic} statement clarification counterevidence correction`]);
+    expect(measured.actual.readCandidateTitles.every(title => title?.includes('Agency Meridian'))).toBe(true);
+    expect(measured.actual.outcomes).toEqual(['fetch_failed', 'binding_rejected', 'page_quote', 'page_quote', 'page_quote', 'not_attempted', 'not_attempted', 'not_attempted']);
+    expect(measured.actual.unresolved).toHaveLength(1);
+    expect(measured.result.caseRecord.evidence[0].content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
+    expect(measured.result.caseRecord.evidence[1]).toMatchObject({ sourceUrl: measured.reads[1], publicationDate: { status: 'unknown' }, content: { kind: 'text', attribution: 'search_snippet' } });
+    expect(measured.result.claimReport?.sources.every(source => source.relation === 'insufficient')).toBe(true);
+    if (unavailable) expect(measured.result.limitations).toContain('Search 1 was unavailable; no replacement results were invented.');
+    expect(measured.result.limitations).toContain('Source 1 could not be read; its original search lead remains.');
+    expect(measured.result.limitations.some(value => value.startsWith('Source 2 led to an unrelated'))).toBe(true);
+    expect(JSON.stringify(measured.result)).not.toContain('Rejected destination content');
+  });
   it('reads available topical leads before dictionary/sports results while retaining zero-overlap fallbacks when space permits', () => {
     const selected = selectTopicSources(topic, entries([
       Array.from({ length: 3 }, (_, index) => topical(index)),
@@ -79,49 +94,5 @@ describe('topic binding before bounded admission and page reads', () => {
     expect(selected).toHaveLength(8);
     expect(selected.every(entry => !entry.candidate.sourceUrl.includes('access_token'))).toBe(true);
     expect(selected.slice(0, 5).map(entry => entry.search)).toEqual([0, 1, 2, 0, 1]);
-  });
-  it('keeps three attempts, eight sources/five reads/eight requests/forty questions after a failed first search, and preserves failed/rejected lead ownership', async () => {
-    let searches = 0, requests = 0, questions = 0;
-    const queries: string[] = [], reads: string[] = [];
-    const dependencies: AutomaticResearchDeps = {
-      now: () => Date.parse('2026-10-03T00:00:00Z'),
-      serpapi: { uploadImage: async () => { throw new Error('No media uploads in this controlled topic test'); }, search: async params => {
-        queries.push(params.q ?? '');
-        const search = searches++;
-        if (search === 0) throw new Error('Controlled first search failure');
-        return { [params.engine === 'google_news' ? 'news_results' : 'organic_results']: [
-          ...unrelated, ...Array.from({ length: 8 }, (_, index) => ({ ...topical(index), link: `https://surface-${search}.example.org/${index}` })),
-        ].map((lead, index) => ({ ...lead, link: lead.link ?? `https://surface-${search}.example.org/unrelated-${index}` })) };
-      } },
-      fetchPage: async url => {
-        reads.push(url);
-        if (reads.length === 1) throw new Error('Controlled read failure');
-        if (reads.length === 2) return { url: 'https://unrelated.example.org/other', html: '<meta property="article:published_time" content="2001-01-01"><p>Rejected destination content</p>' };
-        return { url, html: `<html><head><title>Controlled launch discussion</title></head><body><article><p>${'Agency Meridian intends to privatise its launch operations, according to this controlled synthetic passage. '.repeat(4)}</p></article></body></html>` };
-      },
-      jev: new JevClient({ apiKey: 'offline-fixture-only', fetchImpl: async (_url, init) => {
-        requests++;
-        if (typeof init?.body !== 'string') throw new Error('Missing question payload');
-        const payload: unknown = JSON.parse(init.body);
-        if (!payload || typeof payload !== 'object' || !('questions' in payload) || !payload.questions || typeof payload.questions !== 'object' || Array.isArray(payload.questions)) throw new Error('Malformed question payload');
-        questions += Object.keys(payload.questions).length;
-        return Response.json({ model: JEV_MODEL, answers: { relevance: { type: 'noul', noul: 0.8 } } });
-      } }),
-    };
-    const result = await investigateTopic(topic, () => {}, dependencies);
-    expect({ searches, reads: reads.length, requests, questions, sources: result.caseRecord.evidence.length }).toEqual({ searches: 3, reads: 5, requests: 8, questions: 40, sources: 8 });
-    expect(queries).toEqual([topic, topic, `${topic} statement clarification counterevidence correction`]);
-    expect(result.caseRecord.coverage.searches.map(search => search.retained)).toEqual([0, 4, 4]);
-    expect(reads.slice(0, 5).every(url => !url.includes('unrelated'))).toBe(true);
-    expect(result.caseRecord.coverage.sourceReads?.map(read => read.outcome)).toEqual(['fetch_failed', 'binding_rejected', 'page_quote', 'page_quote', 'page_quote', 'not_attempted', 'not_attempted', 'not_attempted']);
-    expect(result.caseRecord.evidence[0].content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
-    expect(result.caseRecord.evidence[1]).toMatchObject({ sourceUrl: reads[1], publicationDate: { status: 'unknown' }, content: { kind: 'text', attribution: 'search_snippet' } });
-    expect(result.limitations).toContain('Search 1 was unavailable; no replacement results were invented.');
-    expect(result.limitations).toContain('Source 1 could not be read; its original search lead remains.');
-    expect(result.limitations.some(value => value.startsWith('Source 2 led to an unrelated'))).toBe(true);
-    expect(result.limitations.some(value => value.startsWith('Primary-source coverage'))).toBe(true);
-    expect(result.claimReport?.mode).toBe('source_assertions');
-    expect(result.claimReport?.sources.every(source => source.relation === 'insufficient')).toBe(true);
-    expect(JSON.stringify(result)).not.toContain('Rejected destination content');
   });
 });
