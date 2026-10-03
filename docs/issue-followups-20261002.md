@@ -201,3 +201,33 @@ storage. An integration test that previously slept 35 milliseconds before editin
 now waits for the casebook loading state to finish with a bounded React-aware poll;
 the product loading behavior is unchanged. No live provider rerun or allowance change occurred. Issues #10 and #30
 remain open for real media-provenance and primary-source acceptance.
+
+
+## Navigation in retained source quotations, 3 October 2026
+
+Issue #42 reproduces in two existing X page quotations on main `463cb2a`.
+Their repeated interface prefixes occupy 34 UTF-16 characters. The presentation
+now selects an exact contiguous remainder for a recognized repeated login/signup
+prefix and displays its original offsets. The original full excerpt stays
+inspectable, with an explicit note that the model assessed the full excerpt.
+Extraction, source URLs, retained evidence, report bindings, assessment inputs,
+probabilities and relationships are unchanged. Unknown or ambiguous prefixes,
+snippets and classification context stay intact; navigation-only content remains
+a lead without an invented assertion. Live and saved reports share the rule.
+
+Three new live/current/stale rendering controls failed before the fix. The combined
+code passes 1,504 tests with 17 intentional skips across 87 files, typechecking and
+a production build. The 63 focused controls cover exact offsets, Unicode, preserved
+source words, ambiguous navigation, malformed bindings and live/current/stale/legacy
+saved reports. Replaying the unchanged existing result selects spans 34..203 and
+34..120 while preserving the original artifact hash and full report assessments.
+
+The latest #30 result does retain all 40 omitted candidates' safe references, along
+with eight retained candidates. The original saved snapshot matches that complete
+48-reference audit. None points to the official ISRO clarification, so the captured
+successful pool does not show that document being lost by retention. The failed
+search and upstream recall remain unknown. That evidence correction was recorded
+on #30; no provider rerun or primary-source acceptance is claimed. The latest #10
+run did not read The Quint and therefore did not exercise PR #41's extractor.
+Both acceptance issues remain open. No new provider calls or allowance changes were
+made for this follow-up.
