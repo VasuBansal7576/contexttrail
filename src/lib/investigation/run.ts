@@ -279,12 +279,15 @@ export function alternateHistoricalFactCheck(input: {
   if (!read || read.selection !== 'selected' || read.failureCode === 'aborted'
     || !(read.fetch === 'failed' || read.failureCode === 'source_binding_rejected' || read.extraction === 'empty_text')) return null;
   const minimumRole = fact.candidate.judgment.pageRole.factCheck;
-  return input.candidates.filter(candidate => candidate.judgment !== null && candidate.judgment.pageRole.factCheck > 0
+  const alternate = input.candidates.filter(candidate => candidate.judgment !== null && candidate.judgment.pageRole.factCheck > 0
     && candidate.judgment.pageRole.factCheck >= minimumRole && retainableSourceUrl(candidate.sourceUrl) !== null
     && hasHistoricalMediaCue([candidate.title ?? '', candidate.snippet ?? ''].join('\n'))
     && !input.reads.some(read => read.selection === 'selected' && (read.evidenceId === candidate.id
       || (read.requestedUrl !== null && ['same_resource', 'normalized_resource'].includes(bindFetchedSource(read.requestedUrl, candidate.sourceUrl))))))
-    .sort(factCheckOrder)[0] ?? null;
+    .sort(factCheckOrder)[0];
+  // Reading an already-best planned fifth page is not a replacement. Keep its
+  // original plan rather than report a self-displacement or choose a weaker lead.
+  return alternate && alternate.id !== fifth.candidate.id ? alternate : null;
 }
 
 

@@ -218,4 +218,10 @@ describe('adaptive acquisition guards and deterministic ordering', () => {
     expect(plan[0].reason).toBe('core_anchor');
     expect(alternateHistoricalFactCheck({ plan, candidates, reads })?.id).toBe('fact');
   });
+  it('keeps the original plan when its fifth page is already the strongest eligible historical fact-check', () => {
+    const candidates = pool(); candidates[4].judgment = pureJudgment(.7, 1); candidates[4].title = 'Earlier video posted in 2015';
+    const plan = selectDeepReadPlan(candidates);
+    expect(plan[4].candidate.id).toBe('last');
+    expect(alternateHistoricalFactCheck({ plan, candidates, reads: firstReads(plan) })).toBeNull();
+  });
 });
