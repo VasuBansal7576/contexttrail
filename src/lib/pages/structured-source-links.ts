@@ -22,18 +22,36 @@ function supportText(el: Element): string | null {
 }
 function key(text: string): string { return text.replace(/\s+/g, ' ').trim(); }
 
-/** The same complete paragraph/container must retain both support and resource. */
-export function readableReferenceSurvives(container: Element, url: string, readable: Document | null, pageUrl: string): boolean {
-  const support = supportText(container);
-  if (!readable || !support) return false;
+export type ReadableReferenceIndex = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** Index joint paragraph/resource ownership once for the chosen article. */
+export function indexReadableReferences(readable: Document | null, pageUrl: string): ReadableReferenceIndex {
+  const index = new Map<string, Set<string>>();
+  if (!readable) return index;
+  const supports = new WeakMap<Element, string | null>();
   for (const el of readable.querySelectorAll('a[href], iframe[src]')) {
+    if (el.closest(excluded)) continue;
     const retainedContainer = el.closest('p, blockquote, figure');
-    if (!retainedContainer || key(supportText(retainedContainer) ?? '') !== key(support)) continue;
+    if (!retainedContainer) continue;
+    if (!supports.has(retainedContainer)) supports.set(retainedContainer, supportText(retainedContainer));
+    const support = supports.get(retainedContainer);
+    if (!support) continue;
     const raw = el.getAttribute(el.tagName === 'IFRAME' ? 'src' : 'href');
     if (!raw) continue;
-    try { if (retainableSourceUrl(new URL(raw, pageUrl).toString()) === url) return true; } catch { /* malformed reference */ }
+    try {
+      const url = retainableSourceUrl(new URL(raw, pageUrl).toString());
+      if (!url) continue;
+      const normalized = key(support), urls = index.get(normalized) ?? new Set<string>();
+      urls.add(url);
+      index.set(normalized, urls);
+    } catch { /* malformed reference */ }
   }
-  return false;
+  return index;
+}
+
+/** The same complete paragraph/container must retain both support and resource. */
+export function readableReferenceSurvives(support: string, url: string, index: ReadableReferenceIndex): boolean {
+  return index.get(key(support))?.has(url) ?? false;
 }
 
 function uniqueElement(doc: Document, id: string): Element | null {
@@ -63,7 +81,6 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
         });
         if ((binding === 'same_resource' || binding === 'normalized_resource') && canonicalSafe) stories.push({ cards: value.cards, scriptIndex, path });
       }
-      return;
     }
     if (Array.isArray(value) && value.length > MAX_ITEMS) { incomplete = true; return; }
     const children = Array.isArray(value) ? value.map((child, index) => [String(index), child] satisfies [string, unknown]) : Object.entries(value);

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { extractPage } from '../../pages/extract';
 import { extractSourceLinks } from '../../pages/source-links';
@@ -46,6 +46,22 @@ describe('observed article structure and bounded structured source references', 
     const readable = new JSDOM(`<p>${support}<a href="https://other.example.org/video">Original resource</a></p><p>${current}<a href="${originalUrl}">Other</a></p>`).window.document;
     expect(extractSourceLinks(original, pageUrl, readable)).toEqual([]);
   });
+  it('indexes readable references once for many wrapper links, preserving relative URLs and joint support binding', () => {
+    const passages = Array.from({ length: 200 }, (_, index) => `<p>Controlled readable passage ${index}. <a href="/source?id=${index}">Source ${index}</a></p>`).join('');
+    const original = new JSDOM(`<div>${passages}</div>`).window.document;
+    const readable = new JSDOM(`<div>${passages}</div>`).window.document;
+    const scan = vi.spyOn(readable, 'querySelectorAll');
+    const links = extractSourceLinks(original, pageUrl, readable);
+    expect(links).toHaveLength(12);
+    expect(links[0]).toMatchObject({ url: 'https://publisher.example.org/source?id=0', supportingText: 'Controlled readable passage 0. Source 0' });
+    expect(scan.mock.calls.filter(([selector]) => selector === 'a[href], iframe[src]')).toHaveLength(1);
+    scan.mockRestore();
+  });
+  it('excludes readable navigation and unsafe references from the shared support index', () => {
+    const original = new JSDOM(`<div><p>${support}<a href="${originalUrl}">Original</a></p></div>`).window.document;
+    const readable = new JSDOM(`<nav><p>${support}<a href="${originalUrl}">Original</a></p></nav><p>${support}<a href="http://127.0.0.1/video">Original</a></p>`).window.document;
+    expect(extractSourceLinks(original, pageUrl, readable)).toEqual([]);
+  });
   it('preserves existing semantic article references and excludes navigation/footer/hidden references from the new fallback', () => {
     expect(extractPage(`<article><p>${support}<a href="${originalUrl}">Original</a></p></article>`, pageUrl).sourceLinks).toHaveLength(1);
     const body = `<nav><p>${support}<a href="${originalUrl}">Original</a></p></nav><footer><p>${support}<a href="${originalUrl}">Original</a></p></footer><div hidden><p>${support}<a href="${originalUrl}">Original</a></p></div>`;
@@ -57,6 +73,17 @@ describe('observed article structure and bounded structured source references', 
     expect(extracted.sourceLinks[0]).toMatchObject({ url: originalUrl, supportingText: support, historicalLead: true,
       location: { element: 'structured_embed', scriptIndex: 0, jsonPath: '/content/cards/0/story-elements/1/url' } });
     expect(extracted.jsonLdDates).toEqual([]);
+  });
+  it('rejects a nested independently same-page-bound story rather than inheriting one apparent unique owner', () => {
+    const value = { ...story(), nested: story(undefined, pageUrl, 'child-card') };
+    expect(extractPage(html({ content: value }), pageUrl).sourceLinks).toEqual([]);
+  });
+  it.each(['foreign', 'unbound'])('requires an explicit same-resource URL for a nested %s child owner', kind => {
+    const child = story([textItem(current), mediaItem('https://child.example.org/video')], 'https://foreign.example.org/article', 'child-card');
+    const { url: _url, ...unbound } = child;
+    const value = { ...story(), nested: kind === 'foreign' ? child : unbound };
+    const body = `<div id="context-card"><p>${support}</p></div><div id="child-card"><p>${current}</p></div>`;
+    expect(extractPage(html({ content: value }, body), pageUrl).sourceLinks.map(link => link.url)).toEqual([originalUrl]);
   });
   it.each(['blockquote', 'figure'])('counts %s around a single paragraph as one supporting passage', wrapper => {
     const passage = `<${wrapper}><p>${support}</p></${wrapper}>`;
@@ -109,10 +136,11 @@ describe('observed article structure and bounded structured source references', 
     expect(extractPage(document, pageUrl).sourceLinks).toEqual([]);
   });
   it('accepts a complete scan at 512 nodes, rejects its truncated successor and preserves independent DOM references', () => {
-    const filler = [...Array.from({ length: 8 }, () => Array.from({ length: 62 }, () => ({}))), Array.from({ length: 4 }, () => ({}))];
+    // Seven story/root containers plus 505 filler containers = 512.
+    const filler = Array.from({ length: 8 }, () => Array.from({ length: 62 }, () => ({})));
     const value = { content: story(), filler };
     expect(extractPage(html(value), pageUrl).sourceLinks).toHaveLength(1);
-    filler[8].push({});
+    filler[7].push({});
     expect(extractPage(html(value), pageUrl).sourceLinks).toEqual([]);
     const body = `<div id="context-card"><p>${support}</p></div><article><p>${current}<a href="https://other.example.org/reference">Independent DOM source</a></p></article>`;
     expect(extractPage(html(value, body), pageUrl).sourceLinks.map(link => link.url)).toEqual(['https://other.example.org/reference']);

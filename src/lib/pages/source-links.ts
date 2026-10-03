@@ -1,6 +1,6 @@
 import { retainableSourceUrl } from './source-reference';
 import { hasHistoricalMediaCue } from './historical-media-cue';
-import { extractStructuredSourceLinks, readableReferenceSurvives } from './structured-source-links';
+import { extractStructuredSourceLinks, indexReadableReferences, readableReferenceSurvives } from './structured-source-links';
 
 export interface SourceLink {
   url: string;
@@ -21,6 +21,8 @@ const SUPPORT_CAP = 1200;
  */
 export function extractSourceLinks(doc: Document, pageUrl: string, readableArticle: Document | null = null): SourceLink[] {
   const out: SourceLink[] = [];
+  const readableReferences = indexReadableReferences(readableArticle, pageUrl);
+  const supportByContainer = new WeakMap<Element, string>();
   const retain = (link: SourceLink) => {
     const duplicate = out.findIndex(candidate => candidate.url === link.url);
     if (duplicate >= 0) {
@@ -40,7 +42,8 @@ export function extractSourceLinks(doc: Document, pageUrl: string, readableArtic
     if (el.closest('nav, header, footer, aside, [role="navigation"], [hidden], [aria-hidden="true"]')) continue;
     const container = el.closest('p, blockquote, figure');
     if (!container) continue;
-    const supportingText = (container.textContent ?? '').trim();
+    if (!supportByContainer.has(container)) supportByContainer.set(container, (container.textContent ?? '').trim());
+    const supportingText = supportByContainer.get(container) ?? '';
     // Keep complete bounded support instead of truncating away the actual link.
     if (!supportingText || supportingText.length > SUPPORT_CAP) continue;
     const raw = el.getAttribute(el.tagName === 'IFRAME' ? 'src' : 'href');
@@ -49,7 +52,7 @@ export function extractSourceLinks(doc: Document, pageUrl: string, readableArtic
     try { resolved = new URL(raw, pageUrl).toString(); } catch { continue; }
     const url = retainableSourceUrl(resolved);
     if (!url || url === retainableSourceUrl(pageUrl)) continue;
-    if (!container.closest('article, main, [role="main"]') && !readableReferenceSurvives(container, url, readableArticle, pageUrl)) continue;
+    if (!container.closest('article, main, [role="main"]') && !readableReferenceSurvives(supportingText, url, readableReferences)) continue;
     const historicalLead = hasHistoricalMediaCue(supportingText);
     const link: SourceLink = { url, text: (el.textContent ?? el.getAttribute('title') ?? '').trim().slice(0, 400), supportingText,
       location: { element: el.tagName === 'IFRAME' ? 'embed' : 'anchor', index }, historicalLead };
