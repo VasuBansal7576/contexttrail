@@ -89,7 +89,7 @@ describe('claim-scoped policy fixtures (offline probabilities, not a live model 
     const fetchImpl = vi.fn(async () => Response.json({model:JEV_MODEL,answers:answer('context').answers}));
     const fetchPage = vi.fn(async (url:string) => ({url,html:`<html><body><article><p>${'Source text with relevant evidence for the topic. '.repeat(20)}</p></article></body></html>`}));
     const result = await investigateTopic('Are the reviews fake?',()=>{}, {serpapi:{search,uploadImage:vi.fn()},fetchPage,jev:new JevClient({apiKey:'offline-fixture',fetchImpl})});
-    expect(search).toHaveBeenCalledTimes(3);expect(search.mock.calls[2][0].q).toContain('counterevidence');expect(fetchPage).toHaveBeenCalledTimes(5);expect(fetchImpl).toHaveBeenCalledTimes(8);
+    expect(search).toHaveBeenCalledTimes(3);expect(search.mock.calls[2][0].q).toContain('(statement OR clarification OR "press release" OR correction)');expect(fetchPage).toHaveBeenCalledTimes(5);expect(fetchImpl).toHaveBeenCalledTimes(8);
     expect(result.claimReport?.sources).toHaveLength(8);
     expect(parseClaimReport(result.claimReport,result.caseRecord,result.question)).not.toBeNull();
   });
