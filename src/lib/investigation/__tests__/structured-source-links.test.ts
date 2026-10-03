@@ -74,6 +74,25 @@ describe('observed article structure and bounded structured source references', 
       location: { element: 'structured_embed', scriptIndex: 0, jsonPath: '/content/cards/0/story-elements/1/url' } });
     expect(extracted.jsonLdDates).toEqual([]);
   });
+  it.each([
+    ['null', null], ['empty', ''], ['blank', '  '], ['relative', '/video'], ['malformed', 'https://'],
+    ['private', 'http://127.0.0.1/video'], ['credentials', 'https://user:password@archive.example.org/video'],
+    ['sensitive query', `${originalUrl}&token=secret`],
+  ])('uses an independently safe explicit embed-url after an inadmissible %s url field', (_label, url) => {
+    const value = { url: pageUrl, cards: [{ id: 'context-card', 'story-elements': [textItem(support), { type: 'video', url, 'embed-url': originalUrl }] }] };
+    const extracted = extractPage(html({ content: value }), pageUrl);
+    expect(extracted.sourceLinks).toHaveLength(1);
+    expect(extracted.sourceLinks[0]).toMatchObject({ url: originalUrl, location: { jsonPath: '/content/cards/0/story-elements/1/embed-url' } });
+    expect(candidateFromSourceLink(extracted.sourceLinks[0], '2026-10-03')).toMatchObject({ mediaRelationship: null, identityEvidence: { basis: 'contextual' }, publishedAt: null });
+    expect(extracted.jsonLdDates).toEqual([]);
+  });
+  it('keeps url precedence when both explicit fields are safe, and omits media when neither field is admissible', () => {
+    const make = (url: string, embedUrl: string) => ({ url: pageUrl, cards: [{ id: 'context-card', 'story-elements': [textItem(support), { type: 'video', url, 'embed-url': embedUrl }] }] });
+    const valid = extractPage(html({ content: make(originalUrl, 'https://alternate.example.org/video') }), pageUrl).sourceLinks;
+    expect(valid).toHaveLength(1);
+    expect(valid[0]).toMatchObject({ url: originalUrl, location: { jsonPath: '/content/cards/0/story-elements/1/url' } });
+    expect(extractPage(html({ content: make('', 'http://127.0.0.1/video') }), pageUrl).sourceLinks).toEqual([]);
+  });
   it('rejects a nested independently same-page-bound story rather than inheriting one apparent unique owner', () => {
     const value = { ...story(), nested: story(undefined, pageUrl, 'child-card') };
     expect(extractPage(html({ content: value }), pageUrl).sourceLinks).toEqual([]);

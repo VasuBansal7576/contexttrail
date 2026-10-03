@@ -59,6 +59,17 @@ function uniqueElement(doc: Document, id: string): Element | null {
   return matches.length === 1 ? matches[0] : null;
 }
 interface BoundStory { cards: unknown[]; scriptIndex: number; path: string }
+function explicitMediaReference(item: Record<string, unknown>, pageUrl: string): { field: string; url: string } | null {
+  // Each field must independently supply an admissible absolute resource;
+  // an unusable preferred field cannot block a valid explicit fallback.
+  for (const field of ['url', 'embed-url']) {
+    const raw = item[field];
+    if (typeof raw !== 'string' || !/^https?:/i.test(raw)) continue;
+    const url = retainableSourceUrl(raw);
+    if (url && url !== retainableSourceUrl(pageUrl)) return { field, url };
+  }
+  return null;
+}
 
 export function extractStructuredSourceLinks(doc: Document, pageUrl: string, readable: Document | null, offset: number): SourceLink[] {
   if (!readable) return [];
@@ -128,11 +139,9 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
       if (!object(item) || typeof item.type !== 'string' || !/^(?:video|youtube-video|video-embed|embedded-video)$/.test(item.type)) continue;
       const previous = items[itemIndex - 1];
       if (!object(previous) || previous.type !== 'text' || typeof previous.text !== 'string' || previous.text.length > 10000) continue;
-      const field = typeof item.url === 'string' ? 'url' : 'embed-url';
-      const raw = item[field];
-      if (typeof raw !== 'string' || !/^https?:/i.test(raw)) continue;
-      const url = retainableSourceUrl(raw);
-      if (!url || url === retainableSourceUrl(pageUrl)) continue;
+      const reference = explicitMediaReference(item, pageUrl);
+      if (!reference) continue;
+      const { field, url } = reference;
       const supportWindow = new JSDOM(previous.text).window;
       const supportDoc = supportWindow.document;
       const paragraphs = [...supportDoc.querySelectorAll('p, blockquote, figure')];
