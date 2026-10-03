@@ -22,7 +22,7 @@ describe('topic binding before bounded admission and page reads', () => {
     const measured = await measureTopicBinding(unavailable);
     expect(measured.actual).toMatchObject({ searches: 3, uploads: 0, requests: 8, questions: 40, sources: 8, pageReads: 5, zeroOverlapReadCount: 0, broadQuestionMode: 'source_assertions' });
     expect(measured.actual.retainedBySearch).toEqual(unavailable ? [0, 4, 4] : [3, 3, 2]);
-    expect(measured.actual.queries).toEqual([topic, topic, `${topic} statement clarification counterevidence correction`]);
+    expect(measured.actual.queries).toEqual([topic, topic, `${topic} (statement OR clarification OR "press release" OR correction)`]);
     expect(measured.actual.readCandidateTitles.every(title => title?.includes('Agency Meridian'))).toBe(true);
     expect(measured.actual.outcomes).toEqual(['fetch_failed', 'binding_rejected', 'page_quote', 'page_quote', 'page_quote', 'not_attempted', 'not_attempted', 'not_attempted']);
     expect(measured.actual.unresolved).toHaveLength(1);

@@ -55,11 +55,11 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   const searches = [
     { engine: 'google', q: topic, kind: 'google_search' },
     { engine: 'google_news', q: topic, kind: 'google_news' },
-    { engine: 'google', q: `${topic} statement clarification counterevidence correction`, kind: 'google_search' },
+    { engine: 'google', q: `${topic} (statement OR clarification OR "press release" OR correction)`, kind: 'google_search' },
   ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news' }>;
   for (const [index, query] of searches.entries()) {
     check(deps);
-    emit({ type: 'research.progress', message: `Searching ${index === 1 ? 'news' : index === 2 ? 'counterevidence and alternative explanations' : 'the web'}…` });
+    emit({ type: 'research.progress', message: `Searching ${index === 1 ? 'news' : index === 2 ? 'source documents and clarifications' : 'the web'}…` });
     const log = { engine: query.engine, attempted: 1, returned: 0, retained: 0, searchId: null as string | null };
     record.coverage.searches.push(log);
     candidateSearches.push({ searchIndex: index, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null });

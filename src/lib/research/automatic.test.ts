@@ -15,6 +15,26 @@ function deps(search: (params: SerpapiParams) => Promise<unknown>): AutomaticRes
 const response = (engine: string, count = 10) => ({ search_metadata: { id: engine, status: 'Success' }, [engine === 'google_news' ? 'news_results' : 'organic_results']: Array.from({ length: count }, (_, index) => ({ link: `https://${engine === 'google_news' ? 'news' : 'science'}.example.org/source-${index}`, title: `Coral study ${index}`, snippet: 'A retrieved coral study summary.', date: '2020-02-03' })) });
 
 describe('automatic topic investigation (offline providers only)', () => {
+  it.each(['What changed in the reef recovery programme?', 'Какво се промени в програмата?', 'Aster launch operations in August–September 2026'])('uses one distinct document search without replacing the question or retrying unavailable searches: %s', async topic => {
+    let attempt = 0;
+    const search = vi.fn(async (params: SerpapiParams) => {
+      if (attempt++ === 0) throw new Error('Controlled unavailable search');
+      return { [params.engine === 'google_news' ? 'news_results' : 'organic_results']: [] };
+    });
+    const dependencies = deps(search);
+    const progress: string[] = [];
+    const result = await investigateTopic(topic, event => { if (event.type === 'research.progress') progress.push(event.message); }, dependencies);
+    expect(search.mock.calls.map(([params]) => params)).toEqual([
+      { engine: 'google', q: topic, num: '10' },
+      { engine: 'google_news', q: topic, num: '10' },
+      { engine: 'google', q: `${topic} (statement OR clarification OR "press release" OR correction)`, num: '10' },
+    ]);
+    expect(progress).toContain('Searching source documents and clarifications…');
+    expect(dependencies.fetchPage).not.toHaveBeenCalled();
+    expect(result.caseRecord.coverage.topicCandidateAudit?.searches.map(search => search.outcome)).toEqual(['unavailable', 'succeeded', 'succeeded']);
+    expect(result.caseRecord.evidence).toEqual([]);
+    expect(result.limitations).toContain('Primary-source coverage has not been independently established. Original-account cues in titles or snippets guide selection; they do not verify source authority or completeness.');
+  });
   it('retrieves bounded balanced sources, reads real HTML and retains verbatim grounded evidence', async () => {
     const search = vi.fn(async (params: SerpapiParams) => response(params.engine));
     const dependencies = deps(search);
