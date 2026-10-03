@@ -8,6 +8,8 @@ import { localResearchService } from './service';
 import { inquiryCase, researchWorkflow, parseResearchDocument } from './workflow';
 import { parseResearchCaseView } from './client';
 import type { CaseEvidence } from '../cases/model';
+import { selectClaimQuotePassage } from './claim-quote-passage';
+import { localizedNavigationQuote, localizedSourceUrl } from './claim-quote-passage-fixture';
 const dirs: string[] = [];
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 function input() {
@@ -34,6 +36,27 @@ it('saves and reopens the exact grounded report without changing existing v1 con
   expect(saved.document.schemaVersion).toBe('contexttrail-research-v1');
   expect(view.claimReportCase).toEqual(request.caseRecord);
   expect(view.claimReportCaseOrigin).toBe('retained_snapshot');
+});
+it('keeps localized chrome display separate from saved quote bytes, inputs and historical assessment', async () => {
+  const { dir, service, request } = await setup();
+  const evidence = request.caseRecord.evidence[0];
+  evidence.sourceUrl = localizedSourceUrl;
+  evidence.content = { kind: 'text', text: localizedNavigationQuote, attribution: 'page_quote' };
+  request.claimReport = buildClaimReport(request.question, request.caseRecord, [assessClaimSource(evidence, 'The supplied sample is historical.', null)]);
+  await service.apply(request);
+  const file = join(dir, (await readdir(dir))[0]), bytes = await readFile(file);
+  const reopened = parseResearchCaseView(await service.get(request.caseRecord.id));
+  const source = reopened.claimReport?.sources[0];
+  expect(selectClaimQuotePassage(source?.quote ?? null, reopened.claimReportCase?.evidence[0])).toMatchObject({ kind: 'navigation_only', original: { start: 0, end: 378, text: localizedNavigationQuote } });
+  await service.list();
+  expect(await readFile(file)).toEqual(bytes);
+  expect(reopened.claimReport).toEqual(request.claimReport);
+  expect(reopened.claimReportCase).toEqual(request.caseRecord);
+  const corrected = await service.apply({ kind: 'update', caseId: request.caseRecord.id, operationId: 'localized-correct', expectedRevision: 1, change: { kind: 'evidence', value: { ...evidence, content: { kind: 'text', text: 'ИСРО остава държавна агенция.', attribution: 'page_quote' } }, assets: [] } });
+  const historical = parseResearchCaseView(corrected);
+  expect(historical.reportStatus).toBe('stale');
+  expect(historical.claimReport).toEqual(request.claimReport);
+  expect(selectClaimQuotePassage(historical.claimReport?.sources[0].quote ?? null, historical.claimReportCase?.evidence[0]).kind).toBe('navigation_only');
 });
 it('keeps missing original coverage provenance sticky through legacy corrections, replay and revert without rewriting reads', async () => {
   const { dir, service, request } = await setup();
