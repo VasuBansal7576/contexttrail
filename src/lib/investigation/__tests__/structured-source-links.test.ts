@@ -58,6 +58,24 @@ describe('observed article structure and bounded structured source references', 
       location: { element: 'structured_embed', scriptIndex: 0, jsonPath: '/content/cards/0/story-elements/1/url' } });
     expect(extracted.jsonLdDates).toEqual([]);
   });
+  it.each(['blockquote', 'figure'])('counts %s around a single paragraph as one supporting passage', wrapper => {
+    const passage = `<${wrapper}><p>${support}</p></${wrapper}>`;
+    const items = [{ type: 'text', text: passage } satisfies TextItem, mediaItem()];
+    const links = extractPage(html({ content: story(items) }, `<div id="context-card">${passage}</div>`), pageUrl).sourceLinks;
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ url: originalUrl, supportingText: support, historicalLead: true });
+  });
+  it.each(['sibling', 'other card'])('still rejects separately repeated wrapped passages in %s ownership', duplicate => {
+    const passage = `<blockquote><p>${support}</p></blockquote>`;
+    const body = duplicate === 'sibling' ? `<div id="context-card">${passage}${passage}</div>`
+      : `<div id="context-card">${passage}</div><div id="other-card">${passage}</div>`;
+    expect(extractPage(html(undefined, body), pageUrl).sourceLinks).toEqual([]);
+  });
+  it('rejects the whole structured story when a later card exceeds the item limit, before returning earlier references', () => {
+    const value = story();
+    value.cards.push({ id: 'oversized-card', 'story-elements': Array.from({ length: 65 }, () => textItem(current)) });
+    expect(extractPage(html({ content: value }), pageUrl).sourceLinks).toEqual([]);
+  });
   it.each([false, true])('lets outer deduplication and historical replacement inspect late structured references, early duplicates=%s', duplicates => {
     const early = Array.from({ length: 12 }, (_, index) => ({
       text: `Controlled present-day discussion ${index} has no temporal association with the media resource.`,

@@ -83,11 +83,18 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
   const story = stories[0], out: SourceLink[] = [];
   if (story.cards.length > MAX_CARDS) return [];
   const cards = story.cards;
+  // Validate every recognized item collection before producing any result;
+  // a later oversized card cannot leave an earlier partial story accepted.
+  if (cards.some(card => object(card) && Array.isArray(card['story-elements']) && card['story-elements'].length > MAX_ITEMS)) return [];
   const originalSupportCounts = new Map<string, number>();
   for (const paragraph of doc.querySelectorAll('p, blockquote, figure')) {
     const text = supportText(paragraph);
     if (!text) continue;
     const normalized = key(text);
+    // Wrappers around the same complete paragraph are one passage. Count
+    // its deepest representative while keeping separate sibling/card
+    // repetitions as independent owners, even when their text is identical.
+    if ([...paragraph.querySelectorAll('p, blockquote, figure')].some(child => key(supportText(child) ?? '') === normalized)) continue;
     originalSupportCounts.set(normalized, (originalSupportCounts.get(normalized) ?? 0) + 1);
   }
   const readableSupports = new Set([...readable.querySelectorAll('p, blockquote, figure')].map(el => key(supportText(el) ?? '')).filter(Boolean));
@@ -95,7 +102,7 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
     if (!object(card) || typeof card.id !== 'string' || !card.id || card.id.length > 200 || !Array.isArray(card['story-elements'])) continue;
     if (story.cards.filter(item => object(item) && item.id === card.id).length !== 1) continue;
     const originalCard = uniqueElement(doc, card.id);
-    if (!originalCard || originalCard.closest(excluded) || card['story-elements'].length > MAX_ITEMS) continue;
+    if (!originalCard || originalCard.closest(excluded)) continue;
     const originalSupports = new Set([...originalCard.querySelectorAll('p, blockquote, figure')].map(el => key(supportText(el) ?? '')).filter(Boolean));
     const items = card['story-elements'];
     for (const [itemIndex, item] of items.entries()) {
