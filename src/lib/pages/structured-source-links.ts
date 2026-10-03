@@ -1,0 +1,126 @@
+/** Explicit page-owned media references only; never a sweep of arbitrary JSON URLs. */
+import { JSDOM } from 'jsdom';
+import type { SourceLink } from './source-links';
+import { retainableSourceUrl } from './source-reference';
+import { bindFetchedSource } from './source-binding';
+import { hasHistoricalMediaCue } from './historical-media-cue';
+
+const MAX_SCRIPT_BYTES = 524288;
+const MAX_JSON_SCRIPTS = 8;
+const MAX_VISITED_NODES = 512;
+const MAX_DEPTH = 8;
+const MAX_CARDS = 16;
+const MAX_ITEMS = 64;
+const SUPPORT_CAP = 1200;
+const excluded = 'nav, header, footer, aside, [role="navigation"], [hidden], [aria-hidden="true"]';
+function object(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function supportText(el: Element): string | null {
+  const text = (el.textContent ?? '').trim();
+  return text && text.length <= SUPPORT_CAP ? text : null;
+}
+function key(text: string): string { return text.replace(/\s+/g, ' ').trim(); }
+
+/** The same complete paragraph/container must retain both support and resource. */
+export function readableReferenceSurvives(container: Element, url: string, readable: Document | null, pageUrl: string): boolean {
+  const support = supportText(container);
+  if (!readable || !support) return false;
+  for (const el of readable.querySelectorAll('a[href], iframe[src]')) {
+    const retainedContainer = el.closest('p, blockquote, figure');
+    if (!retainedContainer || key(supportText(retainedContainer) ?? '') !== key(support)) continue;
+    const raw = el.getAttribute(el.tagName === 'IFRAME' ? 'src' : 'href');
+    if (!raw) continue;
+    try { if (retainableSourceUrl(new URL(raw, pageUrl).toString()) === url) return true; } catch { /* malformed reference */ }
+  }
+  return false;
+}
+
+function uniqueElement(doc: Document, id: string): Element | null {
+  const matches = [...doc.querySelectorAll('[id]')].filter(el => el.id === id);
+  return matches.length === 1 ? matches[0] : null;
+}
+interface BoundStory { cards: unknown[]; scriptIndex: number; path: string }
+
+export function extractStructuredSourceLinks(doc: Document, pageUrl: string, readable: Document | null, offset: number, maxLinks: number): SourceLink[] {
+  if (!readable) return [];
+  const stories: BoundStory[] = [];
+  let scripts = 0, visited = 0;
+  const walk = (value: unknown, scriptIndex: number, path: string, depth: number): void => {
+    if (visited >= MAX_VISITED_NODES || depth > MAX_DEPTH || path.length > 1024) return;
+    if (!object(value) && !Array.isArray(value)) return;
+    visited++;
+    if (object(value) && Array.isArray(value.cards)) {
+      // A recognized story is its own binding boundary. No child story or
+      // recommendation can inherit the URL of an enclosing story.
+      if (typeof value.url === 'string' && /^https?:/i.test(value.url)) {
+        const binding = bindFetchedSource(pageUrl, value.url);
+        const canonicalSafe = [value['canonical-url'], value.canonicalUrl].every(canonical => {
+          if (typeof canonical !== 'string' || !canonical.trim()) return true;
+          const ownBinding = bindFetchedSource(pageUrl, canonical);
+          return ownBinding === 'same_resource' || ownBinding === 'normalized_resource';
+        });
+        if ((binding === 'same_resource' || binding === 'normalized_resource') && canonicalSafe) stories.push({ cards: value.cards, scriptIndex, path });
+      }
+      return;
+    }
+    const children = Array.isArray(value) ? value.slice(0, MAX_ITEMS).map((child, index) => [String(index), child] satisfies [string, unknown]) : Object.entries(value).slice(0, MAX_ITEMS);
+    for (const [name, child] of children) walk(child, scriptIndex, `${path}/${name.replace(/~/g, '~0').replace(/\//g, '~1')}`, depth + 1);
+  };
+  for (const [scriptIndex, script] of [...doc.querySelectorAll('script')].entries()) {
+    if (script.getAttribute('type')?.trim().toLowerCase() !== 'application/json') continue;
+    if (scripts++ >= MAX_JSON_SCRIPTS) break;
+    const text = script.textContent ?? '';
+    if (text.length > MAX_SCRIPT_BYTES || new TextEncoder().encode(text).length > MAX_SCRIPT_BYTES) continue;
+    try { const value: unknown = JSON.parse(text); walk(value, scriptIndex, '', 0); } catch { /* malformed state is not evidence */ }
+  }
+  if (stories.length !== 1) return [];
+  const story = stories[0], out: SourceLink[] = [];
+  if (story.cards.length > MAX_CARDS) return [];
+  const cards = story.cards;
+  const originalSupportCounts = new Map<string, number>();
+  for (const paragraph of doc.querySelectorAll('p, blockquote, figure')) {
+    const text = supportText(paragraph);
+    if (!text) continue;
+    const normalized = key(text);
+    originalSupportCounts.set(normalized, (originalSupportCounts.get(normalized) ?? 0) + 1);
+  }
+  const readableSupports = new Set([...readable.querySelectorAll('p, blockquote, figure')].map(el => key(supportText(el) ?? '')).filter(Boolean));
+  for (const [cardIndex, card] of cards.entries()) {
+    if (!object(card) || typeof card.id !== 'string' || !card.id || card.id.length > 200 || !Array.isArray(card['story-elements'])) continue;
+    if (story.cards.filter(item => object(item) && item.id === card.id).length !== 1) continue;
+    const originalCard = uniqueElement(doc, card.id);
+    if (!originalCard || originalCard.closest(excluded) || card['story-elements'].length > MAX_ITEMS) continue;
+    const originalSupports = new Set([...originalCard.querySelectorAll('p, blockquote, figure')].map(el => key(supportText(el) ?? '')).filter(Boolean));
+    const items = card['story-elements'];
+    for (const [itemIndex, item] of items.entries()) {
+      if (out.length >= maxLinks) break;
+      if (!object(item) || typeof item.type !== 'string' || !/^(?:video|youtube-video|video-embed|embedded-video)$/.test(item.type)) continue;
+      const previous = items[itemIndex - 1];
+      if (!object(previous) || previous.type !== 'text' || typeof previous.text !== 'string' || previous.text.length > 10000) continue;
+      const field = typeof item.url === 'string' ? 'url' : 'embed-url';
+      const raw = item[field];
+      if (typeof raw !== 'string' || !/^https?:/i.test(raw)) continue;
+      const url = retainableSourceUrl(raw);
+      if (!url || url === retainableSourceUrl(pageUrl)) continue;
+      const supportDoc = new JSDOM(previous.text).window.document;
+      const paragraphs = [...supportDoc.querySelectorAll('p, blockquote, figure')];
+      const closest = paragraphs[paragraphs.length - 1];
+      // Only this immediately adjacent text item may supply support. The
+      // whole visible paragraph is retained; no topic/date synthesis occurs.
+      // Choose before checking retention/size: an unavailable later paragraph
+      // cannot cause an earlier historical paragraph to attach to this embed.
+      if (!closest) continue;
+      const supportingText = supportText(closest);
+      // Readability may remove the card wrapper. Unique original paragraph
+      // ownership and that same retained paragraph preserve the card binding.
+      if (!supportingText || !originalSupports.has(key(supportingText)) || !readableSupports.has(key(supportingText))
+        || originalSupportCounts.get(key(supportingText)) !== 1) continue;
+      out.push({ url, text: '', supportingText, historicalLead: hasHistoricalMediaCue(supportingText), location: {
+        element: 'structured_embed', index: offset + out.length, scriptIndex: story.scriptIndex,
+        jsonPath: `${story.path}/cards/${cardIndex}/story-elements/${itemIndex}/${field}`,
+      } });
+    }
+  }
+  return out;
+}

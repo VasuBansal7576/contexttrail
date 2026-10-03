@@ -343,11 +343,13 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
 
   let title: string | null = null;
   let text: string | null = null;
+  let readableArticle: Document | null = null;
   try {
     const article = new Readability(doc.cloneNode(true) as Document).parse();
     if (article !== null) {
       title = typeof article.title === "string" && article.title.trim() !== "" ? article.title.trim() : null;
       text = typeof article.textContent === "string" && article.textContent.trim() !== "" ? article.textContent : null;
+      if (typeof article.content === 'string' && article.content.trim()) readableArticle = new JSDOM(article.content).window.document;
     }
   } catch {
     // Readability failure is non-fatal; metadata still usable.
@@ -359,7 +361,7 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length >= 40);
 
-  const sourceLinks = pageUrl ? extractSourceLinks(doc, pageUrl) : [];
+  const sourceLinks = pageUrl ? extractSourceLinks(doc, pageUrl, readableArticle) : [];
   return { title, text, paragraphs, jsonLdDates, jsonLdDateBinding, rejectedJsonLdDates, jsonLdMetadata, openGraph, metaDates, timeDates, rejectedTimeDates, sourceLinks };
 }
 
