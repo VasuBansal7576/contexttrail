@@ -17,6 +17,8 @@ import { prepareVideo, type PreparedVideo } from '../video/ingest';
 import { AUTOMATIC_RESEARCH_LIMITS as LIMITS, type AutomaticResearchInput, type AutomaticResearchEvent, type AutomaticResearchResult } from './automatic-contract';
 import { selectTopicSources, type TopicCandidate } from './topic-selection';
 import { researchStageCopy } from './display-copy';
+import { buildTopicCandidateAudit } from './topic-candidate-audit';
+import type { TopicCandidateSearchAudit } from '../cases/topic-candidate-audit';
 
 type Progress = (event: AutomaticResearchEvent) => void;
 export interface AutomaticResearchDeps extends RunDeps {
@@ -48,6 +50,7 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   const record = emptyCase(now.toISOString());
   const limitations = ['Bounded web sample; coverage is incomplete.', 'Primary-source coverage has not been independently established. Original-account cues in titles or snippets guide selection; they do not verify source authority or completeness.', 'Search results are leads, not independent corroboration.', 'Relevance assessments do not verify claims.', 'Source snapshots are not retained; links may change.', 'Credential-bearing or unsafe source links are omitted rather than rewritten.'];
   const candidates = new Map<string, TopicCandidate>();
+  const candidateSearches: TopicCandidateSearchAudit[] = [];
   const searches = [
     { engine: 'google', q: topic, kind: 'google_search' },
     { engine: 'google_news', q: topic, kind: 'google_news' },
@@ -58,19 +61,24 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
     emit({ type: 'research.progress', message: `Searching ${index === 1 ? 'news' : index === 2 ? 'counterevidence and alternative explanations' : 'the web'}…` });
     const log = { engine: query.engine, attempted: 1, returned: 0, retained: 0, searchId: null as string | null };
     record.coverage.searches.push(log);
+    candidateSearches.push({ searchIndex: index, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null });
     try {
       const raw = await deps.serpapi.search({ engine: query.engine, q: query.q, num: '10' }, deps.signal);
       check(deps);
       if (serpapiResponseFailed(raw) || !hasSearchResultSurface(raw, query.kind)) throw new Error('Search unavailable.');
       const batch = normalizeSearchResponse(raw, query.kind, { retrievedAt: now.toISOString() });
       log.returned = batch.reportedCount; log.searchId = batch.searchId;
+      let duplicateCount = 0;
       for (const candidate of batch.candidates) {
         const existing = candidates.get(candidate.canonicalUrl);
         const date = batch.dateTexts.get(candidate.id);
         if (existing) {
+          duplicateCount++;
           if (date) (existing.dates.serpapiAlternates ??= []).push(date);
         } else candidates.set(candidate.canonicalUrl, { candidate, dates: { serpapi: date }, search: index });
       }
+      candidateSearches[index] = { searchIndex: index, outcome: 'succeeded', normalizedCount: batch.candidates.length,
+        droppedBeforeNormalizationCount: batch.reportedCount - batch.candidates.length, duplicateCount };
     } catch {
       check(deps); limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
     }
@@ -146,6 +154,7 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   if (!record.evidence.length) limitations.push('No usable source evidence was retrieved. The topic remains unresolved.');
   if (assessments.some(item => item.relevance === null)) limitations.push('Some relevance assessments were unavailable; those sources remain unassessed leads.');
   record.coverage.limitations = [...new Set(limitations)];
+  record.coverage.topicCandidateAudit = buildTopicCandidateAudit([...candidates.values()], selected, candidateSearches);
   return { kind: 'topic', question: topic, caseRecord: parseCaseRecord(record), frames: [], limitations: record.coverage.limitations, assessments, claimReport: buildClaimReport(topic, record, claimSources) };
 }
 
