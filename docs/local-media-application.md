@@ -138,6 +138,13 @@ source hashes, assertions and response artifacts under `.verify/media-http-*`.
 These tests prove application behavior on synthetic media, not matching accuracy
 or a security audit.
 
+Container controls distinguish recognition from native validation: malformed
+atom layouts return `415 SIGNATURE_MISMATCH` before decoding; a bounded,
+self-contained movie/media layout with no usable video track returns
+`422 INVALID_MEDIA` during native validation. Both controls are generated
+locally, and their fixture helper and production recognition source hashes are
+included in the HTTP verification artifact.
+
 ### Frozen matcher compatibility
 
 The bridge keeps `compare.ts` byte-for-byte at its evaluator-pinned SHA-256,

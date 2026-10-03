@@ -9,12 +9,13 @@ import { request as httpRequest } from 'node:http';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
+import { mediaContainerControls } from './media-container-controls.mjs';
 
 const checkout = fileURLToPath(new URL('..', import.meta.url));
 const artifacts = resolve(checkout, '.verify', `media-http-${new Date().toISOString().replace(/[:.]/g, '-')}`);
 const data = resolve(artifacts, 'research-data'), staging = resolve(artifacts, 'decoder-tmp');
 await mkdir(data, { recursive: true }); await mkdir(staging);
-const sourceFiles = ['src/app/api/media/compare/route.ts', 'src/lib/research/local-boundary.ts', 'src/lib/video/matching/application.ts', 'src/lib/video/matching/application-contract.ts', 'src/lib/video/matching/prepare.ts', 'src/lib/video/matching/decode.ts', 'src/lib/video/matching/compare.ts', 'src/lib/video/matching/schedule.ts', 'src/lib/video/ingest.ts', 'scripts/verify-media-http.mjs', 'package-lock.json'];
+const sourceFiles = ['src/app/api/media/compare/route.ts', 'src/lib/research/local-boundary.ts', 'src/lib/video/matching/application.ts', 'src/lib/video/matching/application-contract.ts', 'src/lib/video/matching/prepare.ts', 'src/lib/video/matching/decode.ts', 'src/lib/video/matching/compare.ts', 'src/lib/video/matching/schedule.ts', 'src/lib/video/ingest.ts', 'src/lib/video/container-signature.ts', 'scripts/verify-media-http.mjs', 'scripts/media-container-controls.mjs', 'package-lock.json'];
 const sourceHashes = Object.fromEntries(await Promise.all(sourceFiles.map(async path => [path, createHash('sha256').update(await readFile(resolve(checkout, path))).digest('hex')])));
 const assertions = [], hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const check = (name, actual, expected) => { assert.deepEqual(actual, expected, name); assertions.push({ name, passed: true }); };
@@ -111,8 +112,9 @@ try {
   const path = form(a.still, a.video); path.set('path', '/tmp/do-not-read'); check('path input rejected without any file read', (await post(path, 400)).code, 'INVALID_INPUT');
   const remote = form(a.still, a.video); remote.set('right', 'https://not-requested.example/clip.mp4'); check('URL input rejected without fetching', (await post(remote, 400)).code, 'INVALID_INPUT');
   check('wrong signature rejected before decoding', (await post(form(Buffer.from('not a PNG'), a.video), 415)).code, 'SIGNATURE_MISMATCH');
-  const malformedVideo = Buffer.alloc(20); malformedVideo.write('ftyp', 4);
-  check('native decoder rejects malformed container after signature check', (await post(form(a.still, malformedVideo), 422)).code, 'INVALID_MEDIA');
+  const { malformedLayout, undecodableLayout } = mediaContainerControls();
+  check('malformed video layout rejected before native decoding', (await post(form(a.still, malformedLayout), 415)).code, 'SIGNATURE_MISMATCH');
+  check('native validation rejects recognized container without decodable video', (await post(form(a.still, undecodableLayout), 422)).code, 'INVALID_MEDIA');
   check('oversized still rejected', (await post(form(new Uint8Array(limits.imageBytes + 1), a.video), 413)).code, 'MEDIA_TOO_LARGE');
   check('oversized declared HTTP body rejected', (await raw({ 'content-type': 'multipart/form-data; boundary=x', 'content-length': String(limits.requestBytes + 1) }, 'x')).status, 413);
   // Keep a real chunked HTTP upload open to inspect admission and disconnect cleanup.
