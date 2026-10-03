@@ -15,6 +15,14 @@ vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAn
 let directory: string, root: Root, container: HTMLDivElement, store: ReturnType<typeof localResearchService>;
 let posts: unknown[];
 async function settle() { await act(async () => { await new Promise(done => setTimeout(done, 35)); }); }
+async function waitForUi(assertion: () => void) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { assertion(); return; } catch {
+      await act(async () => { await new Promise(done => setTimeout(done, 20)); });
+    }
+  }
+  assertion();
+}
 function button(name: string): HTMLButtonElement { const result = [...document.querySelectorAll('button')].find(item => item.textContent?.trim() === name); if (!result) throw new Error(`Missing button: ${name}. ${document.body.textContent}`); return result; }
 async function click(name: string) { await act(async () => { button(name).click(); }); await settle(); }
 function field(label: string): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement {
@@ -28,7 +36,7 @@ async function fill(label: string, value: string) {
   await act(async () => { Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(target,value); target.dispatchEvent(new Event('input',{bubbles:true})); target.dispatchEvent(new Event('change',{bubbles:true})); });
 }
 async function submit() { const form=document.querySelector('[role=dialog] form'); if (!form) throw new Error('Missing dialog form');await act(async()=>{form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});await settle(); for(let attempt=0;attempt<80 && document.querySelector('[role=dialog] button[type=submit]:disabled, [role=dialog] .primary:disabled');attempt++) await settle(); }
-async function render(search='') { navigation.search=search;await act(async()=>root.render(React.createElement(Casebook)));await settle(); }
+async function render(search='') { navigation.search=search;await act(async()=>root.render(React.createElement(Casebook)));await waitForUi(() => expect(document.body.textContent).not.toContain('Opening your casebook…')); }
 beforeEach(async()=>{
   vi.stubGlobal('React',React);vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);
   directory=await mkdtemp(join(tmpdir(),'ct-casebook-ui-'));store=localResearchService(directory);posts=[];navigation.search='';navigation.next='';container=document.createElement('div');document.body.append(container);root=createRoot(container);
