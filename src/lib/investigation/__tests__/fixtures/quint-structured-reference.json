@@ -1,0 +1,15 @@
+{
+  "basis": "observed_layout_and_explicit_urls_with_synthetic_prose_not_original_live_response",
+  "sourceUrl": "https://www.thequint.com/news/webqoof/old-video-of-mcd-demolition-in-jasola-falsely-shared-as-one-of-satya-niketan-building-collapse-fact-check",
+  "inspectedOn": "2026-10-03",
+  "status": 200,
+  "finalUrl": "https://www.thequint.com/news/webqoof/old-video-of-mcd-demolition-in-jasola-falsely-shared-as-one-of-satya-niketan-building-collapse-fact-check",
+  "originalHtmlBytes": 564878,
+  "originalHtmlSha256": "926811e66b9b224670c08f4119573a85e8e1dbbb82351d2963c5f7024c7ff056",
+  "inspectionArtifactName": "issue10-quint-inspected.html",
+  "originalJsonPath": "/qt/data/story/cards/1/story-elements/1/url",
+  "reducedFixtureJsonPath": "/qt/data/story/cards/0/story-elements/1/url",
+  "originalReadableChars": 1671,
+  "liveCapturedReadableChars": 1665,
+  "reduction": "The observed wrapper/card structure and explicit source URLs are retained with synthetic prose. Scripts/styles, surrounding cards, advertisements and unrelated state are omitted. No article prose is copied or URL derived from names or dates. The complete reduced state exercises parser behavior; the full inspected response remains separate evidence with incomplete ownership scanning."
+}

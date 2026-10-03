@@ -139,3 +139,65 @@ and a production build. All new provider responses were injected offline fixture
 providers, live reruns or additional allowance were used. The current merge workflow
 requires Codex's built-in review, resolved actionable findings and passing final-head CI.
 Issues #10 and #30 remain open for their actual provenance and primary-source acceptance.
+
+## Inspectable source references, 3 October 2026
+
+The post-merge real-data comments on main `7be18e2` identify two remaining
+diagnostic gaps. The Delhi stream retains a successful, same-resource historical
+article read with 1,665 characters but no source links. The topic stream retains
+eight sources and omits 49 candidates without their identities. Both exact stream
+hashes were checked against the existing captured results. These captures contain
+neither the original article HTML nor the omitted provider pool.
+
+PR #40 captures at most 100 safe candidate references, with selected entries first,
+then other normalized entries in their original order. Counts distinguish canonical
+duplicates, normalization drops, withheld references, unavailable searches and
+uncaptured safe entries. URLs and retrieval metadata do not retain provider text,
+replay lexical ranking or establish authority. Distinct candidate entries may share
+a safely normalized URL. Selected candidate IDs and requested URLs remain bound
+to the original source-read audit, even after current evidence corrections. Live and
+saved views expose this audit from the original snapshot. Older archives remain
+unchanged and their omitted pool stays unknown. Codex's built-in review found a
+normalization-collision failure; the actual-pipeline regression now passes, and the
+repeated review reported no actionable regressions.
+
+The linked-reference fix accepts a DOM reference outside semantic article wrappers
+only when its complete paragraph and exact URL survive in the readable article.
+Recognized structured story media must bind to the fetched page, a unique original
+card and the nearest retained supporting paragraph. Script index and JSON pointer
+identify the explicit URL. Bounds, source ownership and conservative identity/date
+gates remain in force. Independent review caught historical support borrowed from
+an earlier paragraph; that case now uses only the nearest paragraph. Built-in review
+also caught premature link-cap application and ambiguous ownership after a truncated
+scan. Bounded items now reach the shared deduplication/retention policy, and incomplete
+ownership scans decline structured references. The separately inspected full publisher
+response yields seven DOM references, including a historical lead. Oversized item
+collections reject the whole structured story, and nested wrappers around one passage
+do not count as independent owners. Separate duplicated passages remain ambiguous.
+Nested story owners must bind their own URLs and participate in the same bounded
+ownership scan. The readable passage/URL lookup is built once per page, avoiding
+repeated readable-link scans on link-heavy articles.
+The nearest supporting passage must contain the text item's final substantive text;
+later descriptions outside that passage reject the structured reference. The reduced
+publisher-layout fixture preserves observed URLs and structure with synthetic prose.
+The full inspected response's structured references are withheld because the ownership
+scan is incomplete. Each explicit media field is independently checked, so an unsafe,
+empty or conservatively normalized same-page URL cannot mask a valid embed URL; the locator names the selected
+field. Complete supported
+documents still expose explicit structured references. The inspected response has
+1,671 readable characters and is distinct from the original live capture. References
+without a historical cue receive no historical priority; no particular video URL or
+answer is promoted.
+
+The combined code passed 1,488 tests with 17 intentional skips across 86 files,
+typechecking, a production build and all eight reference plus two topic-binding
+offline coverage controls. Production Chrome checked the final topic-audit code
+with six synthetic completed research/save flows and 54 live/open/reload observations
+at 1440, 390 and 320 pixels. All 632 checks passed, including normalization collisions,
+150 safe entries with only 100 captured, original versus current coverage, source
+corrections, legacy absence, no retrieval on expansion/reopen, byte-identical archive
+reads and long-URL wrapping. These checks used injected adapters and isolated disk
+storage. An integration test that previously slept 35 milliseconds before editing
+now waits for the casebook loading state to finish with a bounded React-aware poll;
+the product loading behavior is unchanged. No live provider rerun or allowance change occurred. Issues #10 and #30
+remain open for real media-provenance and primary-source acceptance.
