@@ -10,7 +10,7 @@ That authorization does not enable providers, spend allocation, deploy, or submi
 | --- | --- | --- |
 | [#8](https://github.com/VasuBansal7576/contexttrail/issues/8) | [PR #14](https://github.com/VasuBansal7576/contexttrail/pull/14): requested/final URL attribution and offline redirect controls | Offline redirect controls and final-head CI passed |
 | [#9](https://github.com/VasuBansal7576/contexttrail/issues/9) | [PR #18](https://github.com/VasuBansal7576/contexttrail/pull/18): explicit video save, stable retry, complete retained result and correction handling | Exact retention and real local save/reopen evidence in PR |
-| [#10](https://github.com/VasuBansal7576/contexttrail/issues/10) | [PR #21](https://github.com/VasuBansal7576/contexttrail/pull/21): historical source-link recovery, stacked after #14 | Actual provenance workflow and any measured spatial verifier remain separate gates |
+| [#10](https://github.com/VasuBansal7576/contexttrail/issues/10) | [PR #21](https://github.com/VasuBansal7576/contexttrail/pull/21): historical source-link recovery; [PR #39](https://github.com/VasuBansal7576/contexttrail/pull/39): inspect one retained historical lead in an open read slot | Actual verified historical-media provenance and any measured spatial verifier remain separate gates |
 | [#11](https://github.com/VasuBansal7576/contexttrail/issues/11) | [PR #16](https://github.com/VasuBansal7576/contexttrail/pull/16): readable stages/limitations, generic unknown fallback, technical disclosure | Offline complete/partial/failure and desktop/mobile verification in PR |
 | [#12](https://github.com/VasuBansal7576/contexttrail/issues/12) | [PR #20](https://github.com/VasuBansal7576/contexttrail/pull/20): historical evidence viewer when current record is missing, stacked after #18 | Exact text/material bindings, absence states and correction/reopen checks in PR |
 | [#13](https://github.com/VasuBansal7576/contexttrail/issues/13) | [PR #19](https://github.com/VasuBansal7576/contexttrail/pull/19): original hand recovered unchanged from two authored concepts, provenance and rendered overlap checks | Actual desktop/mobile rendering checked; no replacement agreement needed |
@@ -19,7 +19,7 @@ That authorization does not enable providers, spend allocation, deploy, or submi
 | [#24](https://github.com/VasuBansal7576/contexttrail/issues/24) | [PR #27](https://github.com/VasuBansal7576/contexttrail/pull/27): bounded self-contained MOV atom layouts accepted by automatic and comparison uploads | Actual generated ftyp/free/extended/legacy/terminal-zero clips decode; malformed layouts and external references rejected |
 | [#28](https://github.com/VasuBansal7576/contexttrail/issues/28) | [PR #32](https://github.com/VasuBansal7576/contexttrail/pull/32): nonwrapping case indices with content-sized columns and mobile type | Merged; actual digit bounds, overlap, overflow and saved-case opening checked at 320/390/1440px |
 | [#29](https://github.com/VasuBansal7576/contexttrail/issues/29) | [PR #34](https://github.com/VasuBansal7576/contexttrail/pull/34): readable retained source-linked caption leads in shared live and saved views | Merged; source/text/model/identity bindings and ten offline production browser scenarios passed; cautious caption status unchanged |
-| [#30](https://github.com/VasuBansal7576/contexttrail/issues/30) | [PR #35](https://github.com/VasuBansal7576/contexttrail/pull/35): bounded document-lead priority, unresolved primary coverage and reproducible topic benchmark | Eight controlled offline cases pass; old omitted pool and provider recall remain unknown; future live acceptance remains open and requires separate finite approval |
+| [#30](https://github.com/VasuBansal7576/contexttrail/issues/30) | [PR #35](https://github.com/VasuBansal7576/contexttrail/pull/35): document-lead priority and benchmark; [PR #38](https://github.com/VasuBansal7576/contexttrail/pull/38): question overlap guides balanced source/read allocation and shorter query expansion | Eight reference and two topic-binding controls pass; omitted live pools and primary-source recall remain unknown; live acceptance stays open and requires separate finite approval |
 | [#31](https://github.com/VasuBansal7576/contexttrail/issues/31) | [PR #33](https://github.com/VasuBansal7576/contexttrail/pull/33): accurate sampled-frame investigation save description for Trace and Claim-check | Merged; both modes checked at 320/390/1440px with exact disk archive, stable response-loss retry, reload and correction handling |
 | [#36](https://github.com/VasuBansal7576/contexttrail/issues/36) | [PR #37](https://github.com/VasuBansal7576/contexttrail/pull/37): saved topic reports display retained investigation limitations and source-read outcomes from their original report snapshot | Original coverage is separate from current edits; legacy absence stays unavailable through corrections and retries |
 | [#2](https://github.com/VasuBansal7576/contexttrail/issues/2) | Preserve historical branches; source/merge inventory here; [PR #17](https://github.com/VasuBansal7576/contexttrail/pull/17) preserves the free-gate configuration on main | Configuration merged through #17; model availability remains unverified; no branch deletion |
@@ -106,3 +106,36 @@ legacy reports at the same three widths. It uses synthetic completed results and
 exact report retention, source-assertion semantics, byte-identical reads and no retrieval
 or mutations on reopen. Neither verification establishes the live primary-source quality
 still tracked in #30.
+
+## Acceptance-gap follow-ups, 3 October 2026
+
+Fresh comments on #10 and #30 report unmet quality targets on main `b5b5ded`.
+They do not demonstrate new wrong verdicts or source-integrity failures. Both follow-up
+PRs address bounded work allocation without claiming success on those live cases.
+
+PR #38 preserves the two document-cue slots, then balances search surfaces within
+substantial, partial and zero-overlap question-term tiers. The selected order still owns
+the five page reads. Metadata-poor and paraphrased leads remain eligible when higher
+tiers leave capacity; lexical overlap does not establish relevance or authority. The third
+query retains the original question with fewer generic expansion terms. Eight reference
+controls and two new fictional-institution admitted-pool controls pass. The latter record
+zero dictionary/sports reads, with either all searches succeeding or the first failing,
+within three searches, eight sources, five reads, eight requests and forty questions.
+Read metrics bind requested URLs to original synthetic leads rather than extracted
+display titles. None of this reconstructs the uncaptured omitted live pool or measures
+provider recall. See [the benchmark contract](topic-coverage-benchmark.md).
+
+PR #39 lets one safe, already-retained, judged relevant historical-media cue use an
+otherwise unclaimed read slot when no dated core exists. Every frozen role and undated-core
+recovery priority remains ahead of it. An early article read can expose a source link for
+the existing fifth-page follow-up. Its title or snippet supplies no date, identity or
+corroboration. Nineteen new controls include the bounded article-to-inspected-original
+workflow, failure/empty/rejected/deadline cases, protected priorities and cautious outputs.
+The acquired original remains contextual with no dated core or verified media identity.
+See [the linked-history contract](linked-history-retrieval.md).
+
+The combined tree passed 1,387 tests with 17 intentional skips across 82 files, typechecking
+and a production build. All new provider responses were injected offline fixtures; no
+providers, live reruns or additional allowance were used. The current merge workflow
+requires Codex's built-in review, resolved actionable findings and passing final-head CI.
+Issues #10 and #30 remain open for their actual provenance and primary-source acceptance.
