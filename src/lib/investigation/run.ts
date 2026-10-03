@@ -15,6 +15,7 @@
 import { CaseValidationError } from "../cases/parse";
 import { caseFromImageInvestigation } from "../cases/from-image-investigation";
 import { readFailure, type PageReadOutcome } from "./report";
+import type { DeepReadReason, DeepReadSelectionAudit } from "./deep-read-audit";
 import type { EvidenceCandidate, RetrievalKind } from "./contracts/evidence";
 import type {
   InvestigationEvent,
@@ -156,15 +157,23 @@ function logProviderFailure(surface: string, err: unknown): void {
  * unresolved origin, strongest same-context/support, strongest fact-check,
  * strongest current-reporting candidate.
  */
-export function selectDeepReadCandidates(
+function factCheckOrder(a: EvidenceCandidate, b: EvidenceCandidate): number {
+  return (b.judgment?.pageRole.factCheck ?? 0) - (a.judgment?.pageRole.factCheck ?? 0)
+    || (b.judgment?.relevance ?? 0) - (a.judgment?.relevance ?? 0)
+    || (a.serpPosition ?? 1e9) - (b.serpPosition ?? 1e9) || a.id.localeCompare(b.id);
+}
+function frozenFactCheckWinner(candidates: readonly EvidenceCandidate[]): EvidenceCandidate | undefined {
+  return [...candidates].filter(c => (c.judgment?.pageRole.factCheck ?? 0) > 0).sort(factCheckOrder)[0];
+}
+export function selectDeepReadPlan(
   candidates: readonly EvidenceCandidate[],
   max = MAX_DEEP_READ_PAGES,
-): EvidenceCandidate[] {
-  const picked: EvidenceCandidate[] = [];
+): Array<{ candidate: EvidenceCandidate; reason: DeepReadReason }> {
+  const picked: Array<{ candidate: EvidenceCandidate; reason: DeepReadReason }> = [];
   const seen = new Set<string>();
-  const take = (c: EvidenceCandidate | null | undefined) => {
+  const take = (c: EvidenceCandidate | null | undefined, reason: DeepReadReason) => {
     if (c && !seen.has(c.id) && picked.length < max) {
-      picked.push(c);
+      picked.push({ candidate: c, reason });
       seen.add(c.id);
     }
   };
@@ -184,7 +193,7 @@ export function selectDeepReadCandidates(
   const coreAnchor = datedCore[0] ?? byRel(
     coreOccurrences(candidates).filter((c) => c.judgment !== null),
   )[0];
-  take(coreAnchor);
+  take(coreAnchor, "core_anchor");
 
   const firstDomain = coreAnchor?.registrableDomain;
   const conflicts = byRel(
@@ -195,31 +204,21 @@ export function selectDeepReadCandidates(
         c.registrableDomain !== firstDomain,
     ),
   );
-  take(conflicts[0]);
+  take(conflicts[0], "conflict");
 
-  take(byRel(candidates.filter(hasStrongSupport))[0]);
+  take(byRel(candidates.filter(hasStrongSupport))[0], "support");
 
   // §18 "strongest fact-check": category priority comes BEFORE the
   // relevance tie-break — higher-relevance commentary must not crowd out
   // the strongest fact-check candidate.
-  take(
-    [...candidates]
-      .filter((c) => (c.judgment?.pageRole.factCheck ?? 0) > 0)
-      .sort(
-        (a, b) =>
-          (b.judgment?.pageRole.factCheck ?? 0) - (a.judgment?.pageRole.factCheck ?? 0) ||
-          (b.judgment?.relevance ?? 0) - (a.judgment?.relevance ?? 0) ||
-          (a.serpPosition ?? 1e9) - (b.serpPosition ?? 1e9) ||
-          a.id.localeCompare(b.id),
-      )[0],
-  );
+  take(frozenFactCheckWinner(candidates), "fact_check");
 
   take(
     byRel(
       candidates.filter(
         (c) => c.retrievalKind === "google_news" || (c.judgment?.pageRole.reporting ?? 0) >= 0.75,
       ),
-    )[0],
+    )[0], "current_reporting",
   );
 
   // When dates are missing, use unclaimed slots to inspect additional image
@@ -228,14 +227,14 @@ export function selectDeepReadCandidates(
   // and the five-page ceiling stay intact; selection does not promote evidence.
   if (datedCore.length === 0) {
     const unreadCore = byRel(coreOccurrences(candidates).filter((c) => c.judgment !== null && !seen.has(c.id)));
-    const domains = new Set(picked.map((c) => c.registrableDomain));
+    const domains = new Set(picked.map(slot => slot.candidate.registrableDomain));
     for (const c of unreadCore) {
       if (!domains.has(c.registrableDomain)) {
-        take(c);
+        take(c, "core_recovery");
         domains.add(c.registrableDomain);
       }
     }
-    for (const c of unreadCore) take(c);
+    for (const c of unreadCore) take(c, "core_recovery");
 
     // An already-retained historical media lead can expose an inspected
     // original-source link during the first four reads. Use at most one
@@ -245,8 +244,8 @@ export function selectDeepReadCandidates(
       c.judgment !== null && c.judgment.relevance >= RELEVANCE_THRESHOLD
       && retainableSourceUrl(c.sourceUrl) !== null
       && hasHistoricalMediaCue([c.title ?? '', c.snippet ?? ''].join('\n'));
-    if (!picked.some(historicalLead)) {
-      take(byRel(candidates.filter(c => !seen.has(c.id) && historicalLead(c)))[0]);
+    if (!picked.some(slot => historicalLead(slot.candidate))) {
+      take(byRel(candidates.filter(c => !seen.has(c.id) && historicalLead(c)))[0], "historical_lead");
     }
   }
 
@@ -257,11 +256,40 @@ export function selectDeepReadCandidates(
     candidates.filter((c) => c.judgment !== null && !seen.has(c.id)),
   )) {
     if (picked.length >= max) break;
-    take(c);
+    take(c, "filler");
   }
 
   return picked;
 }
+/** Compatibility projection: the original frozen selection order is unchanged. */
+export function selectDeepReadCandidates(candidates: readonly EvidenceCandidate[], max = MAX_DEEP_READ_PAGES): EvidenceCandidate[] {
+  return selectDeepReadPlan(candidates, max).map(slot => slot.candidate);
+}
+
+/** Outcome-aware acquisition only. It never promotes dates, identity or claims. */
+export function alternateHistoricalFactCheck(input: {
+  plan: ReturnType<typeof selectDeepReadPlan>; candidates: readonly EvidenceCandidate[]; reads: readonly PageReadOutcome[];
+}): EvidenceCandidate | null {
+  const fifth = input.plan[MAX_DEEP_READ_PAGES - 1];
+  if (!fifth || (fifth.reason !== 'core_recovery' && fifth.reason !== 'filler')) return null;
+  const winner = frozenFactCheckWinner(input.candidates);
+  const fact = input.plan.slice(0, MAX_DEEP_READ_PAGES - 1).find(slot => slot.candidate.id === winner?.id);
+  if (!fact || fact.candidate.judgment === null) return null;
+  const read = input.reads.find(read => read.evidenceId === fact.candidate.id);
+  if (!read || read.selection !== 'selected' || read.failureCode === 'aborted'
+    || !(read.fetch === 'failed' || read.failureCode === 'source_binding_rejected' || read.extraction === 'empty_text')) return null;
+  const minimumRole = fact.candidate.judgment.pageRole.factCheck;
+  const alternate = input.candidates.filter(candidate => candidate.judgment !== null && candidate.judgment.pageRole.factCheck > 0
+    && candidate.judgment.pageRole.factCheck >= minimumRole && retainableSourceUrl(candidate.sourceUrl) !== null
+    && hasHistoricalMediaCue([candidate.title ?? '', candidate.snippet ?? ''].join('\n'))
+    && !input.reads.some(read => read.selection === 'selected' && (read.evidenceId === candidate.id
+      || (read.requestedUrl !== null && ['same_resource', 'normalized_resource'].includes(bindFetchedSource(read.requestedUrl, candidate.sourceUrl))))))
+    .sort(factCheckOrder)[0];
+  // Reading an already-best planned fifth page is not a replacement. Keep its
+  // original plan rather than report a self-displacement or choose a weaker lead.
+  return alternate && alternate.id !== fifth.candidate.id ? alternate : null;
+}
+
 
 /**
  * Run one investigation end to end. Emits events in §24.2 order; all
@@ -936,7 +964,24 @@ export async function runInvestigation(
     /* ------------------------------- DEEP_READ --------------------------- */
     stage("DEEP_READ", "started");
     const pageLimiter = createLimiter(CONCURRENCY.pageFetch);
-    const pages = deadlineHit() ? [] : selectDeepReadCandidates(pool);
+    const readPlan = selectDeepReadPlan(pool);
+    const factCheckWinner = frozenFactCheckWinner(pool);
+    const pages = deadlineHit() ? [] : readPlan.map(slot => slot.candidate);
+    const readSelectionAudit: DeepReadSelectionAudit = {
+      schemaVersion: 'deep-read-selection-v1', withheldCandidateCount: 0, finalDecision: { kind: 'no_final_page' },
+      candidates: pool.flatMap(candidate => {
+        const sourceUrl = retainableSourceUrl(candidate.sourceUrl);
+        if (!sourceUrl) return [];
+        const position = readPlan.findIndex(slot => slot.candidate.id === candidate.id);
+        const slot = readPlan[position];
+        return [{ evidenceId: candidate.id, sourceUrl, factCheckWinner: candidate.id === factCheckWinner?.id,
+          judgment: candidate.judgment ? { kind: 'assessed' as const, relevance: candidate.judgment.relevance, factCheck: candidate.judgment.pageRole.factCheck } : { kind: 'unassessed' as const },
+          historicalMediaCue: hasHistoricalMediaCue([candidate.title ?? '', candidate.snippet ?? ''].join('\n')),
+          plan: slot ? { kind: 'selected' as const, position: position + 1, reason: slot.reason } : { kind: 'not_selected' as const },
+        }];
+      }),
+    };
+    readSelectionAudit.withheldCandidateCount = pool.length - readSelectionAudit.candidates.length;
     // Read the first four frozen priorities, then let one inspected historical
     // reference compete with the fifth page. No recursive crawl or extra page.
     const initialPages = pages.slice(0, MAX_DEEP_READ_PAGES - 1);
@@ -1050,8 +1095,17 @@ export async function runInvestigation(
           sourceBinding: 'not_established', selection: 'selected', fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null });
       }
     }
-    const finalPage = followup ?? pages[MAX_DEEP_READ_PAGES - 1];
-    if (finalPage && !deadlineHit()) await readCandidate(finalPage);
+    const alternate = followup || deadlineHit() || callerAborted() ? null : alternateHistoricalFactCheck({ plan: readPlan, candidates: pool, reads: pageReads });
+    const finalPage = followup ?? alternate ?? pages[MAX_DEEP_READ_PAGES - 1];
+    if (deadlineHit() || callerAborted()) readSelectionAudit.finalDecision = { kind: 'deadline' };
+    else if (finalPage) {
+      const failedFact = readPlan.find(slot => slot.candidate.id === factCheckWinner?.id);
+      const displaced = pages[MAX_DEEP_READ_PAGES - 1];
+      readSelectionAudit.finalDecision = alternate && failedFact && displaced
+        ? { kind: 'alternate_fact_check', evidenceId: alternate.id, failedFactCheckId: failedFact.candidate.id, displacedEvidenceId: displaced.id }
+        : { kind: followup ? 'inspected_link' : 'original_plan', evidenceId: finalPage.id };
+      await readCandidate(finalPage);
+    }
     // References on the final page are retained, but never followed recursively.
     for (const read of pageReads) for (const link of read.sourceLinks ?? []) {
       if (link.followup === 'pending') link.followup = deadlineHit() ? 'deadline' : 'page_limit';
@@ -1222,6 +1276,7 @@ export async function runInvestigation(
             takeaways,
             requestLog,
             pageReads,
+            readSelectionAudit,
             graph,
           })
         : buildTraceResult({
@@ -1233,6 +1288,7 @@ export async function runInvestigation(
             limitations: [...limitations],
             requestLog,
             pageReads,
+            readSelectionAudit,
             graph,
           });
     try {

@@ -337,6 +337,7 @@ export function deriveTakeaways(input: {
 }
 
 export interface ResultAssemblyInput {
+  readSelectionAudit?: import("./deep-read-audit").DeepReadSelectionAudit;
   pageReads?: PageReadOutcome[];
   candidates: readonly EvidenceCandidate[];
   timeline: TimelineItem[];
@@ -360,6 +361,7 @@ function sourceLinkedReport(input: ResultAssemblyInput, claimMode: boolean) {
     coverage: input.graph.coverage,
     earliestObservedOccurrence: input.graph.metrics.earliestObservedOccurrence,
     pageReads: input.pageReads,
+    readSelectionAudit: input.readSelectionAudit,
     claimMode,
   });
 }

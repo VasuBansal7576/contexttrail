@@ -6,6 +6,7 @@ import { ProviderError } from '../providers/http';
 import { isCoreOccurrence } from './identity';
 import type { SourceBinding } from '../pages/source-binding';
 import type { SourceLink } from '../pages/source-links';
+import type { DeepReadSelectionAudit } from './deep-read-audit';
 
 export interface PageReadOutcome {
   evidenceId: string;
@@ -41,6 +42,7 @@ export function deriveReport(input: {
   coverage: ComparisonCoverage;
   earliestObservedOccurrence: string | null;
   pageReads?: readonly PageReadOutcome[];
+  readSelectionAudit?: DeepReadSelectionAudit;
   claimMode: boolean;
 }) {
   const roles = input.candidates.map(c => ({
@@ -88,6 +90,7 @@ export function deriveReport(input: {
       // No percentage, original-upload claim, or automatic promotion of visual leads.
       unverifiedVisualLeadIds: input.candidates.filter(c => c.mediaRelationship === 'VISUAL_LEAD').map(c => c.id),
     },
+    ...(input.readSelectionAudit ? { readSelectionAudit: input.readSelectionAudit } : {}),
     pageReads: input.pageReads ?? [],
     pageReadAuditAvailable: input.pageReads !== undefined,
   };

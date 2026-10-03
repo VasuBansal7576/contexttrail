@@ -6,6 +6,7 @@ import type { CaseEvidence } from '../cases/model';
 import type { ClaimStatus, Takeaway } from '../investigation/contracts/investigation';
 import type { AutomaticResearchResult } from './automatic-contract';
 import { projectCaptionFindings, type CaptionFindingsView } from './caption-findings';
+import { parseDeepReadSelectionAudit, type DeepReadSelectionAudit } from '../investigation/deep-read-audit';
 
 export interface AutomaticFrameSource {
   evidenceId: string;
@@ -23,7 +24,7 @@ export interface AutomaticFrameSource {
 export type AutomaticResearchView = Omit<AutomaticResearchResult, 'frames'> & {
   /** Exact completed video report archive; never input media bytes. */
   retainedResult?: RetainedVideoResult;
-  frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; captionFindings: CaptionFindingsView; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
+  frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; captionFindings: CaptionFindingsView; readSelectionAudit?: DeepReadSelectionAudit | null; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
 };
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The research service returned an invalid result.');
@@ -97,8 +98,9 @@ export function parseAutomaticResearchResult(value: unknown): AutomaticResearchV
     const timeline = sources(image.timeline), undatedEvidence = sources(image.undatedEvidence), supportingEvidence = sources(image.supportingEvidence), contextualEvidence = sources(image.contextualEvidence);
     const frameSources = [...timeline, ...undatedEvidence, ...supportingEvidence, ...contextualEvidence];
     const comparison = captionComparison(image, frameSources, caseRecord.evidence);
+    const readSelectionAudit = parseDeepReadSelectionAudit(image.sourceLinkedReport && typeof image.sourceLinkedReport === 'object' && 'readSelectionAudit' in image.sourceLinkedReport ? image.sourceLinkedReport.readSelectionAudit : undefined, frameSources);
     const captionFindings = projectCaptionFindings(image.sourceLinkedReport, frameSources, caseRecord.evidence, image.policyReasons);
-    return { timestampMs: frame.timestampMs, imageResult: { ...(comparison ? { captionComparison: comparison } : {}), captionFindings, limitations: strings(image.limitations), timeline, undatedEvidence, supportingEvidence, contextualEvidence } };
+    return { timestampMs: frame.timestampMs, imageResult: { ...(comparison ? { captionComparison: comparison } : {}), captionFindings, readSelectionAudit, limitations: strings(image.limitations), timeline, undatedEvidence, supportingEvidence, contextualEvidence } };
   }) };
 }
 export async function investigateAutomatically(body: FormData, signal: AbortSignal, onProgress: (message: string) => void): Promise<AutomaticResearchView> {
