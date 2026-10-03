@@ -20,7 +20,7 @@ const originalUrl = 'https://original.example/video?id=2015';
 const prose = 'Retrieved alternate passage describes a historical video without verifying the submitted media. '.repeat(25);
 const article = (url: string, linked = false) => `<html><head><title>Retrieved source</title><script type="application/ld+json">${JSON.stringify({ '@type': 'Article', url, datePublished: '2015-02-01' })}</script></head><body><article><p>${prose}</p>${linked ? `<p>The original video appeared in 2015. <a href="${originalUrl}">Earlier post</a></p>` : ''}</article></body></html>`;
 
-async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', options: { link?: boolean; deadline?: boolean; abort?: boolean; weaker?: boolean } = {}) {
+async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', options: { link?: boolean; deadline?: boolean; abort?: boolean; weaker?: boolean; plannedHistory?: boolean } = {}) {
   let now = Date.parse('2026-10-03T00:00:00Z');
   const controller = new AbortController();
   const searches: string[] = [], fetches: string[] = [], asks: string[] = [];
@@ -28,7 +28,7 @@ async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', 
     uploadImage: async () => 'offline-image',
     search: async params => {
       searches.push(`${params.engine}:${params.type ?? ''}`);
-      if (params.type === 'exact_matches') return { exact_matches: coreUrls.map((link, index) => ({ position: index + 1, title: `Core ${index}`, link })) };
+      if (params.type === 'exact_matches') return { exact_matches: coreUrls.map((link, index) => ({ position: index + 1, title: `Core ${index}${index === 2 && options.plannedHistory ? ': Earlier video posted in 2015' : ''}`, link })) };
       if (params.type === 'all') return { visual_matches: [
         { position: 1, title: 'Frozen fact-check: old video in 2015', link: factUrl },
         { position: 2, title: 'Alternate fact-check: earlier video in 2015', link: alternateUrl },
@@ -42,10 +42,11 @@ async function investigate(outcome: 'empty' | 'failed' | 'rejected' | 'usable', 
     const alternate = input.includes('Alternate fact-check');
     const frozen = input.includes('Frozen fact-check');
     const refined = alternate && input.includes('Retrieved alternate passage');
-    const fact = frozen ? 1 : alternate && !refined ? options.weaker ? .99 : 1 : 0;
+    const plannedHistory = options.plannedHistory && input.includes('Core 2');
+    const fact = frozen || plannedHistory ? 1 : alternate && !refined ? options.weaker ? .99 : 1 : 0;
     const reporting = input.includes('Current reporting') ? 1 : 0;
     const core = coreUrls.findIndex((_url, index) => input.includes(`Core ${index}`));
-    const relevance = alternate ? refined ? .95 : .68 : frozen ? .79 : reporting ? .95 : .9 - Math.max(0, core) * .05;
+    const relevance = alternate ? refined ? .95 : .68 : frozen ? .79 : reporting ? .95 : plannedHistory ? .7 : .9 - Math.max(0, core) * .05;
     return Response.json({ model: 'jev-1.13.0', answers: {
       relevance: { type: 'noul', noul: relevance },
       page_role: { type: 'choice', choice: fact ? 'FACT_CHECK' : reporting ? 'REPORTING' : 'OTHER', probabilities: { REPORTING: reporting, FACT_CHECK: fact, SOCIAL_REPOST: 0, AGGREGATOR: 0, COMMENTARY: 0, OTHER: 1 - fact - reporting } },
@@ -108,6 +109,15 @@ describe('bounded adaptive final fact-check read (synthetic offline sources)', (
     expect(fetches.at(-1)).toBe(originalUrl);
     expect(fetches).not.toContain(alternateUrl);
     expect(fetches).toHaveLength(5);
+  });
+  it('reads the already-best planned fifth page with a valid original-plan trace and leaves the weaker alternate unread', async () => {
+    const { terminal, fetches } = await investigate('empty', { plannedHistory: true });
+    expect(fetches).toHaveLength(5); expect(fetches.at(-1)).toBe(coreUrls[2]); expect(fetches).not.toContain(alternateUrl);
+    if (terminal?.type !== 'investigation.completed') throw new Error('Missing completed result');
+    const all = [...terminal.result.timeline, ...terminal.result.undatedEvidence, ...terminal.result.supportingEvidence, ...terminal.result.contextualEvidence];
+    const audit = parseDeepReadSelectionAudit(terminal.result.sourceLinkedReport?.readSelectionAudit, all);
+    expect(audit?.finalDecision).toEqual({ kind: 'original_plan', evidenceId: all.find(item => item.sourceUrl === coreUrls[2])?.evidenceId });
+    expect(audit?.candidates.find(row => row.sourceUrl === alternateUrl)?.plan).toEqual({ kind: 'not_selected' });
   });
   it.each(['deadline', 'abort'] as const)('starts no alternate request after %s', async stop => {
     const { fetches } = await investigate('empty', { [stop]: true });
