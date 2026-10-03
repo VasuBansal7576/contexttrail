@@ -231,3 +231,40 @@ on #30; no provider rerun or primary-source acceptance is claimed. The latest #1
 run did not read The Quint and therefore did not exercise PR #41's extractor.
 Both acceptance issues remain open. No new provider calls or allowance changes were
 made for this follow-up.
+
+
+## Saved search and read diagnosis after PR #43
+
+The existing post-PR43 topic provider audit records two fetch rejections before
+HTTP headers, after 12,013 and 12,004 milliseconds. Both closely match the existing
+12-second operation deadline. The news query received HTTP 200 in 1,076 milliseconds;
+the investigation completed normally in 30,548 milliseconds. This supports an
+operation-timeout inference and rules out persistent caller cancellation, but the
+exact rejection cause was not recorded. Coincident network failure remains possible.
+All 39 candidates from the successful surface are captured; none points to the
+official clarification. The two unavailable surfaces remain unknown.
+
+Future unavailable topic-search rows now retain an optional validated failure
+category and HTTP status where known. Raw messages, causes, queries, credentials
+and response bodies are excluded. Documented successful empty searches stay distinct
+from failures. Original investigation snapshots retain these categories through
+later corrections; old rows without diagnostics remain unknown and are not backfilled.
+The change records why a search failed rather than changing deadlines, retries,
+queries, provider work or selection. Primary-source acceptance in #30 remains open.
+
+For #10, PTI and The Quint have fact-check signal 1; PTI wins the relevance tie-break
+0.79 versus 0.68. Additional domain-diverse undated image candidates fill remaining
+slots before an extra historical cue. PTI itself satisfies the cue; The Quint and
+the older YouTube lead have relevance 0.68 and 0.14, below the existing 0.70 gate.
+A final-score projection recreates the observed selected set, but cannot replay the
+original selection completely because News18's pre-read judgment was not retained.
+PTI was bound but produced empty readable text; News18 produced usable text and no
+retained references. Original publisher HTML and extraction rejection diagnostics
+are absent, so these observations do not establish an extractor defect.
+
+A fifth-slot alternate fact-check would be a new acquisition policy trading away
+undated-core recovery, and would leave no further read slot for its original video.
+No selection/identity/date thresholds were changed based on this incomplete capture.
+The next diagnostic evidence for #10 is a frozen pre-read selection trace and bounded
+extraction outcomes. Historical recovery acceptance remains open. Both diagnoses use
+existing saved evidence; no blind rerun, media download or allowance change was made.
