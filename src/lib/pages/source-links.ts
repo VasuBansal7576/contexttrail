@@ -1,4 +1,5 @@
 import { retainableSourceUrl } from './source-reference';
+import { hasHistoricalMediaCue } from './historical-media-cue';
 
 export interface SourceLink {
   url: string;
@@ -33,8 +34,7 @@ export function extractSourceLinks(doc: Document, pageUrl: string): SourceLink[]
     try { resolved = new URL(raw, pageUrl).toString(); } catch { continue; }
     const url = retainableSourceUrl(resolved);
     if (!url || url === retainableSourceUrl(pageUrl)) continue;
-    const historicalLead = /\b(?:video|footage|clip|image|photo(?:graph)?|post(?:ed)?|upload(?:ed)?|original)\b/i.test(supportingText)
-      && /\b(?:19\d{2}|20\d{2}|earlier|previously|old(?:er)?|originally)\b/i.test(supportingText);
+    const historicalLead = hasHistoricalMediaCue(supportingText);
     const link: SourceLink = { url, text: (el.textContent ?? el.getAttribute('title') ?? '').trim().slice(0, 400), supportingText,
       location: { element: el.tagName === 'IFRAME' ? 'embed' : 'anchor', index }, historicalLead };
     const duplicate = out.findIndex(candidate => candidate.url === url);

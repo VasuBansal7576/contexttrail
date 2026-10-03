@@ -31,6 +31,7 @@ import type {
 import { modeForInput, toPublicCandidate } from "./contracts/investigation";
 import { PUBLIC_IMAGES } from "../media/public-images";
 import type { PairwiseContextJudgment } from "./contracts/judgment";
+import { RELEVANCE_THRESHOLD } from "./contracts/judgment";
 import { SearchBudget, type BaseSearchSlot, type SearchTicket } from "./budget";
 import { dedupeByCanonicalUrl, applyRetentionCaps, selectForClassification } from "./candidates";
 import { mergeEvidenceDateSources, parseClaimDate, resolveEvidenceDate, type EvidenceDateSources } from "./dates";
@@ -80,6 +81,7 @@ import { bindFetchedSource } from "../pages/source-binding";
 import { candidateFromSourceLink } from "./linked-history";
 import { canonicalizeUrl } from "./url";
 import { retainableSourceUrl } from "../pages/source-reference";
+import { hasHistoricalMediaCue } from "../pages/historical-media-cue";
 import { buildExcerpt, extractPage, selectDisplayQuote } from "../pages/extract";
 import {
   normalizeAboutThisImageResponse,
@@ -234,6 +236,18 @@ export function selectDeepReadCandidates(
       }
     }
     for (const c of unreadCore) take(c);
+
+    // An already-retained historical media lead can expose an inspected
+    // original-source link during the first four reads. Use at most one
+    // otherwise unclaimed slot after every frozen role and core recovery;
+    // a title/snippet cue never supplies identity, dates, or corroboration.
+    const historicalLead = (c: EvidenceCandidate) =>
+      c.judgment !== null && c.judgment.relevance >= RELEVANCE_THRESHOLD
+      && retainableSourceUrl(c.sourceUrl) !== null
+      && hasHistoricalMediaCue([c.title ?? '', c.snippet ?? ''].join('\n'));
+    if (!picked.some(historicalLead)) {
+      take(byRel(candidates.filter(c => !seen.has(c.id) && historicalLead(c)))[0]);
+    }
   }
 
   // Fill any remaining budget with the strongest unseen judged candidates —
