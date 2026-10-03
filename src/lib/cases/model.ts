@@ -1,4 +1,5 @@
 /** Persisted case v1. References describe evidence; they do not fetch or retain media. */
+import type { TopicCandidateAudit } from './topic-candidate-audit';
 export const CASE_SCHEMA_VERSION = 'contexttrail-case-v1';
 export type NonEmpty<T> = [T, ...T[]];
 
@@ -117,5 +118,7 @@ export interface CaseRecord {
     searches: Array<{ engine: string; attempted: number; returned: number; retained: number; searchId: string | null }>;
     /** Optional in older cases. Each page read remains bound to its original search lead. */
     sourceReads?: CaseSourceRead[];
+    /** Optional future topic diagnostics; missing older metadata stays unknown. */
+    topicCandidateAudit?: TopicCandidateAudit;
   };
 }
