@@ -8,21 +8,43 @@ import SaveToCasebook from './SaveToCasebook';
 import { assessClaimSource, buildClaimReport } from '@/lib/research/claim-report';
 import { inquiryCase, researchWorkflow } from '@/lib/research/workflow';
 import { getResearchCase, importResearchCase, listResearchCases, parseResearchCaseView } from '@/lib/research/client';
+import { localizedNavigationQuote, localizedSourceUrl } from '@/lib/research/claim-quote-passage-fixture';
 vi.mock('@/lib/research/client', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/research/client')>(), getResearchCase: vi.fn(), importResearchCase: vi.fn(), listResearchCases: vi.fn() }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams('case=case%3Asource&chapter=evidence'), useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => React.createElement('a', props) }));
 let root: Root, container: HTMLDivElement;
 beforeEach(() => { vi.stubGlobal('React', React); vi.stubGlobal('crypto', webcrypto); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.mocked(listResearchCases).mockResolvedValue({ cases: [], warnings: [] }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
-function fixture(text = 'Original retained text.') {
+function fixture(text = 'Original retained text.', sourceUrl = 'https://example.com/record') {
   const question = 'What is in the record?';
   const record = inquiryCase(researchWorkflow({ kind: 'start', operationId: 'source', question, createdAt: '2026-10-01T00:00:00Z' }).document.workspace);
-  record.evidence = [{ id: 'e1', sourceUrl: 'https://example.com/record', title: 'Original source', content: { kind: 'text', text, attribution: 'page_quote' }, publicationDate: { status: 'unknown', reason: 'No known date' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'public_reference', retention: 'reference_only', contentHash: null } }];
+  record.evidence = [{ id: 'e1', sourceUrl, title: 'Original source', content: { kind: 'text', text, attribution: 'page_quote' }, publicationDate: { status: 'unknown', reason: 'No known date' }, provenance: { method: 'retrieval', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'public_reference', retention: 'reference_only', contentHash: null } }];
   record.coverage.limitations = ['Primary-source coverage has not been independently established.', 'Source 3 could not be read; its original search lead remains.', 'Source 5 led to an unrelated destination; destination text and dates were not used.', 'Some relevance assessments were unavailable; those sources remain unassessed leads.'];
   const claimReport = buildClaimReport(question, record, [assessClaimSource(record.evidence[0], null, null)]);
   const saved = researchWorkflow({ kind: 'import_case', operationId: 'save', question, createdAt: record.createdAt, caseRecord: record, claimReport });
   return { question, record, claimReport, saved };
 }
+it.each(['current', 'stale', 'legacy'])('keeps localized profile chrome as an inspectable saved %s lead without changing the assessment', async status => {
+  const f = fixture(localizedNavigationQuote, localizedSourceUrl);
+  const { claimReportCase: _snapshot, claimReportCaseOrigin: _origin, ...legacyDocument } = f.saved.document;
+  const saved = status === 'current' ? f.saved : status === 'legacy' ? { ...f.saved, document: legacyDocument } : researchWorkflow({ kind: 'update', document: f.saved.document, operationId: 'correct-localized', expectedRevision: 1, change: { kind: 'evidence', value: { ...f.record.evidence[0], sourceUrl: 'https://corrected.example.org/current', content: { kind: 'text', text: 'ИСРО остава държавна агенция.', attribution: 'page_quote' } }, assets: [] } });
+  const before = JSON.stringify(saved.document), view = parseResearchCaseView(saved);
+  vi.mocked(getResearchCase).mockResolvedValue(view);
+  await act(async () => root.render(React.createElement(Casebook)));
+  const report = container.querySelector('[aria-label="Saved grounded report"]');
+  expect(report?.querySelector('blockquote')).toBeNull();
+  expect(report?.textContent).toContain('Recognizable navigation or profile chrome remains');
+  expect(report?.querySelector('.source-inspection')?.textContent).not.toContain('Source-quoted candidate assertion');
+  expect(report?.querySelector('details.claim-original-excerpt')?.textContent).toContain(localizedNavigationQuote);
+  expect(report?.textContent).toContain('characters 0–378');
+  expect(report?.textContent).toContain('Model assessment applies to the full retained excerpt');
+  expect(report?.querySelector(`a[href="${localizedSourceUrl}"]`)).not.toBeNull();
+  expect(report?.querySelector('a[href="https://corrected.example.org/current"]')).toBeNull();
+  expect(view.claimReport).toEqual(f.claimReport);
+  expect(view.claimReportCase).toEqual(f.record);
+  expect(JSON.stringify(saved.document)).toBe(before);
+  expect(importResearchCase).not.toHaveBeenCalled();
+});
 it.each(['current', 'stale', 'legacy'])('selects a clean saved %s passage without rewriting the original report or snapshot', async status => {
   const prefix = 'PostLog inSign upPostLog inSign up';
   const body = 'Synthetic publisher: “The agency described the current launch programme and its commercial partners.”';
