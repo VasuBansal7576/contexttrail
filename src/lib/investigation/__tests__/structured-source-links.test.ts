@@ -174,6 +174,18 @@ describe('observed article structure and bounded structured source references', 
     const crossCard = { url: pageUrl, cards: [{ id: 'other-card', 'story-elements': [textItem(support)] }, { id: 'context-card', 'story-elements': [mediaItem()] }] };
     expect(extractPage(html({ content: crossCard }, body), pageUrl).sourceLinks).toEqual([]);
   });
+  it.each([`<div>${current}</div>`, current])('rejects substantive trailing context outside the last supporting paragraph: %s', trailing => {
+    const text = `<p>${support}</p>${trailing}`;
+    const items = [{ type: 'text', text } satisfies TextItem, mediaItem()];
+    expect(extractPage(html({ content: story(items) }, `<div id="context-card">${text}</div>`), pageUrl).sourceLinks).toEqual([]);
+  });
+  it('retains terminal paragraph support followed only by whitespace, comments and empty elements', () => {
+    const text = `<p>${support}</p> \n <!-- noncontext comment --> <div></div><span> \n </span>`;
+    const items = [{ type: 'text', text } satisfies TextItem, mediaItem()];
+    const links = extractPage(html({ content: story(items) }, `<div id="context-card">${text}</div>`), pageUrl).sourceLinks;
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ url: originalUrl, supportingText: support, historicalLead: true });
+  });
   it('rejects ambiguous card DOM IDs, duplicate structured story/card owners and card support outside the chosen article', () => {
     expect(extractPage(html(undefined, `<div id="context-card"><p>${support}</p></div><div id="context-card"><p>${support}</p></div>`), pageUrl).sourceLinks).toEqual([]);
     const duplicate = story(); duplicate.cards.push(...duplicate.cards);

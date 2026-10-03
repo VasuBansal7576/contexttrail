@@ -133,7 +133,8 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
       if (typeof raw !== 'string' || !/^https?:/i.test(raw)) continue;
       const url = retainableSourceUrl(raw);
       if (!url || url === retainableSourceUrl(pageUrl)) continue;
-      const supportDoc = new JSDOM(previous.text).window.document;
+      const supportWindow = new JSDOM(previous.text).window;
+      const supportDoc = supportWindow.document;
       const paragraphs = [...supportDoc.querySelectorAll('p, blockquote, figure')];
       const closest = paragraphs[paragraphs.length - 1];
       // Only this immediately adjacent text item may supply support. The
@@ -141,6 +142,14 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
       // Choose before checking retention/size: an unavailable later paragraph
       // cannot cause an earlier historical paragraph to attach to this embed.
       if (!closest) continue;
+      // A trailing div, loose text or any other substantive context outside
+      // this passage prevents it from describing the immediately next embed.
+      const textNodes = supportDoc.createTreeWalker(supportDoc.body, supportWindow.NodeFilter.SHOW_TEXT);
+      let lastText: Node | null = null;
+      for (let node = textNodes.nextNode(); node; node = textNodes.nextNode()) {
+        if (node.textContent?.trim()) lastText = node;
+      }
+      if (!lastText || !closest.contains(lastText)) continue;
       const supportingText = supportText(closest);
       // Readability may remove the card wrapper. Unique original paragraph
       // ownership and that same retained paragraph preserve the card binding.
