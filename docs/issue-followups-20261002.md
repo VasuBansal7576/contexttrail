@@ -21,6 +21,7 @@ That authorization does not enable providers, spend allocation, deploy, or submi
 | [#29](https://github.com/VasuBansal7576/contexttrail/issues/29) | [PR #34](https://github.com/VasuBansal7576/contexttrail/pull/34): readable retained source-linked caption leads in shared live and saved views | Merged; source/text/model/identity bindings and ten offline production browser scenarios passed; cautious caption status unchanged |
 | [#30](https://github.com/VasuBansal7576/contexttrail/issues/30) | [PR #35](https://github.com/VasuBansal7576/contexttrail/pull/35): bounded document-lead priority, unresolved primary coverage and reproducible topic benchmark | Eight controlled offline cases pass; old omitted pool and provider recall remain unknown; future live acceptance remains open and requires separate finite approval |
 | [#31](https://github.com/VasuBansal7576/contexttrail/issues/31) | [PR #33](https://github.com/VasuBansal7576/contexttrail/pull/33): accurate sampled-frame investigation save description for Trace and Claim-check | Merged; both modes checked at 320/390/1440px with exact disk archive, stable response-loss retry, reload and correction handling |
+| [#36](https://github.com/VasuBansal7576/contexttrail/issues/36) | [PR #37](https://github.com/VasuBansal7576/contexttrail/pull/37): saved topic reports display retained investigation limitations and source-read outcomes from their original report snapshot | Original coverage is separate from current edits; legacy absence stays unavailable through corrections and retries |
 | [#2](https://github.com/VasuBansal7576/contexttrail/issues/2) | Preserve historical branches; source/merge inventory here; [PR #17](https://github.com/VasuBansal7576/contexttrail/pull/17) preserves the free-gate configuration on main | Configuration merged through #17; model availability remains unverified; no branch deletion |
 | [#3](https://github.com/VasuBansal7576/contexttrail/issues/3) | Integrated core already merged through #1; follow-up safety work tracked in #8/#10 | Strong live provenance, browser/provider acceptance and release evidence remain open |
 | [#4](https://github.com/VasuBansal7576/contexttrail/issues/4) | Bounded licensed-demo plan retained in release checklist; official cutoff rechecked | Authorized actual trial, demo recording and submission remain open |
@@ -78,3 +79,30 @@ independent corroboration. See [the benchmark contract](topic-coverage-benchmark
 Do not close a report merely because it has a tracking PR. Issue #10's real-workflow gate cannot be proved by unit tests.
 Issue #13 uses the recovered original artwork, with recorded source hashes and rendered checks. Record exact final-head checks in each
 PR and keep those incomplete requirements visible until their acceptance evidence exists.
+
+## Saved topic limits, 3 October 2026
+
+Issue #36 concerns warnings already retained in the archive but absent from the reopened
+report. The saved report now displays its original coverage limitations, omitted candidate
+count and retained source-read outcomes. Historical reports keep those warnings visible
+outside their collapsed assessments. Current coverage edits do not replace the original
+snapshot. Legacy reports without that snapshot retain their fallback evidence for viewing
+and corrections, but their original coverage remains explicitly unavailable. A validated,
+sticky origin marker prevents later parsing or corrections from promoting fallback coverage
+to original coverage. Reads and listing do not rewrite archives.
+
+The integrated code passed 1,356 tests with 17 intentional skips across 80 files,
+typechecking and a production build. Independent review and lifecycle controls cover
+corrections, retained material changes, repeated imports, reverts, malformed provenance
+and honest missing-metadata states. The actual captured ISRO report was replayed through
+the built interface at 1440, 390 and 320 pixels, on open and reload. All ten retained warnings
+were visible in all six scenarios, compared with none before the fix, without horizontal
+overflow. Its eight source assessments remained insufficient. The captured response stayed
+byte-identical (SHA256 `ff7c46edd98f2cfc0f55fac4e12ee7f65d4743a6df8adae21e43be9bec86573e`).
+This read-only replay made no provider requests or writes to the user's case archive.
+The separate reproducible offline production browser script passed 200 checks over 24
+open/reload scenarios and three real local saves across current, stale, legacy and corrected
+legacy reports at the same three widths. It uses synthetic completed results and verifies
+exact report retention, source-assertion semantics, byte-identical reads and no retrieval
+or mutations on reopen. Neither verification establishes the live primary-source quality
+still tracked in #30.

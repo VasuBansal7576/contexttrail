@@ -1,5 +1,6 @@
 import { parseSavedVideoReport, videoReportMatches, savedVideoView, type SavedVideoReport } from './saved-video';
 import { parseClaimReport, invalidateClaimReport, type ClaimReport } from './claim-report';
+import { claimReportCaseOrigin, type ClaimReportCaseOrigin } from './claim-report-provenance';
 import type { LocalComparisonResponse } from '../video/matching/application-contract';
 import { parseComparisonResponse } from '../video/matching/client';
 /** Browser boundary for the opt-in local research service. No retrieval or storage. */
@@ -51,6 +52,7 @@ export interface ResearchCaseView extends ResearchCaseSummary {
   videoReportStatus: 'current' | 'stale' | 'none';
   claimReport: ClaimReport | null;
   claimReportCase: CaseRecord | null;
+  claimReportCaseOrigin: ClaimReportCaseOrigin | null;
   reportStatus: 'current' | 'stale' | 'none';
 }
 export interface ResearchClientOptions { signal?: AbortSignal }
@@ -346,6 +348,11 @@ export function parseResearchCaseView(value: unknown): ResearchCaseView {
   for (const check of report.citationChecks) { requireEvidence([check.citation.fromEvidenceId, ...check.targetEvidenceIds, ...check.quoteChecks.map(q => q.evidenceId)]); }
   for (const group of [...report.sharedCitations, ...report.duplicatePassages]) requireEvidence(group.evidenceIds);
   if (report.citationChecks.length !== citations.length || report.citationChecks.some(check => !citations.some(c => JSON.stringify(c) === JSON.stringify(check.citation)))) return fail('dependencies.citationChecks', 'citation report differs from saved citations');
+  let reportCaseOrigin: ClaimReportCaseOrigin | null = null;
+  if (document.claimReport !== undefined) {
+    try { reportCaseOrigin = claimReportCaseOrigin(document.claimReportCaseOrigin, document.claimReportCase !== undefined && document.claimReportCase !== null); }
+    catch { return fail('claimReportCaseOrigin', 'invalid or unbound origin'); }
+  } else if (document.claimReportCase !== undefined || document.claimReportCaseOrigin !== undefined || document.claimReportInvalidated !== undefined) return fail('claimReport', 'metadata requires a report');
   const claimReportCase = document.claimReport === undefined ? null : parseCaseRecord(document.claimReportCase ?? caseRecord);
   if (claimReportCase && claimReportCase.id !== caseRecord.id) return fail('claimReportCase', 'different case identity');
   const claimReport = claimReportCase ? parseClaimReport(document.claimReport, claimReportCase, text(object(document.claimReport, 'claimReport').question, 'claimReport.question')) : null;
@@ -358,7 +365,7 @@ export function parseResearchCaseView(value: unknown): ResearchCaseView {
   if (document.videoReportInvalidated !== undefined && (!videoReport || typeof document.videoReportInvalidated !== 'boolean')) return fail('videoReportInvalidated');
   const videoReportStatus = !videoReport ? 'none' : !document.videoReportInvalidated && videoReportMatches(videoReport, caseRecord, question.question) ? 'current' : 'stale';
   if (v.videoReportStatus !== undefined && v.videoReportStatus !== videoReportStatus) return fail('videoReportStatus', 'inconsistent report validity');
-  return { videoReport, videoReportStatus, claimReport, claimReportCase, reportStatus, caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
+  return { videoReport, videoReportStatus, claimReport, claimReportCase, claimReportCaseOrigin: reportCaseOrigin, reportStatus, caseId: question.caseId, questionId: question.id, question: question.question, revision: integer(document.revision, 'document.revision', 1), workspaceRevision: integer(workspace.revision, 'workspace.revision', 1), createdAt: caseRecord.createdAt,
     subquestions, hypotheses, caseRecord, caseHistory, anchorSources, findingViews, history: list(workspace.history, 'history', history), changes,
     materials, citations, dependencies: report, comparison: version === 'contexttrail-research-v3' ? parseComparisonResponse(document.comparison) : null };
 }

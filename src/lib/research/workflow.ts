@@ -1,5 +1,6 @@
 import { parseSavedVideoReport, videoReportMatches, savedVideoView, type SavedVideoReport } from './saved-video';
 import { parseClaimReport, invalidateClaimReport, type ClaimReport } from './claim-report';
+import { claimReportCaseOrigin, type ClaimReportCaseOrigin } from './claim-report-provenance';
 import type { LocalComparisonResponse } from '../video/matching/application-contract';
 import { parseSavedComparison } from './saved-comparison';
 /** Stateless manual-workflow adapter. No retrieval, storage, provider, or credential access. */
@@ -27,6 +28,7 @@ interface ResearchDocumentBase {
   videoReportInvalidated?: boolean;
   claimReport?: ClaimReport;
   claimReportCase?: CaseRecord;
+  claimReportCaseOrigin?: ClaimReportCaseOrigin;
   claimReportInvalidated?: boolean;
   workspace: InquiryWorkspace;
   citations: SuppliedCitation[];
@@ -83,15 +85,16 @@ export function parseResearchDocument(value: unknown): ResearchDocument {
   if (!Array.isArray(o.applied) || o.applied.length > 1000) throw new Error('Invalid research operation history');
   const applied = o.applied.map(value => { const a = object(value); const digest = text(a.digest); if (!/^sha256:[a-f0-9]{64}$/.test(digest)) throw new Error('Invalid research operation digest'); return { operationId: operationId(a.operationId), digest }; });
   if (new Set(applied.map(a => a.operationId)).size !== applied.length) throw new Error('Duplicate research operation IDs');
-  let savedReport: { claimReport: ClaimReport; claimReportCase: CaseRecord; claimReportInvalidated: boolean } | undefined;
+  let savedReport: { claimReport: ClaimReport; claimReportCase: CaseRecord; claimReportCaseOrigin: ClaimReportCaseOrigin; claimReportInvalidated: boolean } | undefined;
   if (o.claimReport !== undefined) {
+    const origin = claimReportCaseOrigin(o.claimReportCaseOrigin, o.claimReportCase !== undefined && o.claimReportCase !== null);
     const claimReportCase = parseCaseRecord(o.claimReportCase ?? inquiryCase(workspace));
     if (claimReportCase.id !== workspace.inquiry.caseId) throw new Error('Claim report belongs to a different case');
     if (o.claimReportInvalidated !== undefined && typeof o.claimReportInvalidated !== 'boolean') throw new Error('Invalid claim report review status');
     const claimReport = parseClaimReport(o.claimReport, claimReportCase, text(object(o.claimReport).question));
     if (!claimReport) throw new Error('Invalid or ungrounded claim report');
-    savedReport = { claimReport, claimReportCase, claimReportInvalidated: o.claimReportInvalidated === true };
-  } else if (o.claimReportCase !== undefined || o.claimReportInvalidated !== undefined) throw new Error('Claim report metadata requires a report');
+    savedReport = { claimReport, claimReportCase, claimReportCaseOrigin: origin, claimReportInvalidated: o.claimReportInvalidated === true };
+  } else if (o.claimReportCase !== undefined || o.claimReportCaseOrigin !== undefined || o.claimReportInvalidated !== undefined) throw new Error('Claim report metadata requires a report');
   const videoReport = o.videoReport === undefined ? undefined : parseSavedVideoReport(o.videoReport);
   if (videoReport && savedVideoView(videoReport).caseRecord.id !== workspace.inquiry.caseId) throw new Error('Video report belongs to a different case');
   if (o.videoReportInvalidated !== undefined && (!videoReport || typeof o.videoReportInvalidated !== 'boolean')) throw new Error('Invalid video report review status');
