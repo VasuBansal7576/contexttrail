@@ -171,14 +171,17 @@ an earlier paragraph; that case now uses only the nearest paragraph. Built-in re
 also caught premature link-cap application and ambiguous ownership after a truncated
 scan. Bounded items now reach the shared deduplication/retention policy, and incomplete
 ownership scans decline structured references. The separately inspected full publisher
-response yields seven DOM references, including a historical lead. Its structured
+response yields seven DOM references, including a historical lead. Oversized item
+collections reject the whole structured story, and nested wrappers around one passage
+do not count as independent owners. Separate duplicated passages remain ambiguous.
+Its structured
 references are withheld because the ownership scan is incomplete. Complete supported
 documents still expose explicit structured references. The inspected response has
 1,671 readable characters and is distinct from the original live capture. References
 without a historical cue receive no historical priority; no particular video URL or
 answer is promoted.
 
-The combined code passed 1,462 tests with 17 intentional skips across 86 files,
+The combined code passed 1,467 tests with 17 intentional skips across 86 files,
 typechecking, a production build and all eight reference plus two topic-binding
 offline coverage controls. Production Chrome checked the final topic-audit code
 with six synthetic completed research/save flows and 54 live/open/reload observations
@@ -186,5 +189,7 @@ at 1440, 390 and 320 pixels. All 632 checks passed, including normalization coll
 150 safe entries with only 100 captured, original versus current coverage, source
 corrections, legacy absence, no retrieval on expansion/reopen, byte-identical archive
 reads and long-URL wrapping. These checks used injected adapters and isolated disk
-storage. No live provider rerun or allowance change occurred. Issues #10 and #30
+storage. An integration test that previously slept 35 milliseconds before editing
+now waits for the casebook loading state to finish with a bounded React-aware poll;
+the product loading behavior is unchanged. No live provider rerun or allowance change occurred. Issues #10 and #30
 remain open for real media-provenance and primary-source acceptance.
