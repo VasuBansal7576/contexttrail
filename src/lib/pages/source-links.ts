@@ -55,6 +55,6 @@ export function extractSourceLinks(doc: Document, pageUrl: string, readableArtic
       location: { element: el.tagName === 'IFRAME' ? 'embed' : 'anchor', index }, historicalLead };
     retain(link);
   }
-  for (const link of extractStructuredSourceLinks(doc, pageUrl, readableArticle, elements.length, MAX_SOURCE_LINKS)) retain(link);
+  for (const link of extractStructuredSourceLinks(doc, pageUrl, readableArticle, elements.length)) retain(link);
   return out.sort((a, b) => a.location.index - b.location.index);
 }

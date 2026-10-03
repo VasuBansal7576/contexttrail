@@ -58,6 +58,47 @@ describe('observed article structure and bounded structured source references', 
       location: { element: 'structured_embed', scriptIndex: 0, jsonPath: '/content/cards/0/story-elements/1/url' } });
     expect(extracted.jsonLdDates).toEqual([]);
   });
+  it.each([false, true])('lets outer deduplication and historical replacement inspect late structured references, early duplicates=%s', duplicates => {
+    const early = Array.from({ length: 12 }, (_, index) => ({
+      text: `Controlled present-day discussion ${index} has no temporal association with the media resource.`,
+      url: duplicates ? 'https://archive.example.org/video?id=current' : `https://archive.example.org/video?id=current-${index}`,
+    }));
+    const items = [...early.flatMap(item => [textItem(item.text), mediaItem(item.url)]), textItem(support), mediaItem()];
+    const body = `<div id="context-card">${early.map(item => `<p>${item.text}</p>`).join('')}<p>${support}</p></div>`;
+    const links = extractPage(html({ content: story(items) }, body), pageUrl).sourceLinks;
+    expect(links).toHaveLength(duplicates ? 2 : 12);
+    expect(links.find(link => link.url === originalUrl)).toMatchObject({ historicalLead: true, supportingText: support,
+      location: { element: 'structured_embed', jsonPath: '/content/cards/0/story-elements/25/url' } });
+    expect(new Set(links.map(link => link.url)).size).toBe(links.length);
+  });
+  it.each(['nodes', 'depth', 'object keys', 'array items', 'script count', 'script bytes', 'malformed script', 'path length'])('rejects partial ownership scans truncated by %s even after finding one bound story', limit => {
+    let value: unknown = { content: story() };
+    let document: string;
+    if (limit === 'nodes') value = { content: story(), filler: Array.from({ length: 8 }, () => Array.from({ length: 63 }, () => ({}))), hidden: story() };
+    if (limit === 'depth') {
+      let hidden: unknown = story();
+      for (let index = 0; index < 9; index++) hidden = { nested: hidden };
+      value = { content: story(), hidden };
+    }
+    if (limit === 'object keys') value = { content: story(), ...Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`padding-${index}`, {}])), hidden: story() };
+    if (limit === 'array items') value = { content: story(), hidden: [...Array.from({ length: 64 }, () => ({})), story()] };
+    if (limit === 'path length') value = { content: story(), ['x'.repeat(1025)]: story() };
+    document = html(value);
+    const extra = limit === 'script count' ? '<script type="application/json">{}</script>'.repeat(7) + `<script type="application/json">${JSON.stringify({ hidden: story() })}</script>`
+      : limit === 'script bytes' ? `<script type="application/json">${JSON.stringify({ padding: 'x'.repeat(525000), hidden: story() })}</script>`
+      : limit === 'malformed script' ? '<script type="application/json">{bad JSON</script>' : '';
+    document = document.replace('</body>', `${extra}</body>`);
+    expect(extractPage(document, pageUrl).sourceLinks).toEqual([]);
+  });
+  it('accepts a complete scan at 512 nodes, rejects its truncated successor and preserves independent DOM references', () => {
+    const filler = [...Array.from({ length: 8 }, () => Array.from({ length: 62 }, () => ({}))), Array.from({ length: 4 }, () => ({}))];
+    const value = { content: story(), filler };
+    expect(extractPage(html(value), pageUrl).sourceLinks).toHaveLength(1);
+    filler[8].push({});
+    expect(extractPage(html(value), pageUrl).sourceLinks).toEqual([]);
+    const body = `<div id="context-card"><p>${support}</p></div><article><p>${current}<a href="https://other.example.org/reference">Independent DOM source</a></p></article>`;
+    expect(extractPage(html(value, body), pageUrl).sourceLinks.map(link => link.url)).toEqual(['https://other.example.org/reference']);
+  });
   it.each([
     ['foreign page', { content: story(undefined, 'https://other.example.org/article') }],
     ['query-addressed other page', { content: story(undefined, 'https://publisher.example.org/article?id=other') }],

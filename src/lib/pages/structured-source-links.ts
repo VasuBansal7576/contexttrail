@@ -42,13 +42,14 @@ function uniqueElement(doc: Document, id: string): Element | null {
 }
 interface BoundStory { cards: unknown[]; scriptIndex: number; path: string }
 
-export function extractStructuredSourceLinks(doc: Document, pageUrl: string, readable: Document | null, offset: number, maxLinks: number): SourceLink[] {
+export function extractStructuredSourceLinks(doc: Document, pageUrl: string, readable: Document | null, offset: number): SourceLink[] {
   if (!readable) return [];
   const stories: BoundStory[] = [];
   let scripts = 0, visited = 0;
+  let incomplete = false;
   const walk = (value: unknown, scriptIndex: number, path: string, depth: number): void => {
-    if (visited >= MAX_VISITED_NODES || depth > MAX_DEPTH || path.length > 1024) return;
     if (!object(value) && !Array.isArray(value)) return;
+    if (visited >= MAX_VISITED_NODES || depth > MAX_DEPTH || path.length > 1024) { incomplete = true; return; }
     visited++;
     if (object(value) && Array.isArray(value.cards)) {
       // A recognized story is its own binding boundary. No child story or
@@ -64,17 +65,21 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
       }
       return;
     }
-    const children = Array.isArray(value) ? value.slice(0, MAX_ITEMS).map((child, index) => [String(index), child] satisfies [string, unknown]) : Object.entries(value).slice(0, MAX_ITEMS);
+    if (Array.isArray(value) && value.length > MAX_ITEMS) { incomplete = true; return; }
+    const children = Array.isArray(value) ? value.map((child, index) => [String(index), child] satisfies [string, unknown]) : Object.entries(value);
+    if (children.length > MAX_ITEMS) { incomplete = true; return; }
     for (const [name, child] of children) walk(child, scriptIndex, `${path}/${name.replace(/~/g, '~0').replace(/\//g, '~1')}`, depth + 1);
   };
   for (const [scriptIndex, script] of [...doc.querySelectorAll('script')].entries()) {
     if (script.getAttribute('type')?.trim().toLowerCase() !== 'application/json') continue;
-    if (scripts++ >= MAX_JSON_SCRIPTS) break;
+    if (scripts++ >= MAX_JSON_SCRIPTS) { incomplete = true; break; }
     const text = script.textContent ?? '';
-    if (text.length > MAX_SCRIPT_BYTES || new TextEncoder().encode(text).length > MAX_SCRIPT_BYTES) continue;
-    try { const value: unknown = JSON.parse(text); walk(value, scriptIndex, '', 0); } catch { /* malformed state is not evidence */ }
+    if (text.length > MAX_SCRIPT_BYTES || new TextEncoder().encode(text).length > MAX_SCRIPT_BYTES) { incomplete = true; continue; }
+    try { const value: unknown = JSON.parse(text); walk(value, scriptIndex, '', 0); } catch { incomplete = true; }
   }
-  if (stories.length !== 1) return [];
+  // A skipped branch/script can hide another owner. A partial scan never
+  // proves that the one observed story is the only page-bound story.
+  if (incomplete || stories.length !== 1) return [];
   const story = stories[0], out: SourceLink[] = [];
   if (story.cards.length > MAX_CARDS) return [];
   const cards = story.cards;
@@ -94,7 +99,8 @@ export function extractStructuredSourceLinks(doc: Document, pageUrl: string, rea
     const originalSupports = new Set([...originalCard.querySelectorAll('p, blockquote, figure')].map(el => key(supportText(el) ?? '')).filter(Boolean));
     const items = card['story-elements'];
     for (const [itemIndex, item] of items.entries()) {
-      if (out.length >= maxLinks) break;
+      // Scan the bounded card/item collection completely. The caller owns
+      // URL deduplication and the shared cap with historical replacement.
       if (!object(item) || typeof item.type !== 'string' || !/^(?:video|youtube-video|video-embed|embedded-video)$/.test(item.type)) continue;
       const previous = items[itemIndex - 1];
       if (!object(previous) || previous.type !== 'text' || typeof previous.text !== 'string' || previous.text.length > 10000) continue;
