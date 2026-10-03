@@ -19,6 +19,7 @@ import { selectTopicSources, type TopicCandidate } from './topic-selection';
 import { researchStageCopy } from './display-copy';
 import { buildTopicCandidateAudit } from './topic-candidate-audit';
 import type { TopicCandidateSearchAudit } from '../cases/topic-candidate-audit';
+import { TopicSearchResponseError, topicSearchFailure } from './topic-search-failure';
 
 type Progress = (event: AutomaticResearchEvent) => void;
 export interface AutomaticResearchDeps extends RunDeps {
@@ -65,7 +66,7 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
     try {
       const raw = await deps.serpapi.search({ engine: query.engine, q: query.q, num: '10' }, deps.signal);
       check(deps);
-      if (serpapiResponseFailed(raw) || !hasSearchResultSurface(raw, query.kind)) throw new Error('Search unavailable.');
+      if (serpapiResponseFailed(raw) || !hasSearchResultSurface(raw, query.kind)) throw new TopicSearchResponseError(raw);
       const batch = normalizeSearchResponse(raw, query.kind, { retrievedAt: now.toISOString() });
       log.returned = batch.reportedCount; log.searchId = batch.searchId;
       let duplicateCount = 0;
@@ -79,8 +80,11 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
       }
       candidateSearches[index] = { searchIndex: index, outcome: 'succeeded', normalizedCount: batch.candidates.length,
         droppedBeforeNormalizationCount: batch.reportedCount - batch.candidates.length, duplicateCount };
-    } catch {
-      check(deps); limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
+    } catch (error) {
+      check(deps);
+      candidateSearches[index] = { searchIndex: index, outcome: 'unavailable', normalizedCount: null,
+        droppedBeforeNormalizationCount: null, duplicateCount: null, failure: topicSearchFailure(error) };
+      limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
     }
   }
   // Safe document leads get bounded priority, then lexical tiers balance

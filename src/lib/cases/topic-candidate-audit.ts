@@ -9,9 +9,12 @@ export interface TopicCandidateReference {
   providerRank: number | null;
   disposition: 'retained' | 'not_retained';
 }
+export type TopicSearchFailure =
+  | { category: 'http'; httpStatus: number }
+  | { category: 'timeout' | 'aborted' | 'network' | 'malformed' | 'unconfigured' | 'provider_reported' | 'unrecognized_surface' | 'unknown'; httpStatus: null };
 export type TopicCandidateSearchAudit = { searchIndex: number } & (
   | { outcome: 'succeeded'; normalizedCount: number; droppedBeforeNormalizationCount: number; duplicateCount: number }
-  | { outcome: 'unavailable'; normalizedCount: null; droppedBeforeNormalizationCount: null; duplicateCount: null }
+  | { outcome: 'unavailable'; normalizedCount: null; droppedBeforeNormalizationCount: null; duplicateCount: null; failure?: TopicSearchFailure }
 );
 export interface TopicCandidateAudit {
   schemaVersion: 'contexttrail-topic-candidate-audit-v1';
@@ -33,6 +36,21 @@ function integer(value: unknown, maximum = Number.MAX_SAFE_INTEGER): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > maximum) return invalid();
   return value;
 }
+function parseFailure(value: unknown): TopicSearchFailure {
+  const failure = object(value);
+  switch (failure.category) {
+    case 'http': {
+      const httpStatus = integer(failure.httpStatus, 599);
+      if (httpStatus < 100) return invalid();
+      return { category: 'http', httpStatus };
+    }
+    case 'timeout': case 'aborted': case 'network': case 'malformed': case 'unconfigured':
+    case 'provider_reported': case 'unrecognized_surface': case 'unknown':
+      if (failure.httpStatus !== null) return invalid();
+      return { category: failure.category, httpStatus: null };
+    default: return invalid();
+  }
+}
 
 /** Additive, browser-safe boundary. Deliberately excludes provider text/raw fields. */
 export function parseTopicCandidateAudit(value: unknown, logs: readonly { returned: number; retained: number }[], sourceReads: readonly { evidenceId: string; requestedUrl: string }[] | undefined): TopicCandidateAudit {
@@ -44,9 +62,10 @@ export function parseTopicCandidateAudit(value: unknown, logs: readonly { return
     if (search.searchIndex !== searchIndex) return invalid();
     if (search.outcome === 'unavailable') {
       if (search.normalizedCount !== null || search.droppedBeforeNormalizationCount !== null || search.duplicateCount !== null || logs[searchIndex].returned !== 0 || logs[searchIndex].retained !== 0) return invalid();
-      return { searchIndex, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null };
+      return { searchIndex, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null,
+        ...(search.failure === undefined ? {} : { failure: parseFailure(search.failure) }) };
     }
-    if (search.outcome !== 'succeeded') return invalid();
+    if (search.outcome !== 'succeeded' || 'failure' in search) return invalid();
     const normalizedCount = integer(search.normalizedCount), droppedBeforeNormalizationCount = integer(search.droppedBeforeNormalizationCount), duplicateCount = integer(search.duplicateCount);
     if (duplicateCount > normalizedCount || normalizedCount + droppedBeforeNormalizationCount !== logs[searchIndex].returned) return invalid();
     return { searchIndex, outcome: 'succeeded', normalizedCount, droppedBeforeNormalizationCount, duplicateCount };

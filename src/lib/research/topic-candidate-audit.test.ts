@@ -112,7 +112,7 @@ describe('future-only bounded topic candidate references', () => {
 
   it('keeps unavailable search counts unknown rather than treating failures as successful empties', async () => {
     const { result } = await run(12, true);
-    expect(result.caseRecord.coverage.topicCandidateAudit?.searches[0]).toEqual({ searchIndex: 0, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null });
+    expect(result.caseRecord.coverage.topicCandidateAudit?.searches[0]).toEqual({ searchIndex: 0, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null, failure: { category: 'unknown', httpStatus: null } });
     expect(result.caseRecord.coverage.topicCandidateAudit?.references.every(row => row.searchIndex !== 0)).toBe(true);
   });
 
