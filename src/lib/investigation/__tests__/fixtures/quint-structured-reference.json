@@ -1,5 +1,5 @@
 {
-  "basis": "reduced_observed_DOM_and_structured_fields_not_original_live_response",
+  "basis": "observed_layout_and_explicit_urls_with_synthetic_prose_not_original_live_response",
   "sourceUrl": "https://www.thequint.com/news/webqoof/old-video-of-mcd-demolition-in-jasola-falsely-shared-as-one-of-satya-niketan-building-collapse-fact-check",
   "inspectedOn": "2026-10-03",
   "status": 200,
@@ -11,5 +11,5 @@
   "reducedFixtureJsonPath": "/qt/data/story/cards/0/story-elements/1/url",
   "originalReadableChars": 1671,
   "liveCapturedReadableChars": 1665,
-  "reduction": "Only the bound card and its two original source-reference elements are retained. Scripts/styles, surrounding cards, advertisements and unrelated state are omitted. The first text/media element fields and URL are copied from the publisher response; no URL is derived from names or dates."
+  "reduction": "The observed wrapper/card structure and explicit source URLs are retained with synthetic prose. Scripts/styles, surrounding cards, advertisements and unrelated state are omitted. No article prose is copied or URL derived from names or dates. The complete reduced state exercises parser behavior; the full inspected response remains separate evidence with incomplete ownership scanning."
 }

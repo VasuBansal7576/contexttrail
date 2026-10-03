@@ -177,6 +177,9 @@ do not count as independent owners. Separate duplicated passages remain ambiguou
 Nested story owners must bind their own URLs and participate in the same bounded
 ownership scan. The readable passage/URL lookup is built once per page, avoiding
 repeated readable-link scans on link-heavy articles.
+The nearest supporting passage must contain the text item's final substantive text;
+later descriptions outside that passage reject the structured reference. The reduced
+publisher-layout fixture preserves observed URLs and structure with synthetic prose.
 Its structured
 references are withheld because the ownership scan is incomplete. Complete supported
 documents still expose explicit structured references. The inspected response has
@@ -184,7 +187,7 @@ documents still expose explicit structured references. The inspected response ha
 without a historical cue receive no historical priority; no particular video URL or
 answer is promoted.
 
-The combined code passed 1,472 tests with 17 intentional skips across 86 files,
+The combined code passed 1,475 tests with 17 intentional skips across 86 files,
 typechecking, a production build and all eight reference plus two topic-binding
 offline coverage controls. Production Chrome checked the final topic-audit code
 with six synthetic completed research/save flows and 54 live/open/reload observations

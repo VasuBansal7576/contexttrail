@@ -26,7 +26,7 @@ function html(json: unknown = { content: story() }, body = `<div id="context-car
 }
 
 describe('observed article structure and bounded structured source references', () => {
-  it('retains the two URLs actually present in the reduced inspected publisher fixture, without claiming the original live HTML was retained', () => {
+  it('retains inspected explicit URLs in a reduced observed-layout fixture with synthetic prose, without claiming the original live HTML was retained', () => {
     const fixture = readFileSync(new URL('./fixtures/quint-structured-reference.html', import.meta.url), 'utf8');
     const url = 'https://www.thequint.com/news/webqoof/old-video-of-mcd-demolition-in-jasola-falsely-shared-as-one-of-satya-niketan-building-collapse-fact-check';
     const extracted = extractPage(fixture, url);
