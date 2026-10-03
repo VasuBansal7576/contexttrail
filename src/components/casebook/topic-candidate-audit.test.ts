@@ -31,7 +31,7 @@ it('explains captured failure categories and keeps old missing diagnoses explici
       { category: 'unrecognized_surface', httpStatus: null }, { category: 'unconfigured', httpStatus: null },
       { category: 'unknown', httpStatus: null },
     ];
-    const copies = ['search operation timed out', 'provider request was aborted', 'HTTP 429', 'network request could not complete', 'response was malformed', 'provider reported a search error', 'recognized completed result collection', 'local configuration or allowance', 'failure cause is unknown'];
+    const copies = ['search operation timed out', 'provider request was aborted', 'HTTP 429', 'network request could not complete', 'response was malformed', 'provider reported a search error', 'recognized completed result collection', 'provider configuration was unavailable', 'failure cause is unknown'];
     for (const [index, failure] of failures.entries()) {
       const snapshot = savedTopicFixture('original').caseRecord;
       snapshot.coverage.topicCandidateAudit = { ...audit, searches: [{ searchIndex: 0, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null, failure }] };
