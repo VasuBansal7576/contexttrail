@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { extractPage } from '../../pages/extract';
 import { extractSourceLinks } from '../../pages/source-links';
+import { bindFetchedSource } from '../../pages/source-binding';
 import { candidateFromSourceLink } from '../linked-history';
 import { runAutomaticResearch } from '../../research/automatic';
 import { parseAutomaticResearchResult } from '../../research/automatic-client';
@@ -92,6 +93,24 @@ describe('observed article structure and bounded structured source references', 
     expect(valid).toHaveLength(1);
     expect(valid[0]).toMatchObject({ url: originalUrl, location: { jsonPath: '/content/cards/0/story-elements/1/url' } });
     expect(extractPage(html({ content: make('', 'http://127.0.0.1/video') }), pageUrl).sourceLinks).toEqual([]);
+  });
+  it.each([
+    ['tracking', `${pageUrl}&utm_source=share`], ['fragment', `${pageUrl}#article`],
+    ['host normalization', 'https://PUBLISHER.EXAMPLE.ORG.:443/article?id=historical'],
+  ])('skips a normalized %s self-reference before choosing the explicit external embed URL', (_label, url) => {
+    expect(['same_resource', 'normalized_resource']).toContain(bindFetchedSource(pageUrl, url));
+    const value = { url: pageUrl, cards: [{ id: 'context-card', 'story-elements': [textItem(support), { type: 'video', url, 'embed-url': originalUrl }] }] };
+    const links = extractPage(html({ content: value }), pageUrl).sourceLinks;
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ url: originalUrl, location: { jsonPath: '/content/cards/0/story-elements/1/embed-url' } });
+  });
+  it('preserves url precedence for a meaningfully different query-addressed resource on the same host', () => {
+    const url = 'https://publisher.example.org/article?id=different&utm_source=share';
+    expect(bindFetchedSource(pageUrl, url)).toBe('different_resource');
+    const value = { url: pageUrl, cards: [{ id: 'context-card', 'story-elements': [textItem(support), { type: 'video', url, 'embed-url': originalUrl }] }] };
+    const links = extractPage(html({ content: value }), pageUrl).sourceLinks;
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ url, location: { jsonPath: '/content/cards/0/story-elements/1/url' } });
   });
   it('rejects a nested independently same-page-bound story rather than inheriting one apparent unique owner', () => {
     const value = { ...story(), nested: story(undefined, pageUrl, 'child-card') };

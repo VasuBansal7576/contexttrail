@@ -66,7 +66,11 @@ function explicitMediaReference(item: Record<string, unknown>, pageUrl: string):
     const raw = item[field];
     if (typeof raw !== 'string' || !/^https?:/i.test(raw)) continue;
     const url = retainableSourceUrl(raw);
-    if (url && url !== retainableSourceUrl(pageUrl)) return { field, url };
+    if (!url) continue;
+    // Tracking/fragment/host variants of this article are still self links;
+    // meaningful query-addressed resources keep their independent identity.
+    const binding = bindFetchedSource(pageUrl, url);
+    if (binding !== 'same_resource' && binding !== 'normalized_resource') return { field, url };
   }
   return null;
 }
