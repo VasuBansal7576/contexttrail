@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import { EvidenceCollection, EvidencePassage, SourceActions, safeSourceUrl } from './EvidenceCollection';
 import type { CaseRecord } from '@/lib/cases/model';
 import type { ClaimReport, ClaimSourceAssessment } from '@/lib/research/claim-report';
@@ -8,6 +9,16 @@ const relationLabels = { support: 'Supporting excerpt', challenge: 'Challenging 
 
 /** Render validated report data against its retained case snapshot, including historical snapshots. */
 export function ClaimReportView({ report, caseRecord }: { report: ClaimReport; caseRecord: CaseRecord }) {
+  const [sourceOrder, setSourceOrder] = useState<'relevance' | 'retrieval'>('relevance');
+  const topicMode = report.mode === 'source_assertions';
+  // Display a copy of the retained assessments. Unknown is not a measured zero;
+  // equal assessments retain their original order. No report or binding changes.
+  const sources = topicMode && sourceOrder === 'relevance' ? report.sources.map((source, index) => ({ source, index }))
+    .sort((a, b) => {
+      if (a.source.relevance === null) return b.source.relevance === null ? a.index - b.index : 1;
+      if (b.source.relevance === null) return -1;
+      return b.source.relevance - a.source.relevance || a.index - b.index;
+    }).map(item => item.source) : report.sources;
   function sourceLink(id: string) {
     const evidence = caseRecord.evidence.find(item => item.id === id);
     return evidence && safeSourceUrl(evidence.sourceUrl) ? <a className="text-link source-url" href={evidence.sourceUrl} target="_blank" rel="noopener noreferrer">Open in new tab: {evidence.title ?? evidence.sourceUrl} ↗</a> : <span>Source unavailable</span>;
@@ -17,11 +28,13 @@ export function ClaimReportView({ report, caseRecord }: { report: ClaimReport; c
     <div className="sheet-topline"><h3>Claim-scoped evidence report</h3><span className="state-label">Partial evidence</span></div>
     {report.mode === 'explicit_claim' ? <div className="claim-report-input"><p className="eyebrow">User assertion to investigate</p><p>{report.claim}</p></div> : <p className="claim-report-input">This is a research question. Source-quoted candidate assertions below are excerpts to investigate, not claims supplied by you or established facts.</p>}
     <p className="fine-print">Excerpt relationships are model assessments. Independent corroboration is not established. No overall truth, credibility, authenticity or original-author verdict is produced.</p>
-    <div className="claim-report-sources">{report.sources.length ? <EvidenceCollection items={report.sources} label="Source assessments">{source => {
+    {topicMode && sources.length ? <><div className="button-row" role="group" aria-label="Source assessment order"><button className="paper-button" type="button" aria-pressed={sourceOrder === 'relevance'} onClick={() => setSourceOrder('relevance')}>Topic relevance order</button><button className="paper-button" type="button" aria-pressed={sourceOrder === 'retrieval'} onClick={() => setSourceOrder('retrieval')}>Original retrieval order</button></div><p className="fine-print">Topic relevance is a retained model assessment, not factual accuracy, authority or support for a claim. Unassessed sources follow assessed sources in relevance order. Every retained source remains available in either order.</p></> : null}
+    <div className="claim-report-sources">{sources.length ? <EvidenceCollection key={topicMode ? sourceOrder : 'retrieval'} items={sources} label="Source assessments">{source => {
       const evidence = caseRecord.evidence.find(item => item.id === source.evidenceId);
       const passage = selectClaimQuotePassage(source.quote, evidence);
       return <article className="source-card claim-report-source" key={source.evidenceId}>
         <p className="eyebrow">{relationLabels[source.relation]}</p>
+        <p className="fine-print claim-topic-relevance">Topic relevance · model assessment: {source.relevance === null ? 'unassessed' : source.relevance}.{source.relevance !== null && source.relevance < 0.5 ? ' Low topic relevance · retained lead, not supporting evidence.' : ''}</p>
         <details className="source-inspection"><summary><h4>{evidence?.title ?? "Untitled source"}</h4><span className="text-link">Inspect assessment and retained quote</span></summary>
         {source.candidateAssertion && passage.quote ? <p className="fine-print">Source-quoted candidate assertion</p> : <p className="fine-print">Retained source excerpt</p>}
         {passage.quote ? <><blockquote><EvidencePassage text={passage.quote.text} /></blockquote><p className="fine-print">{passage.quote.attribution.replaceAll('_', ' ')} · Exact retained text, characters {passage.quote.start}–{passage.quote.end}. Matching these words establishes the quotation, not its truth.</p></> : <p className="fine-print">{passage.kind === 'navigation_only' ? 'Recognizable navigation or profile chrome remains; the original excerpt is retained as a lead.' : 'No exact source quote is available.'}</p>}
