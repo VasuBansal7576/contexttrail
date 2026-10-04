@@ -13,12 +13,12 @@ From this directory:
 ```sh
 npx hyperframes@0.8.123 check --at 4,14,28,41,51,62,77 --at-transitions
 npx hyperframes@0.8.123 preview --background --no-open
-npx hyperframes@0.8.123 render --fps 30 --quality high --workers 2 --strict --no-best-effort --skill product-launch-video -o renders/contexttrail-launch-revised.mp4
+npx hyperframes@0.8.123 render --fps 30 --quality high --workers 2 --strict --no-best-effort --skill product-launch-video -o renders/contexttrail-launch-final.mp4
 ```
 
 The player source is `../../.lavish/contexttrail-launch.html`. Run `python3 ../../.lavish/serve-contexttrail.py` and open `http://127.0.0.1:3237/contexttrail-launch.html`. This server supports byte ranges, required for chapter seeking in the tested browser. A plain Python static server played the movie but exposed no seekable range; the revised server was verified through real browser clicks.
 
-The export is `renders/contexttrail-launch-interactive.html`, with its film, fonts, screenshots and captions embedded. Saved-case links expect the local ContextTrail app on port 3220 and this user's saved state. They are not seeded into another checkout. Film exports are local, ignored artifacts; source, captures used in the film, narration and companion code are committed.
+Run `python3 ../../.lavish/export-contexttrail.py` after rendering. The export is `renders/contexttrail-launch-interactive.html`, with its film, fonts, screenshots and captions embedded. Saved-case links expect the local ContextTrail app on port 3220 and this user's saved state. They are not seeded into another checkout. Film exports are local, ignored artifacts; source, captures used in the film, narration and companion code are committed.
 
 The final HyperFrames check has zero runtime, layout and contrast errors or warnings. Two timeline-density warnings concern caption lanes with four and five short cues; those cues are intentional. Caption overlaps were repaired and the seam was captured again before rendering. Midpoints and both sides of every cut were visually inspected. The final H.264/AAC export has a 48 kHz audio stream, 80.266667-second duration and no clipped audio peak.
 
