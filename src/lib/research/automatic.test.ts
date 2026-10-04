@@ -16,6 +16,46 @@ function deps(search: (params: SerpapiParams) => Promise<unknown>): AutomaticRes
 const response = (engine: string, count = 10) => ({ search_metadata: { id: engine, status: 'Success' }, [engine === 'google_news' ? 'news_results' : 'organic_results']: Array.from({ length: count }, (_, index) => ({ link: `https://${engine === 'google_news' ? 'news' : 'science'}.example.org/source-${index}`, title: `Coral study ${index}`, snippet: 'A retrieved coral study summary.', date: '2020-02-03' })) });
 
 describe('automatic topic investigation (offline providers only)', () => {
+  it('merges delayed duplicate searches in plan order and keeps an independent failure scoped', async () => {
+    const deferred = Array.from({ length: 3 }, () => Promise.withResolvers<unknown>());
+    let calls = 0, active = 0, maximumActive = 0;
+    const search = vi.fn(async () => {
+      const index = calls++;
+      active++; maximumActive = Math.max(maximumActive, active);
+      try { return index < 3 ? await deferred[index].promise : { organic_results: [] }; }
+      finally { active--; }
+    });
+    const dependencies = deps(search);
+    let clockReads = 0;
+    dependencies.now = () => Date.parse('2026-10-02T00:00:00Z') + clockReads++ * 1000;
+    dependencies.fetchPage = vi.fn(async url => ({ url, html: '<html><body></body></html>' }));
+    const pending = investigateTopic('Coral recovery evidence', () => {}, dependencies);
+    await vi.waitFor(() => expect(search).toHaveBeenCalledTimes(3));
+    const raw = (title: string) => ({ organic_results: [{ link: 'https://science.example.org/study', title, snippet: 'Coral recovery evidence.' }] });
+    deferred[2].resolve(raw('Fast document result'));
+    deferred[1].reject(new Error('Offline news unavailable'));
+    await Promise.resolve();
+    expect(dependencies.fetchPage).not.toHaveBeenCalled();
+    deferred[0].resolve(raw('Original web result'));
+    const result = await pending;
+    expect(maximumActive).toBe(3);
+    expect(search).toHaveBeenCalledTimes(6);
+    expect(dependencies.fetchPage).toHaveBeenCalledTimes(1);
+    expect(result.caseRecord.evidence[0]).toMatchObject({ title: 'Original web result', provenance: { retrievedAt: '2026-10-02T00:00:02.000Z' } });
+    expect(result.caseRecord.coverage.searches.map(log => log.retained)).toEqual([1, 0, 0, 0, 0, 0]);
+    expect(result.caseRecord.coverage.topicCandidateAudit?.references[0]).toMatchObject({ sourceUrl: 'https://science.example.org/study', searchIndex: 0 });
+    expect(result.caseRecord.coverage.topicCandidateAudit?.searches.slice(0, 3)).toMatchObject([
+      { outcome: 'succeeded', duplicateCount: 0 }, { outcome: 'unavailable' }, { outcome: 'succeeded', duplicateCount: 1 },
+    ]);
+  });
+  it('uses the separate topic search dependency without dispatching image searches', async () => {
+    const dependencies = deps(vi.fn(async () => { throw new Error('Image search must not dispatch'); }));
+    const topicSearch = vi.fn(async () => ({ organic_results: [], news_results: [] }));
+    dependencies.topicSerpapi = { search: topicSearch };
+    await investigateTopic('Coral recovery evidence', () => {}, dependencies);
+    expect(topicSearch).toHaveBeenCalledTimes(3);
+    expect(dependencies.serpapi?.search).not.toHaveBeenCalled();
+  });
   it.each([['What changed in the reef recovery programme?', 'changed reef recovery programme (data OR statistics OR study OR \"annual report\")'], ['Какво се промени в програмата?', 'Какво се промени в програмата? (statement OR clarification OR \"press release\" OR correction)'], ['Aster launch operations in August–September 2026', 'Aster launch operations in August–September 2026 (statement OR clarification OR \"press release\" OR correction)']])('uses one distinct document search without replacing the question or retrying unavailable searches: %s', async (topic, expectedDocumentQuery) => {
     let attempt = 0;
     const search = vi.fn(async (params: SerpapiParams) => {

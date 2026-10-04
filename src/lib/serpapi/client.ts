@@ -32,15 +32,19 @@ export type SerpapiParams = Record<string, string>;
 
 export interface SerpapiClientOptions {
   fetchImpl?: typeof fetch;
+  /** Topic retrieval has a separate deadline; image investigations keep §28. */
+  searchProfile?: 'image' | 'topic';
 }
 
 export class SerpapiClient {
   readonly #apiKey: string;
   readonly #fetchImpl?: typeof fetch;
+  readonly #searchTimeoutMs: number;
 
   constructor(apiKey: string, opts: SerpapiClientOptions = {}) {
     this.#apiKey = apiKey;
     this.#fetchImpl = opts.fetchImpl;
+    this.#searchTimeoutMs = opts.searchProfile === 'topic' ? 60_000 : TIMEOUTS.serpapiSearchMs;
   }
 
   /**
@@ -55,7 +59,7 @@ export class SerpapiClient {
     return fetchJsonBounded({
       url: url.toString(),
       label: "serpapi",
-      timeoutMs: TIMEOUTS.serpapiSearchMs,
+      timeoutMs: this.#searchTimeoutMs,
       maxBytes: SEARCH_MAX_BYTES,
       externalSignal: signal,
       fetchImpl: this.#fetchImpl,

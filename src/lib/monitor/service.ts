@@ -5,6 +5,7 @@ import { object } from '../watchlists/parse';
 import { localResearchService, ResearchServiceError } from '../research/service';
 import { automaticFailure, automaticProductionDeps } from '../research/automatic-server';
 import { investigateTopic } from '../research/automatic';
+import { AUTOMATIC_RESEARCH_DEADLINES_MS } from '../research/automatic-contract';
 import { compareWatch, parseWatchStore, type Watch, type WatchStore } from './model';
 
 function missing(error: unknown) { return error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'; }
@@ -70,7 +71,7 @@ export async function checkWatch(id?: string): Promise<void> {
     const watch = id ? store.watches.find(w => w.id === id) : store.watches.find(w => w.state === 'active' && Date.parse(w.nextCheckAt) <= Date.now());
     if (!watch) { if (id) throw new ResearchServiceError(404, 'NOT_FOUND', 'Watch not found'); return; }
     const at = new Date().toISOString(), checkId = `check-${randomUUID()}`;
-    const signal = AbortSignal.timeout(180_000);
+    const signal = AbortSignal.timeout(AUTOMATIC_RESEARCH_DEADLINES_MS.topic);
     let production: Awaited<ReturnType<typeof automaticProductionDeps>> | undefined;
     try {
       production = await automaticProductionDeps({ kind: 'topic', topic: watch.question }, signal);

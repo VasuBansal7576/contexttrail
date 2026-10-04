@@ -630,6 +630,8 @@ body {
  .casebook-header-end { gap:16px; }
  .folio-contents { grid-template-columns:minmax(0,1fr); }
  .cover-layout { grid-template-columns:minmax(0,1fr); }
+ .cover-rule { display:none; }
+ .cover-copy { grid-row:1; }
  .cover-footnote { grid-row:3; }
  .cover-collage { grid-row:2; }
 }

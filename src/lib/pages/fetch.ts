@@ -14,6 +14,8 @@ import { pinnedPageRequest, type PageAddress } from "./pinned-http";
 import { TIMEOUTS, PAGE_FETCH_MAX_BYTES, PAGE_FETCH_MAX_REDIRECTS } from "../investigation/limits";
 import { ProviderError, deadlineSignal, readBodyCapped, sanitizeFetchError } from "../providers/http";
 import { pdfSourceHtml } from './pdf';
+import { JSDOM } from 'jsdom';
+import { safeReferenceParameters } from './source-reference-policy';
 
 export interface FetchedPage {
   /** Final URL after redirects. */
@@ -72,6 +74,25 @@ export interface PageFetchDeps {
   request?: (url: URL, address: PageAddress, signal: AbortSignal) => Promise<Response>;
 }
 
+/** LinkedIn's short links may return a static notice instead of an HTTP redirect.
+ * Read only its unique, explicitly displayed destination. Never run page scripts,
+ * follow arbitrary article links or treat the notice as source evidence. */
+function linkedInShortLinkDestination(url: URL, html: string): URL | null {
+  if (url.protocol !== 'https:' || url.hostname !== 'lnkd.in' || url.port || !/^\/[A-Za-z0-9_-]{6,32}$/.test(url.pathname) || html.length > 64 * 1024) return null;
+  const dom = new JSDOM(html);
+  try {
+    const document = dom.window.document;
+    if (!/This link will take you to a page that[’']s not on LinkedIn/i.test(document.querySelector('h1')?.textContent ?? '')) return null;
+    const links = document.querySelectorAll('a[data-tracking-control-name="external_url_click"]');
+    if (links.length !== 1) return null;
+    const href = links[0].getAttribute('href');
+    if (!href || href.length > 4096 || links[0].textContent?.trim() !== href) return null;
+    const destination = validatedHttpUrl(href);
+    if (!destination || destination.protocol !== 'https:' || destination.port || !safeReferenceParameters(destination)) return null;
+    return destination;
+  } finally { dom.window.close(); }
+}
+
 async function resolvePublicAddress(url: URL, signal: AbortSignal, deps: PageFetchDeps): Promise<PageAddress> {
   signal.throwIfAborted();
   const host = url.hostname.replace(/^\[|\]$/g, "");
@@ -110,10 +131,11 @@ async function fetchPublicResource(
   image = false,
   documents = false,
 ): Promise<FetchedPage> {
-  let url = validatedHttpUrl(rawUrl);
-  if (url === null) {
+  const initialUrl = validatedHttpUrl(rawUrl);
+  if (initialUrl === null) {
     throw new ProviderError("malformed", "page destination rejected");
   }
+  let url = initialUrl;
   const { signal: bound, cancel } = deadlineSignal(signal, TIMEOUTS.pageFetchMs);
   try {
     for (let redirects = 0; ; redirects += 1) {
@@ -162,6 +184,12 @@ async function fetchPublicResource(
         const bytes = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
         html = await pdfSourceHtml(bytes, bound);
       } else html = await readBodyCapped(res, PAGE_FETCH_MAX_BYTES, "page");
+      const destination: URL | null = documents && !pdf ? linkedInShortLinkDestination(url, html) : null;
+      if (destination) {
+        if (redirects >= PAGE_FETCH_MAX_REDIRECTS) throw new ProviderError('malformed', 'page short-link redirect limit exceeded');
+        url = destination;
+        continue;
+      }
       return { url: url.toString(), html };
     }
   } catch (err) {

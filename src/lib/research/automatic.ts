@@ -5,7 +5,7 @@ import { parseCaseRecord } from '../cases/parse';
 import { caseFromImageInvestigation } from '../cases/from-image-investigation';
 import { type InvestigationResult } from '../investigation/contracts/investigation';
 import { resolveEvidenceDate, type EvidenceDateSources } from '../investigation/dates';
-import { runInvestigation, type RunDeps } from '../investigation/run';
+import { runInvestigation, type RunDeps, type SearchProvider } from '../investigation/run';
 import { retainableSourceUrl } from '../pages/source-reference';
 import { bindFetchedSource } from '../pages/source-binding';
 import type { JevAskResult } from '../jev/client';
@@ -23,10 +23,12 @@ import { researchStageCopy } from './display-copy';
 import { buildTopicCandidateAudit } from './topic-candidate-audit';
 import type { TopicCandidateSearchAudit } from '../cases/topic-candidate-audit';
 import { TopicSearchResponseError, topicSearchFailure } from './topic-search-failure';
-import { documentQuery, followupSearches } from './search-plan';
+import { documentQuery, followupSearches, type ResearchSearch } from './search-plan';
 
 type Progress = (event: AutomaticResearchEvent) => void;
 export interface AutomaticResearchDeps extends RunDeps {
+  /** Shares the run lease, with topic timing independent of image searches. */
+  topicSerpapi?: Pick<SearchProvider, 'search'>;
   prepareVideo?: typeof prepareVideo;
   transcribeMedia?: typeof transcribeMedia;
   traceFrame?: typeof runInvestigation;
@@ -51,53 +53,68 @@ function emptyCase(now: string): CaseRecord {
 }
 
 export async function investigateTopic(topic: string, emit: Progress, deps: AutomaticResearchDeps): Promise<AutomaticResearchResult> {
-  if (!deps.serpapi) throw new Error('Search provider unavailable.');
+  const searchProvider = deps.topicSerpapi ?? deps.serpapi;
+  if (!searchProvider) throw new Error('Search provider unavailable.');
   const now = new Date(deps.now?.() ?? Date.now());
   const record = emptyCase(now.toISOString());
   const limitations = ['Bounded web sample; coverage is incomplete.', 'PDF reading is text-only, limited to the first twelve pages and 64,000 extracted characters. Scanned pages, audio, figures and later pages are not inspected.', 'Primary-source coverage has not been independently established. Original-account cues in titles or snippets guide selection; they do not verify source authority or completeness.', 'Search results are leads, not independent corroboration.', 'Relevance assessments do not verify claims.', 'Source snapshots are not retained; links may change.', 'Credential-bearing or unsafe source links are omitted rather than rewritten.'];
   const candidates = new Map<string, TopicCandidate>();
   const candidateSearches: TopicCandidateSearchAudit[] = [];
   const searchQuestion = explicitTopicClaim(topic) ?? topic;
-  const searches = [
+  const searches: ResearchSearch[] = [
     { engine: 'google', q: searchQuestion, kind: 'google_search', purpose: 'the web' },
     { engine: 'google_news', q: searchQuestion, kind: 'google_news', purpose: 'news' },
     { engine: 'google', q: documentQuery(searchQuestion), kind: 'google_search', purpose: 'source documents and clarifications' },
-  ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news'; purpose: string }>;
-  for (const [index, query] of searches.entries()) {
+  ];
+  const searchBatch = async (queries: ResearchSearch[], firstIndex: number): Promise<void> => {
+    // Settle all dispatched requests before propagating cancellation. Otherwise
+    // a fast failure could release the shared lease while a provider is active.
+    const outcomes = await Promise.allSettled(queries.map(async query => {
+      check(deps);
+      emit({ type: 'research.progress', message: `Searching ${query.purpose}…` });
+      const raw = await searchProvider.search({ engine: query.engine, q: query.q, num: '10' }, deps.signal);
+      return { raw, retrievedAt: new Date(deps.now?.() ?? Date.now()).toISOString() };
+    }));
     check(deps);
-    emit({ type: 'research.progress', message: `Searching ${query.purpose}…` });
-    const log = { engine: query.engine, attempted: 1, returned: 0, retained: 0, searchId: null as string | null };
-    record.coverage.searches.push(log);
-    candidateSearches.push({ searchIndex: index, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null });
-    try {
-      const raw = await deps.serpapi.search({ engine: query.engine, q: query.q, num: '10' }, deps.signal);
-      check(deps);
-      if (serpapiResponseFailed(raw) || !hasSearchResultSurface(raw, query.kind)) throw new TopicSearchResponseError(raw);
-      const batch = normalizeSearchResponse(raw, query.kind, { retrievedAt: new Date(deps.now?.() ?? Date.now()).toISOString() });
-      log.returned = batch.reportedCount; log.searchId = batch.searchId;
-      let duplicateCount = 0;
-      for (const candidate of batch.candidates) {
-        const existing = candidates.get(candidate.canonicalUrl);
-        const date = batch.dateTexts.get(candidate.id);
-        if (existing) {
-          duplicateCount++;
-          if (date) (existing.dates.serpapiAlternates ??= []).push(date);
-        } else candidates.set(candidate.canonicalUrl, { candidate, dates: { serpapi: date }, search: index });
+    // Merge in plan order, not completion order, so duplicates retain stable
+    // source ownership, date observations and audit indices.
+    for (const [offset, query] of queries.entries()) {
+      const index = firstIndex + offset;
+      const log = { engine: query.engine, attempted: 1, returned: 0, retained: 0, searchId: null as string | null };
+      record.coverage.searches.push(log);
+      candidateSearches.push({ searchIndex: index, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null });
+      try {
+        const outcome = outcomes[offset];
+        if (outcome.status === 'rejected') throw outcome.reason;
+        const { raw, retrievedAt } = outcome.value;
+        if (serpapiResponseFailed(raw) || !hasSearchResultSurface(raw, query.kind)) throw new TopicSearchResponseError(raw);
+        const batch = normalizeSearchResponse(raw, query.kind, { retrievedAt });
+        log.returned = batch.reportedCount; log.searchId = batch.searchId;
+        let duplicateCount = 0;
+        for (const candidate of batch.candidates) {
+          const existing = candidates.get(candidate.canonicalUrl);
+          const date = batch.dateTexts.get(candidate.id);
+          if (existing) {
+            duplicateCount++;
+            if (date) (existing.dates.serpapiAlternates ??= []).push(date);
+          } else candidates.set(candidate.canonicalUrl, { candidate, dates: { serpapi: date }, search: index });
+        }
+        candidateSearches[index] = { searchIndex: index, outcome: 'succeeded', normalizedCount: batch.candidates.length,
+          droppedBeforeNormalizationCount: batch.reportedCount - batch.candidates.length, duplicateCount };
+      } catch (error) {
+        check(deps);
+        candidateSearches[index] = { searchIndex: index, outcome: 'unavailable', normalizedCount: null,
+          droppedBeforeNormalizationCount: null, duplicateCount: null, failure: topicSearchFailure(error) };
+        limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
       }
-      candidateSearches[index] = { searchIndex: index, outcome: 'succeeded', normalizedCount: batch.candidates.length,
-        droppedBeforeNormalizationCount: batch.reportedCount - batch.candidates.length, duplicateCount };
-    } catch (error) {
-      check(deps);
-      candidateSearches[index] = { searchIndex: index, outcome: 'unavailable', normalizedCount: null,
-        droppedBeforeNormalizationCount: null, duplicateCount: null, failure: topicSearchFailure(error) };
-      limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
     }
-    // Continue independently into the missing facets of a nonempty trail.
-    // An empty/unavailable initial pass does not authorize speculative retries.
-    if (index === 2 && candidates.size > 0) searches.push(...followupSearches(topic));
-  }
+  };
+  await searchBatch(searches, 0);
+  // Continue independently into the missing facets of a nonempty trail.
+  // An empty/unavailable initial pass does not authorize speculative retries.
+  if (candidates.size > 0) await searchBatch(followupSearches(topic), searches.length);
   // Safe document leads get bounded priority, then lexical tiers balance
-  // search surfaces. Returned order also determines the five page reads.
+  // search surfaces. Returned order also determines the bounded page reads.
   const selected = selectTopicSources(topic, [...candidates.values()]);
   const originalSelectionLength = selected.length;
   const referenceLeads: TopicCandidate[] = [];

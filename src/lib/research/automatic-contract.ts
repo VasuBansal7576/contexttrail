@@ -6,6 +6,8 @@ import type { InvestigationResult } from '../investigation/contracts/investigati
 
 /** Search caps are admission ceilings, never a statement about account balances. */
 export const AUTOMATIC_RESEARCH_LIMITS = Object.freeze({ topicSearches: 6, topicSources: 12, topicPageReads: 10, topicCharacters: 500 });
+/** Two 60s search batches, bounded reads/assessments, plus local media decoding. */
+export const AUTOMATIC_RESEARCH_DEADLINES_MS = Object.freeze({ topic: 300_000, audio: 480_000, video: 720_000 });
 export type AutomaticResearchInput =
   | { kind: 'topic'; topic: string }
   | { kind: 'video' | 'audio'; bytes: Uint8Array; rights: 'user_provided'; claim?: string | null };

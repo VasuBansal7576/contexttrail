@@ -39,6 +39,10 @@ runs/**/provider-auth*.json
 runs/**/allowance*.json
 runs/**/*.log
 runs/2026-10-04/*.jpg
+!runs/2026-10-04/reference-cover-phone.jpg
+!runs/2026-10-04/reference-questions-phone.jpg
+!runs/2026-10-04/reference-source-inspection-phone.jpg
+!runs/2026-10-04/reference-citation-recheck.jpg
 runs/2026-10-04/upi-baseline-summary.json
 runs/2026-10-04/audit-production.json
 
