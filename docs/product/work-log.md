@@ -71,3 +71,8 @@
 - The existing launch project passes HyperFrames checks with its CLI pin updated to 0.8.123. Its old product captures still need replacement after acceptance. No new launch film is exported as proof of completion.
 
 - Final verification after the short-link reader: 108 files, 1,709 passed, 17 skipped. Typecheck passes. The real source-reader check uses no search or TypeSafe calls; no historical report is overwritten.
+
+## External launch feedback
+
+- Reviewed the owner's linked 28-second Wispr Flow revision and expanded the original critique and detailed pacing reply in the hidden browser. Visual review includes timeline seeking and continuous playback; audio was not assessed. The review and concrete ContextTrail story/motion decisions are in [launch reference review](launch-reference-review.md).
+- The next direction follows one automatic investigation through source inspection and save/reopen, with different reading holds for evidence and transitions. It preserves the exact authored HTML and broad product scope. No composition was changed or new film exported, and no external reply was sent.
