@@ -104,14 +104,21 @@ export function dedupeByCanonicalUrl(
 /**
  * §14 — retain at most the per-kind caps before classification:
  * exact 8, visual 8, about 5, search 5, news 5. Keeps best SERP positions.
+ * A historical acquisition reservation leaves one shared search slot empty.
  */
 export function applyRetentionCaps(
   candidates: readonly EvidenceCandidate[],
+  reserveSourceLink = false,
 ): EvidenceCandidate[] {
   const kept: EvidenceCandidate[] = [];
+  const sourceLinks = candidates.filter(c => c.retrievalKind === 'source_link').length;
+  const occupiedOrReserved = Math.max(
+    reserveSourceLink ? RETENTION_CAPS.source_link : 0,
+    Math.min(RETENTION_CAPS.source_link, sourceLinks),
+  );
   for (const kind of Object.keys(RETENTION_CAPS) as RetrievalKind[]) {
     const cap = kind === 'google_search'
-      ? RETENTION_CAPS.google_search - Math.min(RETENTION_CAPS.source_link, candidates.filter(c => c.retrievalKind === 'source_link').length)
+      ? RETENTION_CAPS.google_search - occupiedOrReserved
       : RETENTION_CAPS[kind];
     const ofKind = candidates
       .filter((c) => c.retrievalKind === kind)
