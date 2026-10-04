@@ -52,3 +52,7 @@ runs/2026-10-04/audit-production.json
 # Revised local launch exports and duplicate capture inputs.
 .lavish/contexttrail-assets/contexttrail-launch-revised.mp4
 videos/contexttrail/capture/revision/
+
+# Generated HyperFrames preview caches.
+videos/*/.thumbnails/
+videos/*/.waveform-cache/

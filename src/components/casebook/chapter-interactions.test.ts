@@ -2,7 +2,8 @@
 import React, {act} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {CasebookShell} from './CasebookShell';
+import {CasebookShell,CoverActions} from './CasebookShell';
+import {ChapterTourStep} from './ChapterTour';
 import {SourceLinkedAnswer} from './SourceLinkedAnswer';
 import {SourceMap} from './SourceMap';
 import {assessClaimSource,buildClaimReport} from '@/lib/research/claim-report';
@@ -26,7 +27,7 @@ it('pauses automatic chapter navigation when someone interacts with the evidence
   await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'evidence',caseId:'saved-case',children:React.createElement('main',null,React.createElement('button',null,'Inspect'))})));
   expect(container.querySelector('a[href="/watch?case=saved-case"]')).not.toBeNull();
   await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Play the guided tour"]')?.click());
-  await act(async()=>{vi.advanceTimersByTime(18_000);});expect(navigation.push).toHaveBeenLastCalledWith('/casebook?case=saved-case&chapter=sources');
+  await act(async()=>{vi.advanceTimersByTime(24_000);});expect(navigation.push).toHaveBeenLastCalledWith('/casebook?case=saved-case&chapter=sources');
   navigation.push.mockClear();await act(async()=>container.querySelector<HTMLButtonElement>('main button')?.click());
   await act(async()=>vi.advanceTimersByTime(36_000));expect(navigation.push).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
 });
@@ -60,4 +61,33 @@ it('leaves unlinked reporting origins unresolved rather than drawing an inferred
   const view=parseResearchCaseView(fixture());
   await act(async()=>root.render(React.createElement(SourceMap,{view,onInspect:vi.fn(),onCitation:vi.fn()})));
   expect(container.querySelectorAll('.source-map-canvas svg>path')).toHaveLength(0);expect(container.textContent).toContain('Lineage unresolved');expect(container.textContent).toContain('0 inspected references');
+});
+
+it('starts the authored cover tour immediately and the chapter chooser pauses it without provider requests',async()=>{
+  const fetch=vi.fn();vi.stubGlobal('fetch',fetch);
+  await act(async()=>root.render(React.createElement(CasebookShell,{children:React.createElement('main',null,React.createElement(CoverActions))})));
+  await act(async()=>{const button=[...container.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.includes('Walk through the casebook'));button?.click();});
+  expect(navigation.push).toHaveBeenLastCalledWith('/investigate');
+  expect(sessionStorage.getItem('contexttrail.chapter-tour')).toBe('playing');
+  await act(async()=>{const button=[...container.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Choose a chapter');button?.click();});
+  expect(document.querySelector('[role=dialog]')?.textContent).toContain('Come in through any question.');
+  expect(sessionStorage.getItem('contexttrail.chapter-tour')).toBeNull();expect(fetch).not.toHaveBeenCalled();
+});
+it('uses the authored evidence selection interval and resumes the remaining reading time after inspection',async()=>{
+  vi.useFakeTimers();vi.spyOn(document,'hidden','get').mockReturnValue(false);
+  await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'evidence',children:React.createElement('main',null,React.createElement(ChapterTourStep.Consumer,{children:(step:number|null)=>React.createElement('p',{'data-step':step},String(step))}))})));
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Play the guided tour"]')?.click());
+  await act(async()=>vi.advanceTimersByTime(4500));expect(container.querySelector('[data-step]')?.textContent).toBe('0');
+  await act(async()=>vi.advanceTimersByTime(3000));expect(container.querySelector('[data-step]')?.textContent).toBe('1');
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Pause the guided tour"]')?.click());
+  await act(async()=>vi.advanceTimersByTime(30_000));expect(navigation.push).not.toHaveBeenCalled();
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="Play the guided tour"]')?.click());
+  await act(async()=>vi.advanceTimersByTime(16_250));expect(navigation.push).not.toHaveBeenCalled();
+  await act(async()=>vi.advanceTimersByTime(250));expect(navigation.push).toHaveBeenLastCalledWith('/casebook?chapter=sources');
+});
+it('keeps a selected case available when returning to the cover',async()=>{
+  sessionStorage.setItem('contexttrail.chapter-case','a-retained-case');
+  await act(async()=>root.render(React.createElement(CasebookShell,{children:React.createElement('main')})));
+  expect(container.querySelector('a[href="/casebook?case=a-retained-case&chapter=evidence"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/watch?case=a-retained-case"]')).not.toBeNull();
 });

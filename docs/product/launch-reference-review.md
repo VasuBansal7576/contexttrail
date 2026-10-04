@@ -59,4 +59,14 @@ No footage, branding or assets from the external Wispr Flow film have been copie
 
 ## Delivered revision
 
-The owner subsequently requested the revised film. The 80.27-second export follows the existing, explicitly labelled recorded UPI investigation and fresh captures of its retained evidence and reopening. It does not stage a fresh provider submission or use this film as the outstanding automatic source-recovery acceptance run. The seven-chapter player, paused source dialog, mobile layout and embedded portable export were verified by computer use.
+The owner subsequently requested the revised film. The first revised, 80.27-second export followed the existing, explicitly labelled recorded UPI investigation and fresh captures of its retained evidence and reopening. It does not stage a fresh provider submission or use this film as the outstanding automatic source-recovery acceptance run. That version’s seven-chapter player, paused source dialog and embedded portable export were checked by computer use.
+
+## Product-first recut and UI repair
+
+The owner then asked to fix the UI and video, explain the product first, and remove slow pacing. The new export is 49.466667 seconds at 1920×1080, with H.264 video and 48 kHz AAC audio. Speech occupies 43.115 seconds; lead-ins and holds occupy 6.35 seconds. ContextTrail is introduced before the UPI example. Source text stays visible during its narration.
+
+The app restores the authored cover actions, 1440×900 stage, chapter durations and selection intervals, weighted tour progress, pause/resume timing and paper transitions. The selected case remains attached to navigation after returning to the cover. Long media intake forms scroll inside their paper panel. These changes are based on the selected HTML’s source contracts. The original file URL remains blocked by browser policy; no rendered pixel comparison or original guided-tour playback is claimed.
+
+The current app was checked through cover, image, video, question intake, saved question, evidence inspection, source selection, changes, watch and source-linked answers. The companion was played continuously to its end and checked for chapter seeking, previous/next, paused source inspection, transcript, sound control and the working final invitation. A fresh cover capture is used in the film. Current-run screenshots are retained in `.verify/`; a seven-frame montage from the rendered MP4 is in `videos/contexttrail/renders/contexttrail-launch-product-first-proof.jpg`. Audio stream integrity and caption timing were checked; this record does not claim a listening assessment.
+
+The guided casebook follows the reference’s scaled stage at narrow widths. Its main chapter controls become small; source and chapter dialogs retain readable layouts. Automated tests, type checking, production build and video runtime/layout/motion/contrast checks passed. None of these UI or film checks closes the outstanding source-recovery or broader product acceptance work.

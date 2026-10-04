@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { ChapterTurnProvider } from '@/components/casebook/ChapterTurn';
 
 /**
  * Project-owned font wiring (F16): Instrument Serif for editorial headings,
@@ -34,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${instrumentSerif.variable} ${geistSans.variable} bg-paper text-ink antialiased`}
       >
-        {children}
+        <ChapterTurnProvider>{children}</ChapterTurnProvider>
       </body>
     </html>
   );

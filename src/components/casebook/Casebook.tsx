@@ -124,8 +124,8 @@ function CaseWorkspace({ initialView, chapter, onReload }: { initialView: Resear
   const titles: Record<string, { number: string; label: string; line: string; emphasis: string; description: string }> = {
     questions: { number: "03", label: "Open-ended research", line: "Leave room", emphasis: "for another explanation.", description: "Follow a question without forcing it into a verdict. Keep alternatives beside the evidence." },
     evidence: { number: "04", label: "The saved case", line: "Keep the", emphasis: "exact thing.", description: "A source is useful. The passage, region, or cell behind your reasoning makes it reviewable." },
-    sources: { number: "05", label: "Source relationships", line: "Follow the", emphasis: "attribution.", description: "Inspect supplied citations before treating repeated coverage as corroboration." },
-    changes: { number: "06", label: "Corrections & change", line: "The story changes.", emphasis: "Keep the record.", description: "Review retained revisions and the findings that need another look." },
+    sources: { number: "05", label: "Source relationships", line: `${view.dependencies.sources.length} pages.`, emphasis: "How many origins?", description: "Trace who cites whom before counting repetition as corroboration." },
+    changes: { number: "06", label: "Corrections & change", line: "The story changes.", emphasis: "Keep both versions.", description: "A correction belongs in the history. See what changed, when you observed it, and which conclusions need another look." },
   };
   const heading = titles[chapter] ?? titles.questions;
   function inspect(evidence: CaseEvidence, support?: ResearchFindingSupport) { setEditor({ kind: "viewer", evidence, support }); }

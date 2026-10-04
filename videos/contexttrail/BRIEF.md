@@ -7,7 +7,7 @@ destination: product-launch
 aspect: 1920x1080
 language: en
 audience: People checking a claim or researching a question before sharing or deciding
-length: 80s
+length: 49.5s
 angle: actual-product-evidence
 voice: am_michael
 style_preset: biennale-yellow
@@ -35,3 +35,7 @@ No subagents. Do not stage provider successes, imply that headlines prove media 
 ## Revision approved by the owner
 
 Deliver the revised narrated film and interactive companion. Apply the pacing and focus feedback documented in ../../docs/product/launch-reference-review.md. Use the recorded real UPI case research-602c8124-42c7-4e40-97a2-9fda6b02cd41. This film delivery does not close the broader product acceptance work.
+
+## Product-first pacing revision — 4 October 2026
+
+Explain ContextTrail before the UPI demonstration. Seven narrated chapters run 49.465 seconds, including 43.115 seconds of speech. Keep the source quote visible during its narration, shorten silent holds, and use the repaired cover capture. The interactive companion uses the authored paper stage and chapter transport.

@@ -1,46 +1,29 @@
-# SCRIPT — ContextTrail
+# ContextTrail launch narration
 
-**Voice:** Michael, local Kokoro.
-**Voice direction:** Curious, conversational, with quiet reading space after each line.
+## 1. Meet ContextTrail
 
-## Line 1 — What made it stick? (Frame 1)
+    ContextTrail helps you investigate questions, claims and media. It finds sources and keeps the evidence you can inspect.
 
-**Delivery:** Clear and unhurried.
+## 2. A question about UPI
 
-    We pay with U P I every day. But what made it stick? Better internet? More places to pay?
+    What drove U P I adoption in India? This investigation searched for district-level evidence.
 
-## Line 2 — Bring the question (Frame 2)
+## 3. Read the distinction
 
-**Delivery:** Clear and unhurried.
+    One article separates two explanations. Internet laid the foundation. Its analysis points to merchant acceptance.
 
-    Take that question to ContextTrail. This real investigation searched for the district-level evidence behind U P I adoption.
+## 4. Check the dates
 
-## Line 3 — Read the distinction (Frame 3)
+    Open the source. Check the publication and retrieval dates. Here, the publication date is inferred.
 
-**Delivery:** Clear and unhurried.
+## 5. Keep the open questions
 
-    One retrieved article makes a useful distinction. Internet laid the foundation. Its account points to how many merchants accept payment.
+    Keep other explanations open while their sources still need checking.
 
-## Line 4 — Check the dates (Frame 4)
+## 6. Return to the evidence
 
-**Delivery:** Clear and unhurried.
+    Save the investigation. Return to the same passage, dates and source links.
 
-    Open the retained source. Check when it was published, and when it was retrieved. Here, the publication date is inferred.
+## 7. Bring your next question
 
-## Line 5 — Keep the open questions (Frame 5)
-
-**Delivery:** Clear and unhurried.
-
-    Other sources still need checking. Keep the open questions alongside what you found.
-
-## Line 6 — Return to the evidence (Frame 6)
-
-**Delivery:** Clear and unhurried.
-
-    Then come back. The same question. The same retained source. You can inspect the passage again, without trying to remember which tab it was.
-
-## Line 7 — Bring your next question (Frame 7)
-
-**Delivery:** Clear and unhurried.
-
-    An image. A clip. A question you are trying to understand. Bring it to ContextTrail, and follow the evidence.
+    Bring an image, a clip, or a question. Follow the sources. Keep what you find.

@@ -47,7 +47,7 @@ export default function Watchlists({caseId}: {caseId?: string} = {}) {
   async function create(event: FormEvent) { event.preventDefault(); if (await change({ kind: 'create', question, intervalHours })) setQuestion(''); }
   return <CasebookShell chapter="watch" caseId={caseId}><main id="main" tabIndex={-1} className="casebook-main">
     <div className="watch-workspace"><div className="watch-copy">
-    <ChapterHeading number="07" label="Watch" description="Follow a question, product, brand or public incident. New evidence has a place to arrive.">Return when<br /><em>the evidence changes.</em></ChapterHeading>
+    <ChapterHeading number="07" label="Watch" description="A case can rest without being forgotten. Return when new evidence or a changed source gives you a reason.">Keep the<br /><em>question<br />open.</em></ChapterHeading>
     <div className="watch-controls"><form className="paper-sheet form-stack" onSubmit={create}>
       <label className="field">What should ContextTrail follow?<textarea required minLength={5} maxLength={500} value={question} disabled={!status || busy} onChange={event => setQuestion(event.target.value)} placeholder="What new evidence is emerging about this product or incident?" /></label>
       <label className="field">Check again<select value={intervalHours} disabled={!status || busy} onChange={event => setIntervalHours(event.target.value === '1' ? 1 : 24)}><option value={24}>Every day</option><option value={1}>Every hour</option></select></label>

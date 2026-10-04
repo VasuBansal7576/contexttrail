@@ -90,3 +90,12 @@
 - The self-contained HTML was separately loaded through the local server, sought to chapter 4 at 36.122 seconds and paused with the source dialog open. Native video readiness was 4 and the complete 0–80.267-second range was seekable.
 - Final render inspection found the ending button overlapping the tagline by a few pixels. Moved the ending text up 30 pixels, inspected the corrected 77/80.1-second snapshots, rerendered and updated both player exports. Final file is `contexttrail-launch-final.mp4`, 80.266667 seconds, 6808817 bytes.
 - Original article destination was separately opened in the isolated browser. Its title, authors and 3 August 2026 date are visible. This confirms the saved date value without rewriting the recorded case's inferred-method label; the companion distinguishes the saved record from this later manual check.
+
+## Owner-requested UI and pacing repair
+
+- Restore the authored cover actions, scaled stage, nine distinct chapter durations, timed selections, weighted progress and paper turn. Preserve elapsed time on resume and the selected case after returning to the cover. Bound long automatic intake forms inside their paper panel.
+- Explain ContextTrail before the UPI use case. Recut the narration to 43.115 seconds and the final film to 49.466667 seconds. Refresh the cover capture, repair caption overlap/UPI transcription, and point the ending hand at a working question-entry link.
+- Computer use verifies the current app chapters, selection changes, retained-source inspection, cover case retention and intake scrolling. Continuous companion playback reaches the end. Seeking, previous/next, source pause, narration expansion, sound control and the final link work. No new provider search was submitted.
+- Typecheck, production build and 108-file suite pass: 1,712 passed, 17 skipped. HyperFrames runtime/layout/motion checks pass, with 49/49 text contrast checks and one reviewed caption-track density warning. The 1080p H.264/AAC export and embedded portable player are regenerated.
+- Original-file browser interaction remains blocked; source-derived fidelity changes are not claimed as a rendered original comparison. Phone-scaled stage controls are small. Audio stream/caption timing was checked without claiming a listening review.
+- Automatic approval review rejected the optional external HyperFrames feedback submission because that payload was not authorized. No feedback was sent. The deliverables were completed independently of that submission.
