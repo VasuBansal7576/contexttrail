@@ -8,7 +8,10 @@ import {useChapterTour} from './ChapterTour';
 const labels = { general: 'Open-ended research', news: 'Claim investigation', brand: 'Brand investigation', reviews: 'Review-pattern investigation', attribution: 'Attribution investigation', shopping: 'Product mismatch investigation' };
 export function ResearchDossier({ report, caseRecord }: { report: ClaimReport; caseRecord: CaseRecord }) {
   const dossier = researchDossier(report, caseRecord);
-  const preferred = dossier.focus === 'general' && /^(?:why|how)\b/i.test(report.question) ? 'mechanisms' : dossier.sections[0].id;
+  const wanted = dossier.focus === 'news' && /\b(?:\d{4}|\d[\d,]*\s*(?:km|kilomet|million|billion|percent|crore))\b/i.test(report.question) ? 'scope'
+    : dossier.focus === 'general' && /^(?:why|how)\b/i.test(report.question) ? 'mechanisms' : dossier.sections[0].id;
+  const preferred = dossier.sections.find(section => section.id === wanted && section.statements.length)?.id
+    ?? dossier.sections.find(section => section.statements.length)?.id ?? wanted;
   const [selected, setSelected] = useState(preferred), [passage, setPassage] = useState(0);
   const section = dossier.sections.find(section => section.id === selected) ?? dossier.sections[0];
   const statement = section.statements[Math.min(passage, section.statements.length - 1)];

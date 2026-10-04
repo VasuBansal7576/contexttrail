@@ -40,4 +40,8 @@ Current browser checks exercise the cover chooser and walkthrough, image/video/q
 
 ## Owner-rejected launch and live-run repairs
 
-The owner rejected the 49.47-second launch and the previous UI delivery. Neither is an accepted release. See [current judge-run verification](product/judge-live-verification.md) for the reproduced clipping, blank media routing, first-version whitespace and exhausted-allowance defects, their browser verification, and the pending fresh run. Narrow screens now reflow; the earlier statement that every width uses a scaled desktop stage describes the rejected implementation. No rendered equivalence to the blocked local reference is claimed.
+The owner rejected the 49.47-second launch and the previous UI delivery. Neither is an accepted release. See [current judge-run verification](product/judge-live-verification.md) for the reproduced clipping, blank media routing, first-version whitespace and exhausted-allowance defects, their browser verification, and the fresh submitted question. Narrow screens now reflow; the earlier statement that every width uses a scaled desktop stage describes the rejected implementation. No rendered equivalence to the blocked local reference is claimed.
+
+## Fresh-question layout repair
+
+The metro run showed a fourth unused card column and an empty default History facet. Factual questions now use record/scope/challenge facets; the selected facet must contain a passage when one is available. Desktop three-card results fill three columns. The 390 × 844 layout uses compact full-width rows. The source dialog prioritizes the retained paragraph and publication/retrieval dates, with interpretation guidance expandable below. These changes were exercised with the same saved case. They do not retroactively recover the January primary source or establish pixel parity with the original file.

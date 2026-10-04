@@ -1,102 +1,29 @@
 ---
-format: 1920x1080
-duration: 49.465s
-message: Bring the question and follow a real investigation into its retained evidence.
-arc: Product → Example question → Investigation → Passage → Dates → Open questions → Return → Invitation
-audience: People curious about the context behind what they read and share
-mode: autonomous
+workflow: product-launch-video
+flow: automation
 music: none
+canvas: 1920x1080
+status: rendered
 ---
+
+# ContextTrail / bring your question
 
 ## Video direction
 
-Instrument Serif and Geist, cream paper #f2ecd9, ink #242c2b, rust #b44833 and blue #254c70. Real computer-use captures of the current authored interface. One recorded UPI case throughout, dated 4 October 2026. No staged provider search or synthetic verdict. UI screenshots are recorded states; magnified editorial excerpts are identified. Motion moves attention once, then stops for reading. Hard cuts preserve the paper ground. Hand points to the invitation button, with a measured fingertip target.
+The name and purpose are visible immediately. One metro question supplies the example. Actual browser captures remain unmodified in their frame. Brief cuts advance between decisions; evidence and dates hold while narration explains them. No unrelated footage or success state. Captions use locally timed narration. The interactive companion supplies reading time beyond the film.
 
-## Changes from the 80-second cut
+| Scene | Start | Duration | Shot and narration |
+| --- | --- | --- | --- |
+| 01 What ContextTrail does | 0 | 4.873 | Authored typography and paper. Name/purpose immediately; paper enters at 0.5 seconds. Line 1 starts at 0.1. |
+| 02 Bring the question | 4.873 | 8.779 | Actual `input.png` with metro question. Cut to actual `search.png` at 9.34 seconds as line 3 begins. Search waits explicitly shortened. |
+| 03 Read source and dates | 13.652 | 7.321 | Actual `evidence.png`, then `inspector.png` at 15.452. Lines 4/5 ask which date the number describes. Highlight the real publication/retrieval labels at 17.585; annotation enters at 17.885. |
+| 04 Return to evidence | 20.973 | 4.504 | Actual one-case casebook, then exact reopened paper at 22.573. Line 6 starts 21.073. No new provider requests during reopening. |
+| 05 Your next question | 25.477 | 3.691 | Name and invitation. Action enters at 25.827; engraved hand at 25.927. Hand rotates −28 degrees and points horizontally into the action at y≈768. Line 7 starts 25.577. |
 
-User notes: "too me it feels like too slow" and "do u wanna styart with a product usecase or do u wanna tell what product is first".
+## Truth and validation
 
-ContextTrail is introduced before UPI. The opening shows the recorded cover and describes questions, claims and media. Narration is rewritten at 1.04 local voice speed. Repeated sentences are cut. Post-narration holds are 0.5–1.2 seconds, with the quote readable during the voice. This pacing revision does not certify HTML fidelity or completion of the product.
+The question's January scope remains unresolved in this recorded run. The Asianet source describes network figures by 2025, has an observed 15 March 2026 publication date and a 4 October 2026 retrieval timestamp. The film demonstrates source inspection and retention. It does not present later figures as a January answer.
 
-## Frame 1 — Meet ContextTrail
+HyperFrames 0.8.123 checks have no lint/runtime/layout errors. Reviewed structural warnings concern the monolithic five-scene timeline and archived caption composition. A transient entrance contrast warning clears on the held date note. Midpoints and both sides of every cut were inspected. Final MP4 is 1920×1080, 30fps, H.264/AAC, 29.2 seconds. Audio stream peak is −2.5 dBFS; no listening assessment is claimed.
 
-- status: animated
-- src: compositions/revised1.html
-- duration: 8.615s
-- transition_in: cut
-- scene: What made it stick?
-- voiceover: ContextTrail helps you investigate questions, claims and media. It finds sources and keeps the evidence you can inspect.
-- sfx: none
-
-0s: name and purpose visible. Actual recorded cover enters within 0.05s. Narration explains the product before the UPI example. Short 0.5s hold.
-## Frame 2 — A question about UPI
-
-- status: animated
-- src: compositions/revised2.html
-- duration: 7.42s
-- transition_in: cut
-- scene: Bring the question
-- voiceover: What drove U P I adoption in India? This investigation searched for district-level evidence.
-- sfx: none
-
-Actual Questions screen as a wide establishing shot. At 2s, move the camera once to the exact question, keeping its saved investigation context. Hold to the end. Recorded investigation label remains legible.
-
-## Frame 3 — Read the distinction
-
-- status: animated
-- src: compositions/revised3.html
-- duration: 9.051s
-- transition_in: cut
-- scene: Read the distinction
-- voiceover: One article separates two explanations. Internet laid the foundation. Its analysis points to merchant acceptance.
-- sfx: none
-
-Actual merchant-acceptance facet on the left; clearly attributed eleven-word source excerpt on blue paper on the right. Marker underline draws once under merchant acceptance. Hold for one second after narration; the quote is already readable during speech.
-
-## Frame 4 — Check the dates
-
-- status: animated
-- src: compositions/revised4.html
-- duration: 7.57s
-- transition_in: cut
-- scene: Check the dates
-- voiceover: Open the source. Check the publication and retrieval dates. Here, the publication date is inferred.
-- sfx: none
-
-Actual in-app source inspector crop shows metadata on the left. On the right, publication and retrieval cards enter separately in narration order. Publication remains explicitly inferred; captured date not recorded. Hold.
-
-## Frame 5 — Keep the open questions
-
-- status: animated
-- src: compositions/revised5.html
-- duration: 4.839s
-- transition_in: cut
-- scene: Keep the open questions
-- voiceover: Keep other explanations open while their sources still need checking.
-- sfx: none
-
-Actual open-question facet, followed by a stationary magnification of its unresolved question. The research interpretation stays open. No broad factual verdict.
-
-## Frame 6 — Return to the evidence
-
-- status: animated
-- src: compositions/revised6.html
-- duration: 5.621s
-- transition_in: cut
-- scene: Return to the evidence
-- voiceover: Save the investigation. Return to the same passage, dates and source links.
-- sfx: none
-
-Actual saved casebook row. At 1.5s, cut within the scene to the verified reopened case and the same exact span. Show the evidence ID once. Hold for reading.
-
-## Frame 7 — Bring your next question
-
-- status: animated
-- src: compositions/revised7.html
-- duration: 6.349s
-- transition_in: cut
-- scene: Bring your next question
-- voiceover: Bring an image, a clip, or a question. Follow the sources. Keep what you find.
-- sfx: none
-
-Actual cover establishes the media entry choices, then a paper invitation appears. ContextTrail wordmark and a clear Bring your question button. The static illustrated hand points directly to its edge. Final hold of 1.2 seconds.
+Assets are staged by `build-fresh-film.py`; voice clips and word timings are in `audio_meta_fresh.json`. Rebuild the responsive and portable companion with `build-interactive-player.py` after rendering and extracting its poster.

@@ -37,7 +37,7 @@ export function documentSurfaceCue(topic: string, candidate: Pick<EvidenceCandid
   const publicInstitution = /(?:\.gov(?:\.[a-z]{2})?|\.int)$/.test(source.hostname);
   const publication = /(?:^|\/)(?:publications?|reports?|statistics|bulletins?)(?:\/|view|\.|$)/i.test(source.pathname);
   const document = /\b(?:annual report|working paper|bulletin|statistical|statistics|empirical study|factsheet)\b/i.test(text);
-  if (!acronymOverlap && !(publication && coverage.matches >= 1) && (coverage.matches < 2 || coverage.tier !== 'substantial')) return 0;
+  if (!acronymOverlap && (coverage.matches < 2 || (!publication && coverage.tier !== 'substantial'))) return 0;
   // Public institution pages can be commentary, and report URLs can be misleading.
   // Prioritise inspection rather than asserting that they are primary evidence.
   return publicInstitution ? coverage.matches + 30 : publication ? coverage.matches + 20 : document ? coverage.matches + 10 : 0;

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeSearchResponse } from '../serpapi/normalize';
 import { documentSurfaceCue, selectTopicSources } from './topic-selection';
+it('does not prioritise an unrelated publication for a country-only match', () => {
+  expect(documentSurfaceCue('Did India’s metro network cross 1,000 kilometres in January 2025, and which cities were included?', {
+    title: "How can India's Bus Market Scale up Sustainable Public Transport?", snippet: 'Electric buses and sustainable public transport.',
+    sourceUrl: 'https://research.example.org/publications/bus-market',
+  })).toBe(0);
+});
 it('prioritises a matching document without certifying its authority or privileging an unrelated institution', () => {
   expect(documentSurfaceCue('How did PIX adoption change in Brazil?', { title: 'PIX statistics', snippet: 'Monthly payment statistics', sourceUrl: 'https://centralbank.example.org/publications/report.html' })).toBeGreaterThan(0);
   expect(documentSurfaceCue('How did PIX adoption change in Brazil?', { title: 'Central bank staff holidays', snippet: 'Staff holidays and office hours', sourceUrl: 'https://centralbank.example.org/publications/report.html' })).toBe(0);

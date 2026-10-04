@@ -1,12 +1,17 @@
 /** Keep the original search and news question. The document search removes only
  * closed grammatical filler, preserving entities, negation, quantifiers and dates. */
 const filler = new Set('a an and are as at be being by can did do does for from had has have how in is it its of on or so that the their this to was were what when where which who why will with would evidence shows show quickly distinguishes explanations'.split(' '));
+function searchSubject(question: string): string {
+  const [primary, secondary] = question.split(/\band (?:which|what|where|when)\b/i);
+  return /^(?:did|does|has|have|is|are|was|were)\b/i.test(question.trim()) && secondary && !/\d/.test(secondary) ? primary : question;
+}
 export function documentQuery(question: string): string {
   const documentary = /^(?:why|how|when|what (?:factors|led|caused|changed|explains))\b/i.test(question.trim());
   const suffix = documentary ? '(data OR statistics OR study OR "annual report")' : '(statement OR clarification OR "press release" OR correction)';
   // Short questions already work as source-search queries. Preserve their wording.
-  if (!documentary && question.length <= 100) return `${question} ${suffix}`;
-  const tokens = question.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
+  if (!documentary && question.length <= 100 && !/\b(?:did|does|has|have|is|are|was|were)\b.*\band (?:which|what|where|when)\b/i.test(question)) return `${question} ${suffix}`;
+  const primary = searchSubject(question);
+  const tokens = primary.match(/\d[\d,]*(?:\.\d+)?|[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
   const wanted = tokens.filter(token => !filler.has(token.toLowerCase()));
   return `${wanted.length ? wanted.join(' ') : question} ${suffix}`;
 }
@@ -19,11 +24,12 @@ export function researchFocus(question: string): ResearchFocus {
   if (/\b(?:advertised|received|delivered|mismatch|clothing|fabric|wrong product|shopping)\b/i.test(question)) return 'shopping';
   if (/\b(?:brand|recall|product safety|company claims)\b/i.test(question)) return 'brand';
   if (/^(?:claim|check this claim)\s*:/i.test(question)) return 'news';
+  if (/^(?:did|does|has|have|is|are|was|were)\b/i.test(question.trim())) return 'news';
   return 'general';
 }
 export interface ResearchSearch { engine: 'google' | 'google_news'; q: string; kind: 'google_search' | 'google_news'; purpose: string }
 function keywords(question: string): string {
-  const tokens = question.replace(/^(?:claim|check this claim)\s*:/i, '').match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
+  const tokens = searchSubject(question.replace(/^(?:claim|check this claim)\s*:/i, '')).match(/\d[\d,]*(?:\.\d+)?|[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
   return tokens.filter(token => !filler.has(token.toLowerCase())).join(' ').slice(0, 350) || question;
 }
 /** Additional searches have distinct evidence goals; failed searches are never silently retried. */

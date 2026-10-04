@@ -56,3 +56,6 @@ videos/contexttrail/capture/revision/
 # Generated HyperFrames preview caches.
 videos/*/.thumbnails/
 videos/*/.waveform-cache/
+
+# Fresh launch encode copied into the local companion.
+.lavish/contexttrail-assets/contexttrail-launch-fresh.mp4

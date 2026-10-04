@@ -2,40 +2,27 @@
 workflow: product-launch-video
 flow: automation
 storyboard: no
-message: Bring a question; investigate the evidence and keep a trail you can return to.
+message: ContextTrail finds the sources behind questions, claims and media.
 destination: product-launch
 aspect: 1920x1080
 language: en
-audience: People checking a claim or researching a question before sharing or deciding
-length: 49.5s
+audience: People checking a claim or researching a question
+length: 29.2s
 angle: actual-product-evidence
 voice: am_michael
 style_preset: biennale-yellow
 ---
 
-## Intent
+## Owner-directed repair
 
-A narrated product launch and interactive explanation of ContextTrail using real local provider runs. Match the owner's authored A Place for the Question HTML and the existing product typography, cream paper, rust and blue. It should make people want to bring a question, read the evidence and return later. Use concrete Indian examples, not a generic feature montage.
+Explain the product before the use case. Cut the rejected film's slow narration and repeated plates. Keep the owner's Instrument Serif, Geist, cream paper, rust, blue and engraved hand. The selected reference is `/Users/vasu/Desktop/Product HTMLs/ContextTrail.html`. Its source contracts were inspected; direct original-file browser interaction remains blocked.
 
-## Assets
+## Actual investigation
 
-- ../../runs/2026-10-04/ — actual computer-use screenshots of the app and real UPI/video/watch investigations.
-- ../../public/illustrative-pointing-hand.png — original authored cover collage.
-- ../../src/app/fonts/ — actual locally bundled Instrument Serif and Geist Sans.
+Use the newly submitted metro question from the previously empty judge instance. All input/progress/source/inspector/casebook/reopening images are actual computer-use captures in `../../runs/2026-10-04/fresh-metro-*`. The five page passages and seven leads did not settle the January 2025 question. Do not invent a resolved answer. Search improvements after this run are not a verified provider outcome yet.
 
-## Customizations
+## Delivery
 
-- Companion interactive player with chapter selection, actual retained source passages and local app entry links.
-- English narration with local Kokoro because HeyGen is not signed in. User requested autonomous completion; no new third-party account is created.
+A narrated 29.2-second film, five-chapter interactive companion and self-contained HTML. The companion retains one brief exact quote, observed publication and actual retrieval timestamps, and deliberate original/source/app links. Search waits are labelled shortened; scene cuts join actual states without fabricated clicks or provider responses. The hand must point into the ending action.
 
-## Notes
-
-No subagents. Do not stage provider successes, imply that headlines prove media identity, present a search snippet as a read page, or claim full-video/audio understanding. Public launch publication is not implied by creating the local film.
-
-## Revision approved by the owner
-
-Deliver the revised narrated film and interactive companion. Apply the pacing and focus feedback documented in ../../docs/product/launch-reference-review.md. Use the recorded real UPI case research-602c8124-42c7-4e40-97a2-9fda6b02cd41. This film delivery does not close the broader product acceptance work.
-
-## Product-first pacing revision — 4 October 2026
-
-Explain ContextTrail before the UPI demonstration. Seven narrated chapters run 49.465 seconds, including 43.115 seconds of speech. Keep the source quote visible during its narration, shorten silent holds, and use the repaired cover capture. The interactive companion uses the authored paper stage and chapter transport.
+No subagents. Local Kokoro am_michael at speed 1.1 supplies the narration because HeyGen is signed out. No music. The user explicitly requested the repaired video; rendering is authorized. The old films remain superseded. This is a narrow demonstration, not acceptance of the full product vision.

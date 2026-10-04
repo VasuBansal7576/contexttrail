@@ -1,10 +1,20 @@
 import { expect, it } from 'vitest';
-import { documentQuery } from './search-plan';
+import { documentQuery, followupSearches, researchFocus } from './search-plan';
 it('keeps date bounds and the named topic while searching research documents for an open question', () => {
   const query = documentQuery('Why did UPI adoption grow so quickly in India, and what evidence shows how its use changed from 2016 to 2025?');
   for (const token of ['UPI','adoption','India','2016','2025']) expect(query).toContain(token);
   expect(query).toContain('annual report');
   expect(query).not.toContain('clarification');
+});
+it('investigates a dated factual question without fragmenting its figure or diluting the first question', () => {
+  const question = 'Did India’s metro network cross 1,000 kilometres in January 2025, and which cities were included?';
+  expect(researchFocus(question)).toBe('news');
+  const query = documentQuery(question);
+  expect(query).toContain('1,000');
+  expect(query).toContain('January 2025');
+  expect(query).not.toContain('cities');
+  expect(followupSearches(question).every(search => search.q.includes('1,000') && search.q.includes('January 2025'))).toBe(true);
+  expect(followupSearches(question).some(search => search.purpose === 'corrections and opposing evidence')).toBe(true);
 });
 it('does not remove negation or universal quantifiers from a claim search', () => {
   const query = documentQuery('Claim: All reviews for the hotel are not independent, including reviews in 2025 and 2026.');

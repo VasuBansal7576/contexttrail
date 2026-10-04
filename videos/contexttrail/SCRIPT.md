@@ -1,29 +1,29 @@
 # ContextTrail launch narration
 
-## 1. Meet ContextTrail
+## Line 1
 
-    ContextTrail helps you investigate questions, claims and media. It finds sources and keeps the evidence you can inspect.
+    ContextTrail finds the sources behind questions, claims and media.
 
-## 2. A question about UPI
+## Line 2
 
-    What drove U P I adoption in India? This investigation searched for district-level evidence.
+    A thousand kilometres of metro. By January twenty twenty-five?
 
-## 3. Read the distinction
+## Line 3
 
-    One article separates two explanations. Internet laid the foundation. Its analysis points to merchant acceptance.
+    Ask once. ContextTrail searches and reads the sources.
 
-## 4. Check the dates
+## Line 4
 
-    Open the source. Check the publication and retrieval dates. Here, the publication date is inferred.
+    Read the passage. Which date does that number actually describe?
 
-## 5. Keep the open questions
+## Line 5
 
-    Keep other explanations open while their sources still need checking.
+    Keep publication and retrieval dates separate.
 
-## 6. Return to the evidence
+## Line 6
 
-    Save the investigation. Return to the same passage, dates and source links.
+    Come back to the exact evidence. Your investigation is saved.
 
-## 7. Bring your next question
+## Line 7
 
-    Bring an image, a clip, or a question. Follow the sources. Keep what you find.
+    Bring something you want to understand.
