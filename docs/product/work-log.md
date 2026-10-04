@@ -76,3 +76,15 @@
 
 - Reviewed the owner's linked 28-second Wispr Flow revision and expanded the original critique and detailed pacing reply in the hidden browser. Visual review includes timeline seeking and continuous playback; audio was not assessed. The review and concrete ContextTrail story/motion decisions are in [launch reference review](launch-reference-review.md).
 - The next direction follows one automatic investigation through source inspection and save/reopen, with different reading holds for evidence and transitions. It preserves the exact authored HTML and broad product scope. No composition was changed or new film exported, and no external reply was sent.
+
+## Revised launch film, 4 October 2026
+
+- Owner requested the revised video after the launch-reference review. No subagents. Rendering was explicitly authorised by the request to bring the video.
+- Replaced the seven-example montage with one recorded real UPI investigation. Fresh computer-use captures verify the exact saved case, merchant-acceptance span 190–429, inferred publication date, open question and reopening. No fresh provider search is staged.
+- Revised narration, source reading holds and a measured invitation-hand target. Built burned captions and removed overlapping caption cues.
+- HyperFrames 0.8.123 check passed runtime/layout/contrast, with two reviewed caption-density warnings. Midpoint and cut-seam snapshots were inspected before the approved render.
+- Final film: 80.266667 seconds, 1920 × 1080, 30 fps, H.264/AAC at 48 kHz, 6,812,411 bytes. Audio peak −2.1 dBFS.
+- The real browser run exposed a launch-preview bug: the plain static server played the MP4 but supplied a zero-length seekable range. Added a loopback byte-range server; chapter 3 then sought to 20.762 seconds with a full 0–80.267 seekable range. The source-inspection action paused the video and opened the retained quote/date dialog.
+- Interactive companion and portable HTML use the same film and recorded case. Broader product acceptance remains open; film delivery does not close those requirements.
+- All seven chapter buttons verified by computer use at 0.370 / 9.269 / 20.827 / 36.214 / 47.363 / 56.220 / 69.195 seconds, without media errors. At 390 × 844, document width is 390 pixels and the source dialog is 358 pixels; transcript expands and chapters use two columns. Temporary viewport was reset.
+- The self-contained HTML was separately loaded through the local server, sought to chapter 4 at 36.122 seconds and paused with the source dialog open. Native video readiness was 4 and the complete 0–80.267-second range was seekable.

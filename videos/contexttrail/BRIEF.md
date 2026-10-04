@@ -7,7 +7,7 @@ destination: product-launch
 aspect: 1920x1080
 language: en
 audience: People checking a claim or researching a question before sharing or deciding
-length: 75s
+length: 80s
 angle: actual-product-evidence
 voice: am_michael
 style_preset: biennale-yellow
@@ -31,3 +31,7 @@ A narrated product launch and interactive explanation of ContextTrail using real
 ## Notes
 
 No subagents. Do not stage provider successes, imply that headlines prove media identity, present a search snippet as a read page, or claim full-video/audio understanding. Public launch publication is not implied by creating the local film.
+
+## Revision approved by the owner
+
+Deliver the revised narrated film and interactive companion. Apply the pacing and focus feedback documented in ../../docs/product/launch-reference-review.md. Use the recorded real UPI case research-602c8124-42c7-4e40-97a2-9fda6b02cd41. This film delivery does not close the broader product acceptance work.

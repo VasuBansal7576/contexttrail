@@ -56,3 +56,7 @@ The fresh automatic run must recover and retain the relevant source, produce a u
 The existing source-reader recovery check and the earlier provider investigation remain distinct records. The Delhi clip's historical identity remains unresolved and cannot be used as a successful identification payoff. Synthetic correction controls cannot appear as factual investigations. A dedicated image or media segment must use an accepted real run before it enters the film.
 
 No footage, branding or assets from the external Wispr Flow film have been copied into ContextTrail. No external replies were sent. This review adds creative direction while the original product completion requirements remain in force.
+
+## Delivered revision
+
+The owner subsequently requested the revised film. The 80.27-second export follows the existing, explicitly labelled recorded UPI investigation and fresh captures of its retained evidence and reopening. It does not stage a fresh provider submission or use this film as the outstanding automatic source-recovery acceptance run. The seven-chapter player, paused source dialog, mobile layout and embedded portable export were verified by computer use.

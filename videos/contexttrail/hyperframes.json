@@ -15,6 +15,11 @@
       "name": "line-by-line-slide",
       "type": "hyperframes:component",
       "target": "compositions/components/line-by-line-slide.html"
+    },
+    {
+      "name": "marker-highlight",
+      "type": "hyperframes:component",
+      "target": "compositions/components/marker-highlight.html"
     }
   ]
 }

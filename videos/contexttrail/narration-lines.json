@@ -1,30 +1,30 @@
 [
-  [
-    "The caption travels",
-    "A video arrives with a date. A headline arrives with a number. Before you share either, where did the story come from?"
-  ],
-  [
-    "A place for the question",
-    "ContextTrail starts with the question you bring. It searches for sources, keeps the evidence, and gives you a trail you can read and return to."
-  ],
-  [
-    "Twenty-four billion",
-    "We asked about twenty-four billion UPI transactions in August. Retrieved reporting says twenty-four point five one billion. Open the passage inside the app. Check the month, the source, and the publication date."
-  ],
-  [
-    "One clip, three trails",
-    "For a clip captioned as the Satya Niketan collapse, three moments were searched separately. Reports about an older Jasola demolition appeared in the trail. Read their evidence before deciding whether they depict this clip."
-  ],
-  [
-    "Keep the exact thing",
-    "Keep the investigation. Reopen the same source passages and frame results, without searching again. Your reasoning has somewhere to live."
-  ],
-  [
-    "Follow what changes",
-    "Start a watch on a question. The first check keeps a baseline. Later checks compare newly found sources and changed passages with the earlier investigation. Pause it whenever you need."
-  ],
-  [
-    "Bring your next question",
-    "Is this footage new? What changed? How did UPI grow? Bring the question to ContextTrail. Open the sources. Keep what you find."
-  ]
+  {
+    "id": "01",
+    "text": "We pay with U P I every day. But what made it stick? Better internet? More places to pay?"
+  },
+  {
+    "id": "02",
+    "text": "Take that question to ContextTrail. This real investigation searched for the district-level evidence behind U P I adoption."
+  },
+  {
+    "id": "03",
+    "text": "One retrieved article makes a useful distinction. Internet laid the foundation. Its account points to how many merchants accept payment."
+  },
+  {
+    "id": "04",
+    "text": "Open the retained source. Check when it was published, and when it was retrieved. Here, the publication date is inferred."
+  },
+  {
+    "id": "05",
+    "text": "Other sources still need checking. Keep the open questions alongside what you found."
+  },
+  {
+    "id": "06",
+    "text": "Then come back. The same question. The same retained source. You can inspect the passage again, without trying to remember which tab it was."
+  },
+  {
+    "id": "07",
+    "text": "An image. A clip. A question you are trying to understand. Bring it to ContextTrail, and follow the evidence."
+  }
 ]

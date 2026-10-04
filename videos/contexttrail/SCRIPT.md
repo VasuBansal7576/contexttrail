@@ -1,46 +1,46 @@
 # SCRIPT — ContextTrail
 
-**Voice:** Michael (local Kokoro)
-**Voice direction:** Conversational, clear, curious; a pause after each concrete example.
+**Voice:** Michael, local Kokoro.
+**Voice direction:** Curious, conversational, with quiet reading space after each line.
 
-## Line 1 — The caption travels (Frame 1)
+## Line 1 — What made it stick? (Frame 1)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    A video arrives with a date. A headline arrives with a number. Before you share either, where did the story come from?
+    We pay with U P I every day. But what made it stick? Better internet? More places to pay?
 
-## Line 2 — A place for the question (Frame 2)
+## Line 2 — Bring the question (Frame 2)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    ContextTrail starts with the question you bring. It searches for sources, keeps the evidence, and gives you a trail you can read and return to.
+    Take that question to ContextTrail. This real investigation searched for the district-level evidence behind U P I adoption.
 
-## Line 3 — Twenty-four billion (Frame 3)
+## Line 3 — Read the distinction (Frame 3)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    We asked about twenty-four billion UPI transactions in August. Retrieved reporting says twenty-four point five one billion. Open the passage inside the app. Check the month, the source, and the publication date.
+    One retrieved article makes a useful distinction. Internet laid the foundation. Its account points to how many merchants accept payment.
 
-## Line 4 — One clip, three trails (Frame 4)
+## Line 4 — Check the dates (Frame 4)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    For a clip captioned as the Satya Niketan collapse, three moments were searched separately. Reports about an older Jasola demolition appeared in the trail. Read their evidence before deciding whether they depict this clip.
+    Open the retained source. Check when it was published, and when it was retrieved. Here, the publication date is inferred.
 
-## Line 5 — Keep the exact thing (Frame 5)
+## Line 5 — Keep the open questions (Frame 5)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    Keep the investigation. Reopen the same source passages and frame results, without searching again. Your reasoning has somewhere to live.
+    Other sources still need checking. Keep the open questions alongside what you found.
 
-## Line 6 — Follow what changes (Frame 6)
+## Line 6 — Return to the evidence (Frame 6)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    Start a watch on a question. The first check keeps a baseline. Later checks compare newly found sources and changed passages with the earlier investigation. Pause it whenever you need.
+    Then come back. The same question. The same retained source. You can inspect the passage again, without trying to remember which tab it was.
 
 ## Line 7 — Bring your next question (Frame 7)
 
-**Delivery:** Calm, specific; emphasize the question rather than the software.
+**Delivery:** Clear and unhurried.
 
-    Is this footage new? What changed? How did UPI grow? Bring the question to ContextTrail. Open the sources. Keep what you find.
+    An image. A clip. A question you are trying to understand. Bring it to ContextTrail, and follow the evidence.

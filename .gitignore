@@ -48,3 +48,7 @@ runs/2026-10-04/audit-production.json
 
 # Verified local speech model; downloaded from its pinned upstream revision.
 .local-models/
+
+# Revised local launch exports and duplicate capture inputs.
+.lavish/contexttrail-assets/contexttrail-launch-revised.mp4
+videos/contexttrail/capture/revision/
