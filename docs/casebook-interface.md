@@ -28,7 +28,7 @@ The image investigation still uses its existing provider configuration, consent,
 - Sources: supplied citations, retained targets, unresolved targets, exact quote checks, and shared citation targets. No inferred independence or first-publication count.
 - Changes: retained source snapshots side by side, capture and publication dates separated, and research revision counts.
 - `/compare`: actual two-file local video/video or video/still comparison. It displays returned sampled frames, timestamps, approximate compared regions, raw pixel errors, sampling coverage and limitations.
-- Watch and AI answers: explicit planned-connection chapters. They perform no scheduling or model calls.
+- Watch: automatic local scheduled retrieval with baseline, changed-source history and pause/resume. See automatic-watches.md. The legacy AI-answer deep link remains a planned stub; it is not a primary navigation chapter.
 
 ## State and recovery
 

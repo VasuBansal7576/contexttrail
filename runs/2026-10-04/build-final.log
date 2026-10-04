@@ -1,0 +1,42 @@
+
+> contexttrail@0.1.0 build
+> next build
+
+   ▲ Next.js 15.5.26
+   - Environments: .env.local
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 2.9s
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/13) ...
+   Generating static pages (3/13)
+   Generating static pages (6/13)
+   Generating static pages (9/13)
+ ✓ Generating static pages (13/13)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size  First Load JS
+┌ ○ /                                      163 B         106 kB
+├ ○ /_not-found                            998 B         104 kB
+├ ƒ /api/investigate                       134 B         103 kB
+├ ƒ /api/media/compare                     134 B         103 kB
+├ ƒ /api/research                          134 B         103 kB
+├ ƒ /api/research/investigate              134 B         103 kB
+├ ƒ /api/watch                             134 B         103 kB
+├ ○ /casebook                            17.6 kB         184 kB
+├ ○ /compare                               168 B         136 kB
+├ ○ /icon.svg                                0 B            0 B
+├ ○ /investigate                           69 kB         212 kB
+├ ○ /questions                             172 B         144 kB
+├ ○ /video                                 172 B         144 kB
+└ ○ /watch                               1.24 kB         117 kB
++ First Load JS shared by all             103 kB
+  ├ chunks/493-83728d59e0949d06.js       46.4 kB
+  ├ chunks/4bd1b696-c023c6e3521b1417.js  54.2 kB
+  └ other shared chunks (total)          1.93 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand

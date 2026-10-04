@@ -3,13 +3,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { automaticProductionDeps } from './automatic-server';
-import { liveRunAllocation, topicRunAllocation } from '../investigation/live-usage';
+import { videoRunAllocation, topicRunAllocation } from '../investigation/live-usage';
 import { JEV_MODEL } from '../jev/client';
 import type { AutomaticResearchInput } from './automatic-contract';
 const directories: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
-it.each([null, 'This video depicts a current incident.'])('reserves the existing trace or caption ceiling without provider dispatch: %s', async claim => {
-  const allocation = liveRunAllocation(claim);
+it.each([null, 'This video depicts a current incident.'])('reserves a shared three-frame trace or caption ceiling without provider dispatch: %s', async claim => {
+  const allocation = videoRunAllocation(claim);
   await mkdir(resolve('.verify'), { recursive: true });
   const directory = await mkdtemp(join(resolve('.verify'), 'offline-video-admission-')); directories.push(directory);
   const ledgerPath = join(directory, 'ledger.ndjson');
@@ -20,7 +20,7 @@ it.each([null, 'This video depicts a current incident.'])('reserves the existing
   const production = await automaticProductionDeps(input, new AbortController().signal);
   try {
     const entries = (await readFile(ledgerPath, 'utf8')).trimEnd().split('\n').map(line => JSON.parse(line));
-    expect(entries[1].allocation).toEqual(claim ? { searches: 6, uploads: 1, jevRequests: 60, jevQuestions: 272 } : { searches: 4, uploads: 1, jevRequests: 60, jevQuestions: 113 });
+    expect(entries[1].allocation).toEqual(claim ? { searches: 18, uploads: 3, jevRequests: 180, jevQuestions: 816 } : { searches: 12, uploads: 3, jevRequests: 180, jevQuestions: 339 });
     expect(fetch).not.toHaveBeenCalled();
   } finally { await production.release(); }
 });

@@ -1,5 +1,7 @@
 # Release and submission checklist
 
+Current implementation and real-run status are recorded in [the product work log](product/work-log.md) and [the current specification](../contexttrail_master_product_ux_architecture_spec_v1.1.md). The 2 October stack and submission discussion below are historical. They are not instructions to submit or merge a new release.
+
 Checked against the combined application and issue roster on 2 October 2026.
 This file records gates, not release approval. Historical audits and test counts remain in
 [the investigation report](https://github.com/VasuBansal7576/contexttrail/issues/3),

@@ -1,8 +1,10 @@
 # ContextTrail
 
-Investigate where an image appeared, inspect the retrieved sources and dates, and compare
-that evidence with a supplied caption. Questions and Video offer bounded automatic research;
-the local casebook preserves sources, exact findings, corrections and saved reports.
+The [current product brief](docs/product/brief.md) records the broader automatic research product requested by the owner. [Completion work](docs/product/work-log.md) records the active implementation and real-run verification. The old image-first master specification is a historical engineering reference, not a scope limit or completion claim.
+
+Bring a question, claim, image or video. ContextTrail finds sources, retains readable evidence,
+compares scoped claims and keeps the trail for later inspection. Scheduled watches follow
+new sources while the local server is running. Manual evidence entry is optional.
 
 ## Revision and release status
 
@@ -17,7 +19,7 @@ retrieval quality, an original upload, or a strong historical-reuse demonstratio
 
 ## Install and preview
 
-Use Node.js 20 or newer and npm. CI uses Node 24. Native video ingestion and comparison
+Use Node.js 22.13 or newer and npm. CI uses Node 24. Native video ingestion and comparison
 require FFmpeg and FFprobe on PATH.
 
 ```sh
@@ -49,9 +51,10 @@ builds and browser verification.
 | Entry | Input and behavior | Details |
 | --- | --- | --- |
 | `/investigate` | Image or reviewed public image URL, optional caption; Trace or Claim-check | [Live usage](docs/live-usage.md) |
-| `/questions` | One topic/question; bounded retrieved evidence and claim-scoped report | [Automatic research](docs/automatic-investigation.md) |
-| `/video` | One supplied video; research on one representative sampled frame | [Automatic research](docs/automatic-investigation.md) |
+| `/questions` | Question or claim; automatic source retrieval, retained passages and scoped comparison | [Automatic research](docs/automatic-investigation.md) |
+| `/video` | One supplied video; up to three distinct sampled-frame searches | [Automatic research](docs/automatic-investigation.md) |
 | `/compare` | Supplied still/video or video/video; local sampled-frame comparison | [Media bridge](docs/local-media-application.md) |
+| `/watch` | Automatic hourly/daily source checks, retained changes and failures | [Scheduled watches](docs/automatic-watches.md) |
 | `/casebook` | Saved cases, findings, retained material and correction history | [Casebook](docs/casebook-interface.md) |
 
 ## Verification
@@ -98,8 +101,8 @@ Hosted/serverless live access currently fails closed.
 | Image Trace | 4 | 1 | 60 | 113 |
 | Image Claim-check | 6 | 1 | 60 | 272 |
 | Topic | 3 | 0 | 8 | 40 |
-| Representative video frame, no caption | 4 | 1 | 60 | 113 |
-| Representative video frame, caption | 6 | 1 | 60 | 272 |
+| Video, no caption (up to three frames) | 12 | 3 | 180 | 339 |
+| Video, caption (up to three frames) | 18 | 3 | 180 | 816 |
 
 Reviewed public-image URLs use zero upload attempts. The retired Lens About This Image
 surface is no longer dispatched or repurposed. At most one adaptive search and five source
@@ -121,8 +124,9 @@ Image saves retain a validated evidence projection, not the full provider report
 image bytes. Topic saves retain their report and exact source bindings. Supplied-media comparison
 saves retain checked sampled frames and the comparison report, never original videos.
 
-Unsaved automatic results are lost on reload. Explicit video saves retain the complete bounded
-report and its original evidence, excluding video and sampled image bytes. The historical viewer
+Automatic investigations save by default; the reader can opt out before submitting. Unsaved results
+are lost on reload. Video saves retain the complete bounded report and its original evidence,
+excluding video and sampled image bytes. The historical viewer
 opens exact retained text, image regions and table cells when a current source is missing or changed.
 Read the [automatic retention contract](docs/automatic-investigation.md) and
 [casebook documentation](docs/casebook-interface.md). Corrections preserve history and require

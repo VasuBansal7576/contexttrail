@@ -1,0 +1,14 @@
+· tts: kokoro · voice am_michael · 7 line(s)
+  voice 01: assets/voice/01.wav (7.531s, 22 words)
+  voice 02: assets/voice/02.wav (9.259s, 26 words)
+  voice 03: assets/voice/03.wav (15.061s, 29 words)
+  voice 04: assets/voice/04.wav (14.336s, 34 words)
+  voice 05: assets/voice/05.wav (9.173s, 20 words)
+  voice 06: assets/voice/06.wav (12.565s, 30 words)
+  voice 07: assets/voice/07.wav (9.045s, 22 words)
+· bgm: disabled
+✓ audio engine → /Users/vasu/Desktop/Cook/contexttrail/videos/contexttrail/audio_engine_meta.json
+  heygen: no  ·  ran: tts,bgm
+  voices: 7  ·  bgm: none  ·  sfx: 0
+  total voice duration: 76.97s
+✓ audio generate: 7 voice + no bgm → /Users/vasu/Desktop/Cook/contexttrail/videos/contexttrail/audio_meta.json

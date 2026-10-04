@@ -1,0 +1,1 @@
+Actual screenshots from computer-use tests of the local ContextTrail app. No remote website capture or invented UI. Assets: upi-claim-source.jpg, saved-video.jpg, watch-paused.jpg, watch-upi-evidence.jpg. Authenticated provider account screens are excluded. Pointing hand is existing authored product artwork.

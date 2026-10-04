@@ -53,8 +53,8 @@ afterEach(async()=>{await act(async()=>root.unmount());container.remove();vi.uns
 
 describe('casebook application flow against real local storage, without a rendered browser',()=>{
   it('cancels creation without saving, then creates and reopens a case',async()=>{
-    await render();const opener=button('Start a question');await click('Start a question');await fill('Research question','Synthetic bridge question?');await click('Cancel');expect(button('Start a question')).toBe(opener);expect(posts).toHaveLength(0);expect((await store.list()).cases).toHaveLength(0);
-    await click('Start a question');await fill('Research question','Synthetic bridge question?');await submit();expect((await store.list()).cases).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');await render(navigation.next.split('?')[1]);expect(document.body.textContent).toContain('Synthetic bridge question?');expect(document.body.textContent).toContain('No findings yet.');
+    await render();const opener=button('Create a manual case');await click('Create a manual case');await fill('Research question','Synthetic bridge question?');await click('Cancel');expect(button('Create a manual case')).toBe(opener);expect(posts).toHaveLength(0);expect((await store.list()).cases).toHaveLength(0);
+    await click('Create a manual case');await fill('Research question','Synthetic bridge question?');await submit();expect((await store.list()).cases).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');await render(navigation.next.split('?')[1]);expect(document.body.textContent).toContain('Synthetic bridge question?');expect(document.body.textContent).toContain('No findings yet.');
   });
   it('saves hypotheses, passage evidence, an exact finding, and a correction that marks review stale',async()=>{
     const started=await store.apply({kind:'start',operationId:'ui-start',question:'Synthetic bridge question?',createdAt:'2026-10-01T00:00:00Z'});const id=started.document.workspace.inquiry.caseId;await render(`case=${encodeURIComponent(id)}&chapter=questions`);
@@ -69,7 +69,7 @@ describe('casebook application flow against real local storage, without a render
   });
   it('retries a lost creation response with the same operation instead of duplicating the case',async()=>{
     const original=fetch;let lose=true;vi.stubGlobal('fetch',vi.fn(async(input:string,init?:RequestInit)=>{const response=await original(input,init);if(init?.method==='POST'&&lose){lose=false;throw new TypeError('Synthetic lost response');}return response;}));
-    await render();await click('Start a question');await fill('Research question','Synthetic uncertain creation?');await submit();expect(document.body.textContent).toContain('Synthetic lost response');expect((await store.list()).cases).toHaveLength(1);await submit();expect((await store.list()).cases).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');expect(posts).toHaveLength(2);expect(posts[0]).toEqual(posts[1]);
+    await render();await click('Create a manual case');await fill('Research question','Synthetic uncertain creation?');await submit();expect(document.body.textContent).toContain('Synthetic lost response');expect((await store.list()).cases).toHaveLength(1);await submit();expect((await store.list()).cases).toHaveLength(1);expect(navigation.next).toContain('/casebook?case=');expect(posts).toHaveLength(2);expect(posts[0]).toEqual(posts[1]);
   });
   it('reconciles a lost committed edit and keeps a conflicting draft while loading latest revision',async()=>{
     const started=await store.apply({kind:'start',operationId:'ui-recovery',question:'Synthetic save recovery?',createdAt:'2026-10-01T00:00:00Z'});const id=started.document.workspace.inquiry.caseId;await render(`case=${encodeURIComponent(id)}&chapter=questions`);
@@ -99,4 +99,11 @@ describe('casebook application flow against real local storage, without a render
     await click('Add evidence');await fill('Evidence type','table');await fill('Source title','My source');await fill('Source URL','https://synthetic.example/race');await fill('Table with column headers','Year\tCount\n2024\t18');await act(async()=>document.querySelector<HTMLInputElement>('input[type=checkbox]')?.click());await submit();expect(document.body.textContent).toContain('source changed after your evidence save');const saved=await store.get(id);expect(saved.document.workspace.schemaVersion).toBe('contexttrail-inquiry-v1');expect(saved.document.workspace.collection.cases[0].evidence[0].title).toBe('Another writer source');
   });
 
+});
+
+it('shows the most recently created investigation first regardless of hash filename ordering', async () => {
+  await store.apply({ kind: 'start', operationId: 'older', question: 'Older verification control?', createdAt: '2026-10-01T00:00:00Z' });
+  await store.apply({ kind: 'start', operationId: 'newer', question: 'Latest verification control?', createdAt: '2026-10-04T10:00:00Z' });
+  await render();
+  expect(container.querySelector('.case-row h2')?.textContent).toBe('Latest verification control?');
 });

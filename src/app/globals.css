@@ -479,3 +479,38 @@ body {
 /* Evidence and stage text must not set the intrinsic minimum width of a grid. */
 .investigation-work-grid>*,.progress-evidence .evidence-collection>* { min-width:0; }
 .investigation-detail,.investigation-candidate-title { white-space:normal; overflow-wrap:anywhere; }
+
+/* The reading account leads with retained passages; method stays inspectable. */
+.research-account { padding:32px; margin:28px 0; background:var(--cb-sheet); border:1px solid var(--cb-rule); }
+.research-account > h2 { font-size:clamp(38px,4vw,62px); line-height:1.05; margin:24px 0 20px; }
+.account-intro { max-width:70ch; line-height:1.75; }
+.account-reading { display:flex; flex-wrap:wrap; gap:16px 28px; padding:18px 0; margin-top:20px; border-block:1px solid var(--cb-rule); font-size:12px; color:var(--cb-muted); }
+.account-reading strong { color:var(--cb-ink); font-size:20px; font-weight:500; margin-right:5px; }
+.account-passages { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 36px; }
+.account-passage { min-width:0; padding:28px 0; border-bottom:1px solid var(--cb-rule); }
+.account-passage h3 { font-size:28px; line-height:1.15; margin:14px 0 18px; }
+.account-passage .evidence-passage { line-height:1.8; font-size:15px; }
+.account-passage .source-url { overflow-wrap:anywhere; }
+.account-open { max-width:75ch; margin-top:26px; }
+.account-open > p:last-child { font-size:14px; line-height:1.75; margin-top:10px; }
+.research-method { margin:22px 0; border-block:1px solid var(--cb-rule); padding:16px 0; }
+.research-method > summary { cursor:pointer; min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:16px; font-size:13px; }
+.research-method > summary::after { content:'+'; font-size:23px; }
+.research-method[open] > summary::after { content:'−'; }
+@media(max-width:700px) { .research-account { padding:22px 18px; }.account-passages { grid-template-columns:minmax(0,1fr); }.account-reading { gap:14px; } }
+.saved-research-action { margin-block:24px; }
+.saved-research-action .paper-button { margin-top:18px; }
+.checkbox-field { display:flex; align-items:center; gap:12px; min-height:44px; font-size:14px; }
+.checkbox-field input { accent-color:var(--cb-rust); width:18px; height:18px; }
+
+.watch-list { display:grid; gap:2rem; margin:2rem 0 5rem; }
+.watch-item { padding:clamp(1.25rem,3vw,2.5rem); min-width:0; }
+.watch-item h2 { font-family:var(--font-instrument-serif); font-size:clamp(2rem,3.5vw,3.25rem); font-weight:400; line-height:1.08; max-width:24ch; margin:1.25rem 0; }
+.watch-check { border-top:1px solid var(--cb-rule); margin-top:1.5rem; padding:1.25rem 0; }
+.watch-check summary { cursor:pointer; font-size:.9rem; line-height:1.7; }
+.watch-source { padding:1rem 0; border-bottom:1px solid var(--cb-rule); min-width:0; }
+.watch-source .source-actions { margin:.5rem 0; }
+.automatic-intake [aria-label="Investigation intent"] button[aria-pressed="true"] { background:var(--cb-ink); color:var(--cb-sheet); }
+.publication-trail { margin:20px 0; padding-left:22px; }
+.publication-trail li { padding:18px 0; border-top:1px solid var(--cb-rule); }
+.publication-trail h3 { font-size:25px; line-height:1.25; margin:10px 0; }

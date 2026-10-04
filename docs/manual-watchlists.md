@@ -1,10 +1,12 @@
+> For automatic scheduled checks in the app, use [automatic-watches.md](automatic-watches.md). This page describes manual import and comparison tools.
+
 # Manual cases, watchlists and claim families
 
 This local CLI imports complete saved case snapshots. It does not search websites, schedule monitoring, call providers, send notifications, judge truth, or suggest a response. The supplied examples are synthetic, independently authored fixtures.
 
 ## Try a correction
 
-Use Node 20 or newer and the repository's existing dependencies. From the repository root:
+Use Node 22.13 or newer and the repository's existing dependencies. From the repository root:
 
 ```sh
 npm run watchlists -- /tmp/contexttrail-demo.json scripts/fixtures/watchlists/initial.json

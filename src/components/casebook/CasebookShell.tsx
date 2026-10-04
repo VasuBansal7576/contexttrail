@@ -7,7 +7,7 @@ export function CasebookShell({ children, chapter = "cover", caseId, dark = fals
     { id: "cover", title: "Cover", href: "/" },
     { id: "image", title: "Image", href: "/investigate" },
     { id: "video", title: "Video", href: "/video" },
-    ...["questions", "evidence", "sources", "changes", "watch", "answers"].map(id => ({ id, title: id === "answers" ? "AI answers" : id[0].toUpperCase() + id.slice(1), href: id === "questions" && !caseId ? "/questions" : caseHref(id) })),
+    ...["questions", "evidence", "sources", "changes", "watch"].map(id => ({ id, title: id === "answers" ? "AI answers" : id[0].toUpperCase() + id.slice(1), href: id === "watch" ? "/watch" : id === "questions" && !caseId ? "/questions" : caseHref(id) })),
   ];
   return <div className={`casebook-app${dark ? " casebook-blue" : ""}`}>
     <a className="skip-link" href="#main">Skip to content</a>

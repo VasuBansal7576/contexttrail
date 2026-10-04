@@ -10,7 +10,8 @@ import { retainableSourceUrl } from '../pages/source-reference';
 import { bindFetchedSource } from '../pages/source-binding';
 import type { JevAskResult } from '../jev/client';
 import { assessClaimSource, buildClaimReport, CLAIM_QUESTIONS, explicitTopicClaim, type ClaimSourceAssessment } from './claim-report';
-import { extractPage, selectDisplayQuote } from '../pages/extract';
+import { topicPassages } from './topic-passages';
+import { extractPage } from '../pages/extract';
 import { hasSearchResultSurface, normalizeSearchResponse } from '../serpapi/normalize';
 import { serpapiResponseFailed } from '../serpapi/client';
 import { prepareVideo, type PreparedVideo } from '../video/ingest';
@@ -20,6 +21,7 @@ import { researchStageCopy } from './display-copy';
 import { buildTopicCandidateAudit } from './topic-candidate-audit';
 import type { TopicCandidateSearchAudit } from '../cases/topic-candidate-audit';
 import { TopicSearchResponseError, topicSearchFailure } from './topic-search-failure';
+import { documentQuery } from './search-plan';
 
 type Progress = (event: AutomaticResearchEvent) => void;
 export interface AutomaticResearchDeps extends RunDeps {
@@ -49,13 +51,14 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   if (!deps.serpapi) throw new Error('Search provider unavailable.');
   const now = new Date(deps.now?.() ?? Date.now());
   const record = emptyCase(now.toISOString());
-  const limitations = ['Bounded web sample; coverage is incomplete.', 'Primary-source coverage has not been independently established. Original-account cues in titles or snippets guide selection; they do not verify source authority or completeness.', 'Search results are leads, not independent corroboration.', 'Relevance assessments do not verify claims.', 'Source snapshots are not retained; links may change.', 'Credential-bearing or unsafe source links are omitted rather than rewritten.'];
+  const limitations = ['Bounded web sample; coverage is incomplete.', 'PDF reading is text-only, limited to the first twelve pages and 64,000 extracted characters. Scanned pages, audio, figures and later pages are not inspected.', 'Primary-source coverage has not been independently established. Original-account cues in titles or snippets guide selection; they do not verify source authority or completeness.', 'Search results are leads, not independent corroboration.', 'Relevance assessments do not verify claims.', 'Source snapshots are not retained; links may change.', 'Credential-bearing or unsafe source links are omitted rather than rewritten.'];
   const candidates = new Map<string, TopicCandidate>();
   const candidateSearches: TopicCandidateSearchAudit[] = [];
+  const searchQuestion = explicitTopicClaim(topic) ?? topic;
   const searches = [
-    { engine: 'google', q: topic, kind: 'google_search' },
-    { engine: 'google_news', q: topic, kind: 'google_news' },
-    { engine: 'google', q: `${topic} (statement OR clarification OR "press release" OR correction)`, kind: 'google_search' },
+    { engine: 'google', q: searchQuestion, kind: 'google_search' },
+    { engine: 'google_news', q: searchQuestion, kind: 'google_news' },
+    { engine: 'google', q: documentQuery(searchQuestion), kind: 'google_search' },
   ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news' }>;
   for (const [index, query] of searches.entries()) {
     check(deps);
@@ -121,12 +124,12 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
           limitations.push(`Source ${index + 1} led to an unrelated, blocked or unsafe destination. Its original search lead remains; destination text and dates were not used.`);
         } else {
           const extracted = extractPage(page.html, page.url);
-          const actualQuote = selectDisplayQuote({ title: extracted.title, claim: topic, paragraphs: extracted.paragraphs });
+          const actualQuote = topicPassages(topic, extracted.paragraphs);
           if (actualQuote) {
             read.outcome = 'page_quote';
             finalUrl = extractedUrl;
             retainedDates = { ...dates, pageJsonLd: extracted.jsonLdDates[0], pageMeta: extracted.metaDates[0], pageTime: extracted.timeDates[0] };
-            quote = actualQuote; attribution = 'page_quote'; title = extracted.title;
+            quote = actualQuote; attribution = 'page_quote'; title = extracted.title ?? title;
           } else {
             read.outcome = extracted.paragraphs.length ? 'no_matching_quote' : 'no_readable_text';
             const retainedLead = quote?.trim() ? 'its search snippet remains an unverified lead' : 'only its source reference remains';
@@ -169,7 +172,7 @@ function videoCase(video: PreparedVideo, timestampMs: number, result: Investigat
   record.occurrences = record.occurrences.map(item => ({ ...item, assetId: video.mediaId, span: { kind: 'time', startMs: Math.floor(timestampMs), durationMs: 1 },
     identity: { status: 'unknown', reason: 'A sampled still-frame search is a lead for this video interval; it does not establish identity of the whole video.' } }));
   record.coverage.limitations = [...record.coverage.limitations.filter(value => value !== 'image_investigation_only'),
-    'Only one representative decoded frame was searched. Other frames and audio were not searched.',
+    'Decoded still-frame samples are searched independently. Unsampled intervals and audio are not searched.',
     'Frame matches do not establish the source, continuity or authenticity of the whole video.',
     'Decoded timestamps are offsets within the supplied video, not publication dates.'];
   return parseCaseRecord(record);
@@ -180,19 +183,28 @@ export async function runAutomaticResearch(input: AutomaticResearchInput, emit: 
   emit({ type: 'research.progress', message: 'Decoding timestamped frames locally…' });
   const video = await (deps.prepareVideo ?? prepareVideo)(input.bytes, { signal: deps.signal });
   check(deps);
-  const frame = video.frames[Math.floor(video.frames.length / 2)];
-  if (!frame) throw new Error('No representative frame could be decoded.');
-  emit({ type: 'research.progress', message: `Searching one representative frame at ${(frame.timestampMs / 1000).toFixed(2)} seconds…` });
-  let imageResult: InvestigationResult | undefined;
-  let failure: string | undefined;
-  await (deps.traceFrame ?? runInvestigation)({ media: frame.bytes, claim: input.claim ?? null, timezone: 'UTC', locale: 'en' }, event => {
-    if (event.type === 'investigation.completed') imageResult = event.result;
-    if (event.type === 'investigation.error') failure = event.message;
-    if (event.type === 'stage.started') emit({ type: 'research.progress', message: researchStageCopy(event.stage) });
-  }, deps);
-  check(deps);
-  if (!imageResult) throw new Error(failure ?? 'The sampled frame investigation did not complete.');
-  const record = videoCase(video, frame.timestampMs, imageResult, new Date(deps.now?.() ?? Date.now()).toISOString());
-  return { kind: 'video', question: input.claim?.trim() ? input.claim : 'Where has this sampled video frame appeared, and in what context?', caseRecord: record,
-    frames: [{ timestampMs: frame.timestampMs, imageResult }], limitations: record.coverage.limitations, assessments: [] };
+  if (!video.frames.length || video.frames.length > 3) throw new Error('The decoder must supply between one and three bounded frames.');
+  const frames: AutomaticResearchResult['frames'] = [], cases: CaseRecord[] = [], failures: string[] = [];
+  // Do not spend multiple uploads on byte-identical decoded frames.
+  const samples = video.frames.filter((frame, index, all) => all.findIndex(other => other.contentHash === frame.contentHash) === index);
+  for (const [index, frame] of samples.entries()) {
+    check(deps);
+    emit({ type: 'research.progress', message: `Searching frame ${index + 1} of ${samples.length} at ${(frame.timestampMs / 1000).toFixed(2)} seconds…` });
+    let imageResult: InvestigationResult | undefined, failure: string | undefined;
+    await (deps.traceFrame ?? runInvestigation)({ media: frame.bytes, claim: input.claim ?? null, timezone: 'UTC', locale: 'en' }, event => {
+      if (event.type === 'investigation.completed') imageResult = event.result;
+      if (event.type === 'investigation.error') failure = event.message;
+      if (event.type === 'stage.started') emit({ type: 'research.progress', message: `Frame ${index + 1} of ${samples.length}: ${researchStageCopy(event.stage)}` });
+    }, deps);
+    check(deps);
+    if (!imageResult) { failures.push(`Frame at ${(frame.timestampMs / 1000).toFixed(2)} seconds did not complete: ${failure ?? 'No complete result was returned.'}`); continue; }
+    frames.push({ timestampMs: frame.timestampMs, imageResult });
+    cases.push(videoCase(video, frame.timestampMs, imageResult, new Date(deps.now?.() ?? Date.now()).toISOString()));
+  }
+  const first = cases[0]; if (!first) throw new Error('None of the sampled-frame investigations completed.');
+  const record = parseCaseRecord({ ...first, evidence: cases.flatMap(item => item.evidence), occurrences: cases.flatMap(item => item.occurrences), relations: cases.flatMap(item => item.relations), coverage: {
+    ...first.coverage, searches: cases.flatMap(item => item.coverage.searches), omittedEvidenceCount: cases.reduce((sum, item) => sum + item.coverage.omittedEvidenceCount, 0),
+    limitations: [...new Set([...cases.flatMap(item => item.coverage.limitations), ...failures, `${frames.length} distinct sampled frames completed; ${samples.length - frames.length} failed. ${video.frames.length - samples.length} byte-identical samples were skipped.`])],
+  } });
+  return { kind: 'video', question: input.claim?.trim() ? input.claim : 'Where have these sampled video frames appeared, and in what context?', caseRecord: record, frames, limitations: record.coverage.limitations, assessments: [] };
 }

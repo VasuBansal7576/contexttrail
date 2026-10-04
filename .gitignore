@@ -20,3 +20,24 @@ data/
 .media-match-build/
 
 .topic-coverage-build/
+
+.video-venv*/
+videos/*/renders/
+videos/*/.hyperframes/
+videos/*/.media/
+
+# Local launch deliveries can be regenerated from the committed composition.
+.lavish/contexttrail-assets/contexttrail-launch.mp4
+.lavish/contexttrail-launch-portable.html
+videos/*/snapshots/
+videos/*/snapshots-final/
+videos/*/render.log
+videos/*/assets/delhi-caption-input.mp4
+
+# Private provider/account records and incidental local diagnostics.
+runs/**/provider-auth*.json
+runs/**/allowance*.json
+runs/**/*.log
+runs/2026-10-04/*.jpg
+runs/2026-10-04/upi-baseline-summary.json
+runs/2026-10-04/audit-production.json

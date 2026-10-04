@@ -8,9 +8,9 @@ export default function LandingPage() {
         <div className="cover-copy">
           <p className="eyebrow">A place for the question</p>
           <h1>Follow the<br /><em>question.</em></h1>
-          <p className="cover-description">From a single frame to a changing story.<br />Follow evidence, keep the details,<br />and return with a better question.</p>
-          <div className="button-row"><Link className="paper-button primary" href="/investigate">Investigate an image <span aria-hidden="true">↗</span></Link><Link className="text-link" href="/casebook">Return to a saved case</Link></div>
-          <div className="button-row automatic-cover-links"><Link className="text-link" href="/questions">Investigate a question ↗</Link><Link className="text-link" href="/video">Investigate a video ↗</Link></div>
+          <p className="cover-description">Bring a question, a claim, or a piece of media.<br />ContextTrail finds sources for you.<br />Read the evidence and keep the trail.</p>
+          <div className="button-row"><Link className="paper-button primary" href="/questions">Investigate a question <span aria-hidden="true">↗</span></Link><Link className="text-link" href="/investigate">An image ↗</Link><Link className="text-link" href="/video">A video ↗</Link></div>
+          <div className="button-row automatic-cover-links"><Link className="text-link" href="/casebook">Return to a saved investigation</Link></div>
           <div className="cover-footnote"><span className="large-number">01</span><div><p className="eyebrow">Your next line of inquiry</p><p>Keep the question open.<br />Let the evidence change the answer.</p></div></div>
         </div>
         <div className="cover-specimen cover-collage">
@@ -37,7 +37,7 @@ export default function LandingPage() {
       </section>
       <section id="about" className="cover-about">
         <div><p className="eyebrow">Built around the evidence</p><h2>Keep the detail.<br /><em>Leave room to rethink.</em></h2></div>
-        <div><p>Investigate an image, a video, or a question. Follow retrieved sources and inspect the evidence behind each result. Use the manual casebook to save your own research and exact findings.</p><p className="fine-print">Saved research uses an explicitly enabled, single-user local service. Supplied evidence and your assessments stay labeled. Source monitoring and AI answers are planned.</p><Link className="text-link" href="/questions">Begin a research question</Link></div>
+        <div><p>Investigate an image, a video, or a question. Follow retrieved sources and inspect the evidence behind each result. Keep investigations automatically and return to the exact evidence later.</p><p className="fine-print">Saved investigations and scheduled watches use the local service. Watches check for new sources while the server is running. Search leads, inspected passages and your own findings stay labeled.</p><Link className="text-link" href="/questions">Begin a research question</Link></div>
       </section>
     </main>
   </CasebookShell>;

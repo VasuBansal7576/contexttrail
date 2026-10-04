@@ -27,3 +27,20 @@ it('saves once across double click, lost response and component remount', async 
     await act(async () => root.render(React.createElement(SaveToCasebook, { value: null, question: 'Q?' }))); expect(container.textContent).toBe('');
   } finally { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); await rm(directory, { recursive: true, force: true }); }
 });
+
+it('automatically keeps a completed result through strict effects and remount without duplicating the case', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('crypto', webcrypto);
+  const directory = await mkdtemp(join(tmpdir(),'ct-autosave-ui-')), service = localResearchService(directory);
+  const container = document.createElement('div'); document.body.append(container); const root = createRoot(container);
+  const record = inquiryCase(researchWorkflow({ kind:'start',operationId:'automatic-result',question:'A retained automatic investigation',createdAt:'2026-10-04T00:00:00Z' }).document.workspace);
+  vi.stubGlobal('fetch', async (_: unknown, init: RequestInit) => Response.json(await service.apply(JSON.parse(String(init.body)))));
+  const render = async (key: string) => {
+    await act(async () => root.render(React.createElement(React.StrictMode, {}, React.createElement(SaveToCasebook,{key,value:record,question:'A retained automatic investigation',autoSave:true}))));
+    for (let attempt=0;attempt<50 && !container.textContent?.includes('Kept in your casebook');attempt++) await act(async () => { await new Promise(done=>setTimeout(done,20)); });
+  };
+  try {
+    await render('first'); expect(container.textContent).toContain('Kept in your casebook');
+    await render('second'); expect((await service.list()).cases).toHaveLength(1);
+    const saved = await service.get(record.id); expect(inquiryCase(saved.document.workspace).createdAt).toBe(record.createdAt);
+  } finally { await act(async()=>root.unmount()); container.remove(); vi.unstubAllGlobals(); await rm(directory,{recursive:true,force:true}); }
+});

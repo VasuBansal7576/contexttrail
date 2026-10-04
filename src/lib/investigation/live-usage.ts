@@ -127,6 +127,12 @@ export function topicRunAllocation(): LiveAllowance {
   return { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 40 };
 }
 
+/** Three sampled frame searches share one reservation and one provider counter. */
+export function videoRunAllocation(claim: string | null): LiveAllowance {
+  const frame = liveRunAllocation(claim);
+  return { searches: frame.searches * 3, uploads: frame.uploads * 3, jevRequests: frame.jevRequests * 3, jevQuestions: frame.jevQuestions * 3 };
+}
+
 /** Existing reservations/grants keep their original charge; old topic allocations never authorize the expanded workflow. */
 const LEGACY_TOPIC_ALLOCATION: LiveAllowance = { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 8 };
 
@@ -145,7 +151,7 @@ function withinAllowance(a: LiveAllowance, b: LiveAllowance): boolean {
 
 function validRunAllocation(value: unknown): value is LiveAllowance {
   return validAllowance(value) &&
-    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION]
+    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION, videoRunAllocation(null), videoRunAllocation('claim')]
       .some((allocation) => sameAllowance(value, allocation));
 }
 
@@ -259,6 +265,10 @@ export async function reserveLiveRun(config: LiveUsageConfig, claim: string | nu
 
 export async function reserveTopicRun(config: LiveUsageConfig, signal?: AbortSignal): Promise<LiveRunLease> {
   return reserveAllocation(config, topicRunAllocation(), signal);
+}
+
+export async function reserveVideoRun(config: LiveUsageConfig, claim: string | null, signal?: AbortSignal): Promise<LiveRunLease> {
+  return reserveAllocation(config, videoRunAllocation(claim), signal);
 }
 
 async function reserveAllocation(config: LiveUsageConfig, allocation: LiveAllowance, signal?: AbortSignal): Promise<LiveRunLease> {

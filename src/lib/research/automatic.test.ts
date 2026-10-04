@@ -6,6 +6,7 @@ import { investigateTopic, runAutomaticResearch, type AutomaticResearchDeps } fr
 import type { PreparedVideo } from '../video/ingest';
 import type { SerpapiParams } from '../serpapi/client';
 import { parseCaseRecord } from '../cases/parse';
+import { runInvestigation } from '../investigation/run';
 
 function deps(search: (params: SerpapiParams) => Promise<unknown>): AutomaticResearchDeps {
   return { serpapi: { search, uploadImage: vi.fn(async () => 'offline-upload') }, jev: null,
@@ -15,7 +16,7 @@ function deps(search: (params: SerpapiParams) => Promise<unknown>): AutomaticRes
 const response = (engine: string, count = 10) => ({ search_metadata: { id: engine, status: 'Success' }, [engine === 'google_news' ? 'news_results' : 'organic_results']: Array.from({ length: count }, (_, index) => ({ link: `https://${engine === 'google_news' ? 'news' : 'science'}.example.org/source-${index}`, title: `Coral study ${index}`, snippet: 'A retrieved coral study summary.', date: '2020-02-03' })) });
 
 describe('automatic topic investigation (offline providers only)', () => {
-  it.each(['What changed in the reef recovery programme?', 'Какво се промени в програмата?', 'Aster launch operations in August–September 2026'])('uses one distinct document search without replacing the question or retrying unavailable searches: %s', async topic => {
+  it.each([['What changed in the reef recovery programme?', 'changed reef recovery programme (data OR statistics OR study OR \"annual report\")'], ['Какво се промени в програмата?', 'Какво се промени в програмата? (statement OR clarification OR \"press release\" OR correction)'], ['Aster launch operations in August–September 2026', 'Aster launch operations in August–September 2026 (statement OR clarification OR \"press release\" OR correction)']])('uses one distinct document search without replacing the question or retrying unavailable searches: %s', async (topic, expectedDocumentQuery) => {
     let attempt = 0;
     const search = vi.fn(async (params: SerpapiParams) => {
       if (attempt++ === 0) throw new Error('Controlled unavailable search');
@@ -27,7 +28,7 @@ describe('automatic topic investigation (offline providers only)', () => {
     expect(search.mock.calls.map(([params]) => params)).toEqual([
       { engine: 'google', q: topic, num: '10' },
       { engine: 'google_news', q: topic, num: '10' },
-      { engine: 'google', q: `${topic} (statement OR clarification OR "press release" OR correction)`, num: '10' },
+      { engine: 'google', q: expectedDocumentQuery, num: '10' },
     ]);
     expect(progress).toContain('Searching source documents and clarifications…');
     expect(dependencies.fetchPage).not.toHaveBeenCalled();
@@ -167,23 +168,61 @@ describe('automatic topic investigation (offline providers only)', () => {
 });
 
 describe('one-video automatic orchestration (offline providers only)', () => {
-  it('decodes one input and searches exactly the middle sample through the real image pipeline', async () => {
+  function sampledVideo(hashes = ['0', '1', '2']): PreparedVideo {
+    return { mediaId: 'video:sha256:abc', contentHash: 'a'.repeat(64), durationMs: 3000, coverage: 'sampled_frames_only', frames: hashes.map((contentHash, index) => ({ mediaId: 'video:sha256:abc', id: `frame-${index}`, timestampMs: index * 1000, contentHash, mimeType: 'image/jpeg', bytes: new Uint8Array([index]) })) };
+  }
+  function videoDeps(): AutomaticResearchDeps {
+    const dependencies = deps(async () => ({ search_metadata: { status: 'Success' }, visual_matches: [], exact_matches: [], about_this_image: { sections: [] } }));
+    dependencies.prepareVideo = async () => sampledVideo();
+    return dependencies;
+  }
+  it('spends only one upload on byte-identical samples while preserving distinct offsets', async () => {
+    const dependencies = videoDeps();
+    dependencies.prepareVideo = async () => sampledVideo(['same', 'same', 'different']);
+    const result = await runAutomaticResearch({ kind: 'video', bytes: new Uint8Array([1]), rights: 'user_provided' }, () => {}, dependencies);
+    expect(dependencies.serpapi?.uploadImage).toHaveBeenCalledTimes(2);
+    expect(result.frames.map(frame => frame.timestampMs)).toEqual([0, 2000]);
+    expect(result.limitations).toContain('2 distinct sampled frames completed; 0 failed. 1 byte-identical samples were skipped.');
+  });
+  it('retains completed frames when another frame reports a controlled failure', async () => {
+    const dependencies = videoDeps();
+    dependencies.traceFrame = async (input, emit, runDeps) => {
+      if (input.media?.[0] === 1) { emit({ type: 'investigation.error', code: 'INTERNAL_ERROR', message: 'Controlled frame failure' }); return; }
+      await runInvestigation(input, emit, runDeps);
+    };
+    const result = await runAutomaticResearch({ kind: 'video', bytes: new Uint8Array([1]), rights: 'user_provided' }, () => {}, dependencies);
+    expect(result.frames.map(frame => frame.timestampMs)).toEqual([0, 2000]);
+    expect(result.limitations).toContain('Frame at 1.00 seconds did not complete: Controlled frame failure');
+    expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
+  });
+  it('stops the entire investigation after cancellation without starting another frame', async () => {
+    const dependencies = videoDeps(), controller = new AbortController();
+    dependencies.signal = controller.signal;
+    const traceFrame = vi.fn(async () => { controller.abort(); });
+    dependencies.traceFrame = traceFrame;
+    await expect(runAutomaticResearch({ kind: 'video', bytes: new Uint8Array([1]), rights: 'user_provided' }, () => {}, dependencies)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(traceFrame).toHaveBeenCalledTimes(1);
+    expect(dependencies.serpapi?.uploadImage).not.toHaveBeenCalled();
+  });
+  it('decodes one input and searches all three distinct samples through the real image pipeline', async () => {
     const search = vi.fn(async () => ({ search_metadata: { status: 'Success' }, visual_matches: [], exact_matches: [{ title: 'Retrieved sampled-frame source', link: 'https://archive.example.org/frame-source', snippet: 'Archived photograph caption.' }], about_this_image: { sections: [] } }));
     const dependencies = deps(search);
     dependencies.prepareVideo = vi.fn(async (): Promise<PreparedVideo> => ({ mediaId: 'video:sha256:abc', contentHash: 'a'.repeat(64), durationMs: 3000, coverage: 'sampled_frames_only', frames: [0, 1000, 2000].map(timestampMs => ({ mediaId: 'video:sha256:abc', id: `frame-${timestampMs}`, timestampMs, contentHash: String(timestampMs), mimeType: 'image/jpeg', bytes: new Uint8Array([timestampMs / 1000]) })) }));
     const result = await runAutomaticResearch({ kind: 'video', bytes: new Uint8Array([1]), rights: 'user_provided' }, () => {}, dependencies);
     expect(dependencies.prepareVideo).toHaveBeenCalledTimes(1);
-    expect(dependencies.serpapi?.uploadImage).toHaveBeenCalledTimes(1);
-    expect(dependencies.serpapi?.uploadImage).toHaveBeenCalledWith(new Uint8Array([1]), expect.any(AbortSignal));
-    expect(search.mock.calls.length).toBeLessThanOrEqual(4);
-    expect(search.mock.calls.length).toBeGreaterThanOrEqual(2);
-    expect(result.frames).toHaveLength(1);
+    expect(dependencies.serpapi?.uploadImage).toHaveBeenCalledTimes(3);
+    expect(dependencies.serpapi?.uploadImage).toHaveBeenNthCalledWith(1, new Uint8Array([0]), expect.any(AbortSignal));
+    expect(dependencies.serpapi?.uploadImage).toHaveBeenNthCalledWith(2, new Uint8Array([1]), expect.any(AbortSignal));
+    expect(dependencies.serpapi?.uploadImage).toHaveBeenNthCalledWith(3, new Uint8Array([2]), expect.any(AbortSignal));
+    expect(search.mock.calls.length).toBeLessThanOrEqual(12);
+    expect(search.mock.calls.length).toBeGreaterThanOrEqual(6);
+    expect(result.frames).toHaveLength(3);
     expect(result.caseRecord.evidence.some(item => item.sourceUrl === 'https://archive.example.org/frame-source')).toBe(true);
     expect(result.caseRecord.occurrences.length).toBeGreaterThan(0);
-    expect(result.caseRecord.occurrences.every(item => item.identity.status === 'unknown' && item.span.kind === 'time' && item.span.startMs === 1000)).toBe(true);
-    expect(result.frames[0].timestampMs).toBe(1000);
+    expect(result.caseRecord.occurrences.every(item => item.identity.status === 'unknown' && item.span.kind === 'time' && [0, 1000, 2000].includes(item.span.startMs))).toBe(true);
+    expect(result.frames.map(frame => frame.timestampMs)).toEqual([0, 1000, 2000]);
     expect(result.caseRecord.assets[0]).toMatchObject({ kind: 'video', durationMs: 3000, location: { kind: 'not_retained' } });
-    expect(result.limitations.some(item => item.includes('Other frames and audio were not searched'))).toBe(true);
+    expect(result.limitations.some(item => item.includes('Unsampled intervals and audio are not searched'))).toBe(true);
     expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
     const streamed: unknown = JSON.parse(JSON.stringify(result));
     const parsed = parseAutomaticResearchResult(streamed);

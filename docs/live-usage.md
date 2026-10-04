@@ -47,9 +47,7 @@ that property.
 
 Vercel and known serverless environments fail closed. Multiple hosts with
 independent disks are unsupported. A hosted live endpoint needs a reviewed,
-shared, durable atomic quota store before this restriction can change. The
-Vercel deployment goal in the PRD remains open; a keyless deployment cannot
-demonstrate live provider utility.
+shared, durable atomic quota store before this restriction can change. A keyless deployment cannot demonstrate live provider utility; hosted scheduling and account isolation remain separate acceptance work.
 
 ## Server-only configuration
 
@@ -164,3 +162,7 @@ Never delete the ledger merely to make a demo run again.
 These controls limit admitted work. They are not authentication, a public
 abuse-prevention service or a provider billing guarantee. Do not expose a
 key-backed unrestricted endpoint to the public.
+
+## Automatic questions, video and watches
+
+Questions and each watch check reserve 3 searches / 0 uploads / 8 Jev requests / 40 questions. An uploaded three-frame video reserves 18 / 3 / 180 / 816 with a caption, or 12 / 3 / 180 / 339 without one. The entire reservation precedes provider dispatch; unused units are not automatically refunded. Identical samples are skipped and completed frames survive another frame's failure. See automatic-investigation.md and automatic-watches.md.

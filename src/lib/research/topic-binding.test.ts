@@ -62,14 +62,13 @@ describe('topic binding before bounded admission and page reads', () => {
     expect(selected.slice(0, 5).every(entry => entry.candidate.title === financial.title)).toBe(true);
     expect(selected.map(entry => entry.search).slice(0, 6)).toEqual([0, 1, 2, 0, 1, 2]);
   });
-  it('keeps at most two document-priority entries from distinct surfaces ahead of the balanced tiers', () => {
+  it('keeps three document-priority hosts ahead of the remaining balanced leads', () => {
     const statement = { title: 'Agency Meridian intends to privatise launch operations: clarification statement' };
     const selected = selectTopicSources(topic, entries([[topical(0), statement, statement], [topical(1), statement], [topical(2), statement]]));
-    expect(selected.slice(0, 2).map(entry => entry.search)).toEqual([0, 1]);
-    expect(selected.slice(2, 5).map(entry => entry.candidate.title)).toEqual([topical(0).title, topical(1).title, topical(2).title]);
-    // The third surface's statement follows the balanced first round.
-    expect(selected[5].candidate.title).toBe(statement.title);
-    expect(selected[5].search).toBe(2);
+    expect(selected.slice(0, 3).map(entry => entry.search)).toEqual([0, 1, 2]);
+    expect(selected.slice(0, 3).every(entry => entry.candidate.title === statement.title)).toBe(true);
+    expect(new Set(selected.slice(0, 3).map(entry => new URL(entry.candidate.sourceUrl).hostname)).size).toBe(3);
+    expect(selected.slice(3, 6).map(entry => entry.candidate.title)).toEqual([topical(0).title, topical(1).title, topical(2).title]);
   });
   it('retains and reads metadata-poor and semantic paraphrase fallbacks when higher tiers leave capacity', () => {
     const paraphrase = { title: 'Transfer of orbital manufacturing to commercial companies' };

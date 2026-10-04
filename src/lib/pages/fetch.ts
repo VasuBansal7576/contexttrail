@@ -13,6 +13,7 @@ import { BlockList, isIP } from "node:net";
 import { pinnedPageRequest, type PageAddress } from "./pinned-http";
 import { TIMEOUTS, PAGE_FETCH_MAX_BYTES, PAGE_FETCH_MAX_REDIRECTS } from "../investigation/limits";
 import { ProviderError, deadlineSignal, readBodyCapped, sanitizeFetchError } from "../providers/http";
+import { pdfSourceHtml } from './pdf';
 
 export interface FetchedPage {
   /** Final URL after redirects. */
@@ -107,6 +108,7 @@ async function fetchPublicResource(
   signal?: AbortSignal,
   deps: PageFetchDeps = {},
   image = false,
+  documents = false,
 ): Promise<FetchedPage> {
   let url = validatedHttpUrl(rawUrl);
   if (url === null) {
@@ -135,7 +137,8 @@ async function fetchPublicResource(
         throw new ProviderError("http", `page fetch failed (HTTP ${res.status})`, res.status);
       }
       const contentType = (res.headers.get("content-type") ?? "").toLowerCase();
-      if (image ? !/^(image\/jpeg|image\/png|image\/webp)(;|$)/.test(contentType) : !contentType.includes("text/html")) {
+      const pdf = documents && /^application\/pdf(?:;|$)/.test(contentType);
+      if (image ? !/^(image\/jpeg|image\/png|image\/webp)(;|$)/.test(contentType) : !contentType.includes("text/html") && !pdf) {
         await res.body?.cancel().catch(() => undefined);
         throw new ProviderError("malformed", image ? "public image content type rejected" : "page response was not text/html");
       }
@@ -149,7 +152,16 @@ async function fetchPublicResource(
         await res.body?.cancel().catch(() => undefined);
         throw new ProviderError("malformed", "page response exceeded byte limit");
       }
-      const html = await readBodyCapped(res, PAGE_FETCH_MAX_BYTES, "page");
+      let html: string;
+      if (pdf) {
+        const reader = res.body?.getReader(); if (!reader) throw new ProviderError('malformed', 'Source PDF body unavailable');
+        const chunks: Uint8Array[] = []; let total = 0;
+        try {
+          while (true) { bound.throwIfAborted(); const next = await reader.read(); if (next.done) break; total += next.value.byteLength; if (total > PAGE_FETCH_MAX_BYTES) throw new ProviderError('malformed', 'Source PDF exceeded byte limit'); chunks.push(next.value); }
+        } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+        const bytes = new Uint8Array(total); let offset = 0; for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        html = await pdfSourceHtml(bytes, bound);
+      } else html = await readBodyCapped(res, PAGE_FETCH_MAX_BYTES, "page");
       return { url: url.toString(), html };
     }
   } catch (err) {
@@ -161,6 +173,11 @@ async function fetchPublicResource(
 
 export async function fetchPageHtml(rawUrl: string, signal?: AbortSignal, deps: PageFetchDeps = {}): Promise<FetchedPage> {
   return fetchPublicResource(rawUrl, signal, deps);
+}
+
+/** Same pinned network boundary and total deadline; PDFs are text-only, first 12 pages. */
+export async function fetchPageDocument(rawUrl: string, signal?: AbortSignal, deps: PageFetchDeps = {}): Promise<FetchedPage> {
+  return fetchPublicResource(rawUrl, signal, deps, false, true);
 }
 
 /** Validate a public image using the same pinned DNS/redirect/body boundary.

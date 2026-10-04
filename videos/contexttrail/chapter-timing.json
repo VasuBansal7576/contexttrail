@@ -1,0 +1,47 @@
+{
+  "duration": 76.97,
+  "chapters": [
+    {
+      "frame": 1,
+      "start": 0,
+      "duration": 7.531,
+      "path": "assets/voice/01.wav"
+    },
+    {
+      "frame": 2,
+      "start": 7.531,
+      "duration": 9.259,
+      "path": "assets/voice/02.wav"
+    },
+    {
+      "frame": 3,
+      "start": 16.79,
+      "duration": 15.061,
+      "path": "assets/voice/03.wav"
+    },
+    {
+      "frame": 4,
+      "start": 31.851,
+      "duration": 14.336,
+      "path": "assets/voice/04.wav"
+    },
+    {
+      "frame": 5,
+      "start": 46.187,
+      "duration": 9.173,
+      "path": "assets/voice/05.wav"
+    },
+    {
+      "frame": 6,
+      "start": 55.36,
+      "duration": 12.565,
+      "path": "assets/voice/06.wav"
+    },
+    {
+      "frame": 7,
+      "start": 67.925,
+      "duration": 9.045,
+      "path": "assets/voice/07.wav"
+    }
+  ]
+}
