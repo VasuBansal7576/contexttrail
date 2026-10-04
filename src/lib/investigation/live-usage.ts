@@ -255,6 +255,20 @@ async function acquireLock(path: string, parent: string): Promise<OwnedLock> {
   };
 }
 
+/** Read-only admission snapshot. The run still reserves atomically at submission. */
+export async function inspectLiveAllowance(config: LiveUsageConfig, allocation: LiveAllowance): Promise<'ready' | 'busy' | 'exhausted'> {
+  await persistentLedgerPath(config.ledgerPath);
+  try { await stat(`${config.ledgerPath}.lock`); return 'busy'; }
+  catch (error) { if (!isRecord(error) || error.code !== 'ENOENT') throw new LiveUsageError(STORAGE_ERROR); }
+  const ledger = await open(config.ledgerPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const info = await ledger.stat();
+    if (!info.isFile() || info.nlink !== 1 || info.size <= 0 || info.size > MAX_LEDGER_BYTES) throw new LiveUsageError(STORAGE_ERROR);
+    const total = parseLedger(await ledger.readFile('utf8'), config);
+    return ALLOWANCE_KEYS.some(key => allocation[key] > config.allowance[key] - total[key]) ? 'exhausted' : 'ready';
+  } finally { await ledger.close(); }
+}
+
 export interface LiveRunLease {
   /** Provider requests are counted before dispatch, including failed attempts. */
   fetchFor(provider: "serpapi" | "jev", fetchImpl?: typeof fetch): typeof fetch;

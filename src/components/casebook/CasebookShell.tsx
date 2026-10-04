@@ -16,7 +16,7 @@ export function CoverActions() {
   const navigation = useContext(CoverNavigation);
   return <div className="button-row cover-actions"><button className="paper-button primary" onClick={() => navigation?.start()}>Walk through the casebook <span aria-hidden="true">↗</span></button><button className="text-link" onClick={() => navigation?.contents()}>Choose a chapter</button></div>;
 }
-export function CasebookShell({ children, chapter = 'cover', caseId, dark = false }: { children: ReactNode; chapter?: string; caseId?: string; dark?: boolean }) {
+export function CasebookShell({ children, chapter = 'cover', caseId, mediaCase = false, dark = false }: { children: ReactNode; chapter?: string; caseId?: string; mediaCase?: boolean; dark?: boolean }) {
   const router = useRouter();
   const turn = useChapterTurn();
   const content = useRef<HTMLDivElement>(null);
@@ -25,13 +25,13 @@ export function CasebookShell({ children, chapter = 'cover', caseId, dark = fals
   const [scale, setScale] = useState(1), [desktop, setDesktop] = useState(false), [dialog, setDialog] = useState<'contents' | 'about' | null>(null), [playing, setPlaying] = useState(false);
   const currentCase = caseId ?? activeCase;
   const caseHref = (next: string) => currentCase ? `/casebook?case=${encodeURIComponent(currentCase)}&chapter=${next}` : `/casebook?chapter=${next}`;
-  const chapters = chapterNames.map(id => ({ id, title: id === 'answers' ? 'AI answers' : id[0].toUpperCase() + id.slice(1), href: id === 'cover' ? '/' : id === 'image' ? '/investigate' : id === 'video' ? currentCase ? caseHref('video') : '/video' : id === 'watch' ? currentCase ? `/watch?case=${encodeURIComponent(currentCase)}` : '/watch' : id === 'questions' && !currentCase ? '/questions' : caseHref(id) }));
+  const chapters = chapterNames.map(id => ({ id, title: id === 'answers' ? 'AI answers' : id[0].toUpperCase() + id.slice(1), href: id === 'cover' ? '/' : id === 'image' ? '/investigate' : id === 'video' ? currentCase && mediaCase ? caseHref('video') : '/video' : id === 'watch' ? currentCase ? `/watch?case=${encodeURIComponent(currentCase)}` : '/watch' : id === 'questions' && !currentCase ? '/questions' : caseHref(id) }));
   const selected = Math.max(0, chapterNames.indexOf(chapter === 'audio' ? 'video' : chapter === 'families' ? 'sources' : chapter));
   const timing = chapterTiming[selected], position = chapterPosition(selected, elapsed);
   const navigate = (href: string) => turn ? turn.navigate(href) : router.push(href);
   function pause() { setPlaying(false); try { sessionStorage.removeItem(TOUR_KEY); } catch { /* Playback still stops in this view. */ } }
   useEffect(() => {
-    const fit = () => { setDesktop(true); setScale(Math.min(window.innerWidth / 1440, window.innerHeight / 900)); };
+    const fit = () => { setDesktop(window.innerWidth >= 1100 && window.innerHeight >= 650); setScale(Math.min(window.innerWidth / 1440, window.innerHeight / 900)); };
     fit(); window.addEventListener('resize', fit);
     try { setPlaying(sessionStorage.getItem(TOUR_KEY) === 'playing'); } catch { /* The tour can run without persisted playback. */ }
     return () => window.removeEventListener('resize', fit);
@@ -74,7 +74,7 @@ export function CasebookShell({ children, chapter = 'cover', caseId, dark = fals
       <a className="skip-link" href="#main">Skip to content</a>
       <header className="casebook-header">
         <Link className="casebook-brand" href="/" onClick={event => { event.preventDefault(); pause(); navigate('/'); }}><svg viewBox="0 0 40 30" fill="none" aria-hidden="true"><path d="M2 7h25v19H2zM11 2h26v18H27M16 11l10 6-10 6M7 17h18" stroke="currentColor" strokeWidth="1.4" /></svg>ContextTrail</Link>
-        <div className="casebook-header-end"><span className="eyebrow desktop-only">A place for the question</span><button onClick={() => { pause(); setDialog('contents'); }}>The casebook</button><button onClick={() => { pause(); setDialog('about'); }}>About</button></div>
+        <div className="casebook-header-end"><span className="eyebrow desktop-only">A place for the question</span><Link href="/questions" onClick={pause} className="new-investigation">New investigation ↗</Link><button onClick={() => { pause(); setDialog('contents'); }}>The casebook</button><button onClick={() => { pause(); setDialog('about'); }}>About</button></div>
       </header>
       <CoverNavigation.Provider value={{ start: startTour, contents: () => { pause(); setDialog('contents'); } }}><ChapterTourStep.Provider value={playing && timing.selectionInterval ? Math.floor(elapsed/timing.selectionInterval) : null}><div className="folio-content" ref={content}>{children}</div></ChapterTourStep.Provider></CoverNavigation.Provider>
       <footer className="chapter-nav">

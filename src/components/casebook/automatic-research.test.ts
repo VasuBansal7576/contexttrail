@@ -283,3 +283,19 @@ it('lets the reader choose claim comparison without typing a protocol prefix', a
   expect(vi.mocked(investigateAutomatically).mock.calls[0][0].get('topic')).toBe('Claim: UPI processed 24 billion transactions in August.');
   expect(field.maxLength).toBe(493);
 });
+
+it('shows exhausted live allowance before submission and never substitutes a saved result',async()=>{
+  await act(async()=>root.render(React.createElement(AutomaticResearch,{kind:'topic',readiness:{ready:false,message:'The live investigation allowance is exhausted.'}})));
+  await fillTopic();await submit();
+  expect(container.textContent).toContain('allowance is exhausted');
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+  expect(investigateAutomatically).not.toHaveBeenCalled();
+  expect(container.textContent).not.toContain('The actual retrieved passage.');
+});
+it('updates video admission status when adding a caption requires a larger reservation',async()=>{
+  await act(async()=>root.render(React.createElement(AutomaticResearch,{kind:'video',readiness:{ready:true,message:'Ready for frame research.'},captionReadiness:{ready:false,message:'Not enough allowance for caption research.'}})));
+  expect(container.textContent).toContain('Ready for frame research.');
+  await fillTopic();
+  expect(container.textContent).toContain('Not enough allowance for caption research.');
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+});

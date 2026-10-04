@@ -37,3 +37,7 @@ The production screenshots verify the app’s current rendering. They are not a 
 Restored cover actions, per-chapter durations and selection intervals from the reference source. The nine-chapter tour totals 2:52; pause/resume keeps elapsed reading time and inspection pauses selection. A root-layout paper wipe survives route navigation. Returning to the cover retains the selected case in the chapter links. A long automatic video intake scrolls inside its paper panel rather than behind the transport.
 
 Current browser checks exercise the cover chooser and walkthrough, image/video/question intake, saved UPI research selection, evidence inspection, source selection, changes, watch prefill, answers and return-to-cover case retention. The recut introduces ContextTrail before UPI and runs 49.5 seconds. Its final invitation is clickable in the companion. See [launch review](product/launch-reference-review.md) for the measured pacing and verification limits.
+
+## Owner-rejected launch and live-run repairs
+
+The owner rejected the 49.47-second launch and the previous UI delivery. Neither is an accepted release. See [current judge-run verification](product/judge-live-verification.md) for the reproduced clipping, blank media routing, first-version whitespace and exhausted-allowance defects, their browser verification, and the pending fresh run. Narrow screens now reflow; the earlier statement that every width uses a scaled desktop stage describes the rejected implementation. No rendered equivalence to the blocked local reference is claimed.

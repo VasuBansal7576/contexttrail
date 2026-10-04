@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  liveRunAllocation, readLiveUsageConfig, reserveLiveRun, reserveTopicRun, topicRunAllocation,
+  inspectLiveAllowance, liveRunAllocation, readLiveUsageConfig, reserveLiveRun, reserveTopicRun, topicRunAllocation,
   type LiveUsageConfig, type LiveRunLease,
 } from "./live-usage";
 import { JEV_ENDPOINT, JEV_MODEL } from "../jev/client";
@@ -402,4 +402,16 @@ it("preserves legacy eight-question topic spending and refuses expanded research
   const spent = await readFile(config.ledgerPath, "utf8");
   await expect(reserveTopicRun(config)).rejects.toThrow("cannot cover");
   expect(await readFile(config.ledgerPath, "utf8")).toBe(spent);
+});
+
+it('reports exhausted readiness without reserving, contacting providers, or changing the ledger',async()=>{
+  await initialize();
+  const before=await readFile(config.ledgerPath,'utf8');
+  expect(await inspectLiveAllowance({...config,allowance:config.allowance},{searches:config.allowance.searches+1,uploads:0,jevRequests:0,jevQuestions:0})).toBe('exhausted');
+  expect(await readFile(config.ledgerPath,'utf8')).toBe(before);
+});
+it('reports an existing admission lock without removing it',async()=>{
+  await initialize();await writeFile(config.ledgerPath+'.lock','active run');
+  expect(await inspectLiveAllowance(config,topicRunAllocation())).toBe('busy');
+  expect(await readFile(config.ledgerPath+'.lock','utf8')).toBe('active run');
 });

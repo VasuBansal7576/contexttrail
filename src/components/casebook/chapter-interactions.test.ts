@@ -6,6 +6,7 @@ import {CasebookShell,CoverActions} from './CasebookShell';
 import {ChapterTourStep} from './ChapterTour';
 import {SourceLinkedAnswer} from './SourceLinkedAnswer';
 import {SourceMap} from './SourceMap';
+import {Changes} from './Casebook';
 import {assessClaimSource,buildClaimReport} from '@/lib/research/claim-report';
 import {inquiryCase,researchWorkflow} from '@/lib/research/workflow';
 import {parseResearchCaseView} from '@/lib/research/client';
@@ -90,4 +91,27 @@ it('keeps a selected case available when returning to the cover',async()=>{
   await act(async()=>root.render(React.createElement(CasebookShell,{children:React.createElement('main')})));
   expect(container.querySelector('a[href="/casebook?case=a-retained-case&chapter=evidence"]')).not.toBeNull();
   expect(container.querySelector('a[href="/watch?case=a-retained-case"]')).not.toBeNull();
+});
+
+it('opens video intake for a text case instead of an empty recording chapter',async()=>{
+  await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'evidence',caseId:'text-case',children:React.createElement('main')})));
+  expect(container.querySelector('nav[aria-label="Chapters"] a[href="/video"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/casebook?case=text-case&chapter=video"]')).toBeNull();
+});
+it('keeps the saved video chapter available for an actual media case',async()=>{
+  await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'evidence',caseId:'media-case',mediaCase:true,children:React.createElement('main')})));
+  expect(container.querySelector('a[href="/casebook?case=media-case&chapter=video"]')).not.toBeNull();
+});
+it('reflows the reading surface on a phone instead of shrinking the entire casebook',async()=>{
+  vi.stubGlobal('innerWidth',390);vi.stubGlobal('innerHeight',844);
+  await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'questions',children:React.createElement('main')})));
+  expect(container.querySelector('.desktop-folio')).toBeNull();
+});
+
+it('shows the actual starting snapshot without inventing a blank before comparison',async()=>{
+  await act(async()=>root.render(React.createElement(Changes,{view:parseResearchCaseView(fixture())})));
+  expect(container.querySelectorAll('.revision-paper')).toHaveLength(1);
+  expect(container.textContent).toContain('first retained version');
+  expect(container.textContent).toContain('No later source correction is recorded');
+  expect(container.textContent).not.toContain('Before this source was retained');
 });

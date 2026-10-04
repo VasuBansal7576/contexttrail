@@ -99,3 +99,7 @@
 - Typecheck, production build and 108-file suite pass: 1,712 passed, 17 skipped. HyperFrames runtime/layout/motion checks pass, with 49/49 text contrast checks and one reviewed caption-track density warning. The 1080p H.264/AAC export and embedded portable player are regenerated.
 - Original-file browser interaction remains blocked; source-derived fidelity changes are not claimed as a rendered original comparison. Phone-scaled stage controls are small. Audio stream/caption timing was checked without claiming a listening review.
 - Automatic approval review rejected the optional external HyperFrames feedback submission because that payload was not authorized. No feedback was sent. The deliverables were completed independently of that submission.
+
+### 4 October — UI defects reproduced after owner rejection
+
+Recorded #58, repaired blank text-case video routing, variable-length evidence overlap, narrow-screen scaling/header wrapping, first-version comparison whitespace and intake allowance visibility. Added a separate empty judge-preview store without seeds or quota resets. Source selection, inspector and 390 × 844 form scrolling were exercised in computer use. Build/typecheck pass; 1,720 tests pass and 17 skip. Existing export is rejected; no new film or fresh retrieval run was certified. Zero search allowance remains, and the one-run grant request is pending. [Detailed verification](judge-live-verification.md).

@@ -1,12 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { ExactAnchor } from '@/lib/inquiries/model';
 import type { CaseEvidence } from '@/lib/cases/model';
 import type { ResearchCaseView } from '@/lib/research/client';
-import { EvidencePassage, SourceActions } from './EvidenceCollection';
+import { SourceActions } from './EvidenceCollection';
 import { currentMaterial } from './EvidenceDetail';
 import {useChapterTour} from './ChapterTour';
-export function EvidenceWorkbench({ view, onInspect, onFinding, onAdd }: { view: ResearchCaseView; onInspect: (evidence: CaseEvidence) => void; onFinding: (evidence: CaseEvidence, anchor?: ExactAnchor) => void; onAdd: () => void }) {
+export function EvidenceWorkbench({ view, onInspect, onFinding, onAdd, sidebar }: { view: ResearchCaseView; sidebar?: ReactNode; onInspect: (evidence: CaseEvidence) => void; onFinding: (evidence: CaseEvidence, anchor?: ExactAnchor) => void; onAdd: () => void }) {
   const relevance = (evidence: CaseEvidence) => view.reportStatus === 'current' ? view.claimReport?.sources.find(source => source.evidenceId === evidence.id)?.relevance ?? -1 : -1;
   const evidence = [...view.caseRecord.evidence].sort((a,b) => relevance(b)-relevance(a));
   const [chosenKind, setKind] = useState<'passage' | 'region' | 'cell' | null>(null), [selected, setSelected] = useState(''), [page,setPage] = useState(0), [cell,setCell] = useState({row:0,column:0}), [region,setRegion] = useState<{x:number;y:number;width:number;height:number} | null>(null);
@@ -21,10 +21,11 @@ export function EvidenceWorkbench({ view, onInspect, onFinding, onAdd }: { view:
   const eligible = evidence.filter(item => kind === 'passage' ? item.content.kind === 'text' : currentMaterial(view,item.id)?.content.kind === (kind === 'region' ? 'image' : 'table'));
   const item = eligible.find(item => item.id === selected) ?? eligible[0], material = item ? currentMaterial(view,item.id) : null;
   return <section className="evidence-workbench" aria-label="Exact evidence workbench">
-    <div className="evidence-kind-tabs" role="group" aria-label="Evidence anchor types">{([{id:'passage',letter:'P',title:'A passage',note:'Exact retained text'}, {id:'region',letter:'R',title:'An image region',note:'Alongside the full image'}, {id:'cell',letter:'T',title:'A table cell',note:'Row and column retained'}] as const).map(tab => <button key={tab.id} aria-pressed={kind === tab.id} onClick={() => { setKind(tab.id); setSelected(''); setPage(0); setCell({row:0,column:0}); setRegion(null); }}><span>{tab.letter}</span><div><h3>{tab.title}</h3><small>{tab.note}</small></div></button>)}</div>
-    <article className="evidence-leaf">
+    <aside className="workspace-side">{sidebar}<div className="evidence-kind-tabs" role="group" aria-label="Evidence anchor types">{([{id:'passage',letter:'P',title:'A passage',note:'Exact retained text'}, {id:'region',letter:'R',title:'An image region',note:'Alongside the full image'}, {id:'cell',letter:'T',title:'A table cell',note:'Row and column retained'}] as const).map(tab => <button key={tab.id} aria-pressed={kind === tab.id} onClick={() => { setKind(tab.id); setSelected(''); setPage(0); setCell({row:0,column:0}); setRegion(null); }}><span>{tab.letter}</span><div><h3>{tab.title}</h3><small>{tab.note}</small></div></button>)}</div></aside>
+    <div className="evidence-reading"><article className="evidence-leaf">
       <div className="sheet-topline"><span className="eyebrow">{item ? item.content.kind === 'text' ? item.content.attribution.replaceAll('_',' ') : 'Retained source snapshot' : 'This selection stays open'}</span><span className="eyebrow">{kind === 'passage' ? 'Passage' : kind === 'region' ? 'Region' : 'Cell'}</span></div>
-      {item ? <><h2>{item.title ?? 'Untitled source'}</h2><div className="evidence-leaf-content">{kind === 'passage' && item.content.kind === 'text' ? <EvidencePassage text={item.content.text} /> : material?.content.kind === 'image' ? <figure className="region-frame"><div className="region-preview"><img className="retained-image" src={`data:${material.content.mimeType};base64,${material.content.base64}`} alt="Complete retained image; click an area to select a region" onClick={event => {
+      {eligible.length > 1 ? <label className="evidence-selector"><span className="eyebrow">Read another source</span><select aria-label="Choose retained source" value={item?.id ?? ''} onChange={event => { setSelected(event.target.value); setCell({row:0,column:0}); setRegion(null); }}>{eligible.map((source,index) => <option key={source.id} value={source.id}>{index+1}. {source.title ?? new URL(source.sourceUrl).hostname}</option>)}</select></label> : null}
+      {item ? <><h2>{item.title ?? 'Untitled source'}</h2><div className="evidence-leaf-content">{kind === 'passage' && item.content.kind === 'text' ? <p className="evidence-passage">{item.content.text}</p> : material?.content.kind === 'image' ? <figure className="region-frame"><div className="region-preview"><img className="retained-image" src={`data:${material.content.mimeType};base64,${material.content.base64}`} alt="Complete retained image; click an area to select a region" onClick={event => {
           if (material.content.kind !== 'image') return;
           const bounds = event.currentTarget.getBoundingClientRect(), width = Math.max(1,Math.round(material.content.width/4)), height = Math.max(1,Math.round(material.content.height/4));
           const x = Math.max(0,Math.min(material.content.width-width,Math.round((event.clientX-bounds.left)/bounds.width*material.content.width-width/2)));
@@ -38,5 +39,6 @@ export function EvidenceWorkbench({ view, onInspect, onFinding, onAdd }: { view:
       }}>Pin a finding to this evidence +</button><button className="text-link" aria-label="Inspect source details" onClick={() => onInspect(item)}>Inspect source details ↗</button></div><SourceActions url={item.sourceUrl} /></div></> : <><h2>{kind === 'passage' ? 'The trail starts with a source.' : kind === 'region' ? 'No retained image in this case.' : 'No retained table in this case.'}</h2><p>{kind === 'passage' ? 'Run an investigation to recover passages automatically, or add a source you already have.' : 'Original uploads are excluded from automatic saves. This view shows retained source material when it is present; it does not substitute illustrative evidence.'}</p><button className="text-link" onClick={onAdd}>Add evidence</button></>}
     </article>
     {eligible.length ? <div className="evidence-source-tabs" role="group" aria-label="Retained evidence selection">{eligible.slice(page*8,page*8+8).map((source,index) => <button key={source.id} aria-pressed={source.id === item?.id} onClick={() => { setSelected(source.id); setCell({row:0,column:0}); setRegion(null); }}><span className="eyebrow">{String(page*8+index+1).padStart(2,'0')}</span>{source.title ?? new URL(source.sourceUrl).hostname}</button>)}<div className="button-row"><button className="text-link" disabled={!page} onClick={() => setPage(value => value-1)}>← Previous sources</button><button className="text-link" disabled={(page+1)*8>=eligible.length} onClick={() => setPage(value => value+1)}>Next sources →</button><button className="text-link" onClick={onAdd}>Add evidence</button></div></div> : null}
+    </div>
   </section>;
 }
