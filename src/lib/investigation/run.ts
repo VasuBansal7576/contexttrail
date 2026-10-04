@@ -573,6 +573,10 @@ export async function runInvestigation(
    *  a *new* candidate id is never admitted once the allowance is
    *  exhausted — adaptive expansion cannot reopen it (I1). */
   const classifiedIds = new Set<string>();
+  // Reserve one distinct admission until inspected-link selection completes.
+  // This is an acquisition allocation, never a larger provider allowance.
+  let reserveHistoricalLink = false;
+  let linkSelectionComplete = false;
   /** Plan a classify batch: already-admitted ids keep their slots;
    *  fresh ids are admitted in the caller's preference order only while
    *  allowance remains. */
@@ -585,7 +589,8 @@ export async function runInvestigation(
         planned.push(c);
         continue;
       }
-      if (classifiedIds.size >= MAX_JEV_CANDIDATES) continue;
+      const capacity = MAX_JEV_CANDIDATES - (reserveHistoricalLink && !linkSelectionComplete ? RETENTION_CAPS.source_link : 0);
+      if (classifiedIds.size >= capacity) continue;
       classifiedIds.add(c.id);
       planned.push(c);
     }
@@ -831,6 +836,11 @@ export async function runInvestigation(
           a.id.localeCompare(b.id),
       );
     let pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)));
+    // Bounded metadata cue, not a fact-check verdict: leave room for one
+    // explicit historical URL exposed by the first four article reads.
+    reserveHistoricalLink = pool.some(c => retainableSourceUrl(c.sourceUrl) !== null
+      && hasHistoricalMediaCue([c.title ?? '', c.snippet ?? ''].join('\n')));
+    if (reserveHistoricalLink) pool = applyRetentionCaps(pool, true);
     consolidateDateSources(pool);
     for (const c of pool) {
       // Candidates discovered progressively already carry resolved dates;
@@ -932,7 +942,7 @@ export async function runInvestigation(
             if (added.length > 0) {
               // Rebuild from the merged candidate list so adaptive results
               // join the investigated pool (previously dropped).
-              pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)));
+              pool = applyRetentionCaps(dedupeByCanonicalUrl(sortForPool(candidates)), reserveHistoricalLink);
               consolidateDateSources(pool);
               for (const c of added) {
                 c.mediaRelationship = enforceIdentityInvariants(c);
@@ -1076,9 +1086,9 @@ export async function runInvestigation(
         link.followup = 'already_read'; link.evidenceId = existing.id; continue;
       }
       if (followup) { link.followup = 'page_limit'; continue; }
-      // A fresh source cannot consume the final page if its identity cannot
-      // enter the existing distinct-candidate classification allowance.
-      if (!existing && classifiedIds.size >= MAX_JEV_CANDIDATES) {
+      // A new or unadmitted source cannot consume the final page without
+      // space in the existing distinct-candidate classification allowance.
+      if ((!existing || !classifiedIds.has(existing.id)) && classifiedIds.size >= MAX_JEV_CANDIDATES) {
         link.followup = 'classification_limit'; continue;
       }
       if (!existing && pool.filter(c => c.retrievalKind === 'google_search' || c.retrievalKind === 'source_link').length >= RETENTION_CAPS.google_search) {
@@ -1086,6 +1096,9 @@ export async function runInvestigation(
       }
       const candidate = existing ?? candidateFromSourceLink(link, retrievedAt);
       if (!candidate) { link.followup = 'retention_limit'; continue; }
+      // Admit the chosen ID now, before other page refinements can consume
+      // the reserved slot. An existing unassessed lead needs the same slot.
+      classifiedIds.add(candidate.id);
       link.followup = 'selected'; link.evidenceId = candidate.id;
       followup = candidate;
       if (!existing) {
@@ -1095,6 +1108,7 @@ export async function runInvestigation(
           sourceBinding: 'not_established', selection: 'selected', fetch: 'not_attempted', extraction: 'not_attempted', failureCode: null, httpStatus: null });
       }
     }
+    linkSelectionComplete = true;
     const alternate = followup || deadlineHit() || callerAborted() ? null : alternateHistoricalFactCheck({ plan: readPlan, candidates: pool, reads: pageReads });
     const finalPage = followup ?? alternate ?? pages[MAX_DEEP_READ_PAGES - 1];
     if (deadlineHit() || callerAborted()) readSelectionAudit.finalDecision = { kind: 'deadline' };
