@@ -8,6 +8,7 @@ export interface TopicCandidate {
   candidate: EvidenceCandidate;
   dates: EvidenceDateSources;
   search: number;
+  reference?: { fromEvidenceId: string; text: string; supportingText: string };
 }
 const stopWords = new Set('a an and are as at be being by can change changed changes did do does for from has have how in is it of on or research should that the their this to use uses used was were what when where which who why will with would january february march april may june july august september october november december'.split(' '));
 function terms(text: string): Set<string> {
@@ -83,11 +84,14 @@ export function selectTopicSources(topic: string, entries: readonly TopicCandida
   // Partial/absent matches can be paraphrases: keep them as fallbacks, not
   // semantic rejections. The returned order also owns the five page reads.
   for (const tier of ['substantial', 'partial', 'none'] satisfies CoverageTier[]) {
+    // Once a useful trail exists, unrelated fallback results do not pad it.
+    if (tier === 'none' && selected.length >= 3) break;
     // Balance equally relevant leads, not a one-word incidental hit against
     // a source addressing the entity and conduct. Provider diversity cannot
     // manufacture relevance or consume the limited page-reading slots.
     const levels = [...new Set(ranked.filter(item => item.tier === tier).map(item => item.matches))];
     for (const level of levels) {
+      if (tier === 'partial' && level < 2 && wanted.size >= 3 && selected.length >= 3) continue;
       const groups = Array.from({ length: AUTOMATIC_RESEARCH_LIMITS.topicSearches }, (_, search) => ranked
         .filter(item => item.entry.search === search && item.tier === tier && item.matches === level).map(item => item.entry));
       for (let offset = 0; selected.length < AUTOMATIC_RESEARCH_LIMITS.topicSources && groups.some(group => offset < group.length); offset++) {

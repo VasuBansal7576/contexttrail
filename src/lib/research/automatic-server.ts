@@ -19,7 +19,7 @@ export async function automaticProductionDeps(input: AutomaticResearchInput, sig
   if (!serpapiKey || !jevKey) throw new LiveUsageError('Provider configuration unavailable.');
   // One reservation covers the entire workflow. No ledger resets, nested image
   // admissions, per-frame refunds, or independent request counters are allowed.
-  const lease = input.kind === 'topic' ? await reserveTopicRun(config, signal) : await reserveVideoRun(config, input.claim ?? null, signal);
+  const lease = input.kind !== 'video' ? await reserveTopicRun(config, signal) : await reserveVideoRun(config, input.claim ?? null, signal);
   return { deps: { serpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor('serpapi') }),
     jev: new JevClient({ apiKey: jevKey, model: JEV_MODEL, fetchImpl: lease.fetchFor('jev') }),
     fetchPage: fetchPageDocument, signal }, release: () => lease.release() };
@@ -44,7 +44,7 @@ export function createAutomaticResponse(input: AutomaticResearchInput, options: 
   options.signal.addEventListener('abort', abort, { once: true });
   if (options.signal.aborted) abort();
   let deadlineHit = false;
-  const deadlineMs = input.kind === 'video' ? 240_000 : 180_000;
+  const deadlineMs = input.kind === 'video' ? 420_000 : input.kind === 'audio' ? 300_000 : 180_000;
   const deadline = setTimeout(() => { if (!controller.signal.aborted) { deadlineHit = true; abort(); } }, deadlineMs);
   const stream = new ReadableStream<Uint8Array>({
     start(streamController) {
@@ -61,7 +61,7 @@ export function createAutomaticResponse(input: AutomaticResearchInput, options: 
           const result = await runAutomaticResearch(input, emit, production.deps);
           emit({ type: 'research.completed', result });
         } catch (error) {
-          emit({ type: 'research.error', message: deadlineHit ? `The investigation exceeded its ${input.kind === 'video' ? 'four' : 'three'}-minute deadline. No complete result was produced; its reservation is not refunded.` : automaticFailure(error) }, deadlineHit);
+          emit({ type: 'research.error', message: deadlineHit ? `The investigation exceeded its ${input.kind === 'video' ? 'seven' : input.kind === 'audio' ? 'five' : 'three'}-minute deadline. No complete result was produced; its reservation is not refunded.` : automaticFailure(error) }, deadlineHit);
         }
         finally {
           try { await production?.release(); } catch { console.warn('[research] live lock release failed; further live use remains blocked'); }

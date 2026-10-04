@@ -8,6 +8,7 @@ import { buildClaimReport, assessClaimSource } from '@/lib/research/claim-report
 import { ClaimReportView } from './ClaimReportView';
 import { CASE_SCHEMA_VERSION } from '@/lib/cases/model';
 vi.mock('@/lib/research/automatic-client', () => ({ investigateAutomatically: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => React.createElement('a', props) }));
 let root: Root, container: HTMLDivElement;
 const scrollIntoView = vi.fn();
@@ -84,7 +85,7 @@ describe('automatic research UI', () => {
     const signal = vi.mocked(investigateAutomatically).mock.calls[0][1];
     await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'video', key: 'video' })));
     expect(signal.aborted).toBe(true); expect(container.querySelector('a[href="/compare"]')).not.toBeNull();
-    expect(container.textContent).toContain('Audio and unsampled intervals are not searched.');
+    expect(container.textContent).toContain('Original audio is never uploaded to a speech service.');
   });
   it('requires video permission and submits one supplied file with rights', async () => {
     vi.mocked(investigateAutomatically).mockResolvedValue({ ...result, kind: 'video' });
@@ -100,7 +101,7 @@ describe('automatic research UI', () => {
     const body = vi.mocked(investigateAutomatically).mock.calls[0][0];
     expect(body.get('kind')).toBe('video'); expect(body.get('rights')).toBe('user_provided');
     expect(body.get('video')).toBe(file); expect(body.has('topic')).toBe(false); expect(body.has('claim')).toBe(false);
-    expect(container.textContent).toContain('339 questions');
+    expect(container.textContent).toContain('399 questions');
   });
   it('opens timestamped frame sources with explicit incomplete coverage', async () => {
     const source = { evidenceId: 'frame-source', sourceUrl: 'https://example.com/frame', title: 'Frame source', excerpt: 'Frame passage.', dateStatus: 'unknown', observedAt: null, identityBasis: 'unknown', excerptSource: 'search_snippet', displayAttribution: null, classificationContext: null, mediaRelationship: null };
@@ -123,8 +124,8 @@ it('sends a nonempty video caption once and shows its expanded reservation', asy
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(caption, '  This video is from yesterday.  '); caption.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => { container.querySelector<HTMLInputElement>('input[type=checkbox]')?.click(); });
-  expect(container.textContent).toContain('18 searches · 3 image uploads · 180 TypeSafe / Jev requests · 816 questions');
-  expect(container.textContent).toContain('caption also goes to SerpApi / Google');
+  expect(container.textContent).toContain('24 searches · 3 image uploads · 192 TypeSafe / Jev requests · 876 questions');
+  expect(container.textContent).toContain('recognized speech, any supplied caption');
   await submit();
   const body = vi.mocked(investigateAutomatically).mock.calls[0][0];
   expect(body.get('claim')).toBe('This video is from yesterday.'); expect(body.getAll('video')).toEqual([file]);
@@ -132,7 +133,7 @@ it('sends a nonempty video caption once and shows its expanded reservation', asy
 
 it('shows the updated question assessment ceiling', async () => {
   await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'topic' })));
-  expect(container.textContent).toContain('3 searches · 0 uploads · 8 TypeSafe / Jev requests · 40 questions');
+  expect(container.textContent).toContain('6 searches · 0 uploads · 12 TypeSafe / Jev requests · 60 questions');
 });
 
 it('renders source-quoted candidates with unknown scope and no invented user assertion', async () => {

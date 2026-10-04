@@ -64,7 +64,6 @@ export function parseComparisonResponse(raw: unknown): LocalComparisonResponse {
     persistence: { status: oneOf(persistence.status, ['not_saved']), reason: text(persistence.reason) },
   };
   const { report } = result;
-  if (report.inputs.left.coverage.kind === 'still_image' && report.inputs.right.coverage.kind === 'still_image') return invalid();
   for (const side of ['left', 'right'] satisfies Array<'left' | 'right'>) {
     const media = report.inputs[side], supplied = result.frames[side];
     if (new Set(supplied.map(f => f.frameId)).size !== supplied.length || supplied.some(f => f.mediaId !== media.mediaId)) return invalid();

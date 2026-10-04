@@ -6,7 +6,7 @@ Pause/resume and Check now are available in the app. Pausing preserves history. 
 
 ## Setup
 
-Use Node 22.13 or newer, a persistent single-host data root, server-only provider keys, the durable usage ledger and `CONTEXTTRAIL_RESEARCH_LOCAL=1`. Run `npm run dev` or a built `npm run start` on loopback. The same live-admission configuration used for automatic questions governs watches. Each check reserves up to 3 searches, 8 Jev requests and 40 questions. The ledger counts reservations conservatively; it is not the provider account balance.
+Use Node 22.13 or newer, a persistent single-host data root, server-only provider keys, the durable usage ledger and `CONTEXTTRAIL_RESEARCH_LOCAL=1`. Run `npm run dev` or a built `npm run start` on loopback. The same live-admission configuration used for automatic questions governs watches. Each check reserves up to 6 searches, 12 Jev requests and 60 questions. The ledger counts reservations conservatively; it is not the provider account balance.
 
 The worker runs through Next.js Node instrumentation and reports a recent heartbeat. A stopped server performs no checks. Serverless deployment, multiple hosts, browser-closed scheduling without a running server and user account isolation are not implemented.
 

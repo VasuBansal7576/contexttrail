@@ -1,5 +1,5 @@
 /** Bounded retrieval, never a generative answer substituted for source evidence. */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CASE_SCHEMA_VERSION, type CaseRecord, type CaseEvidence, type SourcedDate, type CaseSourceRead } from '../cases/model';
 import { parseCaseRecord } from '../cases/parse';
 import { caseFromImageInvestigation } from '../cases/from-image-investigation';
@@ -14,6 +14,8 @@ import { topicPassages } from './topic-passages';
 import { extractPage } from '../pages/extract';
 import { hasSearchResultSurface, normalizeSearchResponse } from '../serpapi/normalize';
 import { serpapiResponseFailed } from '../serpapi/client';
+import { transcribeMedia } from '../video/transcribe';
+import { speechSearchQuestion, unavailableTranscript, type MediaTranscript } from '../video/transcript';
 import { prepareVideo, type PreparedVideo } from '../video/ingest';
 import { AUTOMATIC_RESEARCH_LIMITS as LIMITS, type AutomaticResearchInput, type AutomaticResearchEvent, type AutomaticResearchResult } from './automatic-contract';
 import { selectTopicSources, type TopicCandidate } from './topic-selection';
@@ -21,11 +23,12 @@ import { researchStageCopy } from './display-copy';
 import { buildTopicCandidateAudit } from './topic-candidate-audit';
 import type { TopicCandidateSearchAudit } from '../cases/topic-candidate-audit';
 import { TopicSearchResponseError, topicSearchFailure } from './topic-search-failure';
-import { documentQuery } from './search-plan';
+import { documentQuery, followupSearches } from './search-plan';
 
 type Progress = (event: AutomaticResearchEvent) => void;
 export interface AutomaticResearchDeps extends RunDeps {
   prepareVideo?: typeof prepareVideo;
+  transcribeMedia?: typeof transcribeMedia;
   traceFrame?: typeof runInvestigation;
 }
 function check(deps: RunDeps): void { deps.signal?.throwIfAborted(); }
@@ -56,13 +59,13 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   const candidateSearches: TopicCandidateSearchAudit[] = [];
   const searchQuestion = explicitTopicClaim(topic) ?? topic;
   const searches = [
-    { engine: 'google', q: searchQuestion, kind: 'google_search' },
-    { engine: 'google_news', q: searchQuestion, kind: 'google_news' },
-    { engine: 'google', q: documentQuery(searchQuestion), kind: 'google_search' },
-  ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news' }>;
+    { engine: 'google', q: searchQuestion, kind: 'google_search', purpose: 'the web' },
+    { engine: 'google_news', q: searchQuestion, kind: 'google_news', purpose: 'news' },
+    { engine: 'google', q: documentQuery(searchQuestion), kind: 'google_search', purpose: 'source documents and clarifications' },
+  ] satisfies Array<{ engine: string; q: string; kind: 'google_search' | 'google_news'; purpose: string }>;
   for (const [index, query] of searches.entries()) {
     check(deps);
-    emit({ type: 'research.progress', message: `Searching ${index === 1 ? 'news' : index === 2 ? 'source documents and clarifications' : 'the web'}…` });
+    emit({ type: 'research.progress', message: `Searching ${query.purpose}…` });
     const log = { engine: query.engine, attempted: 1, returned: 0, retained: 0, searchId: null as string | null };
     record.coverage.searches.push(log);
     candidateSearches.push({ searchIndex: index, outcome: 'unavailable', normalizedCount: null, droppedBeforeNormalizationCount: null, duplicateCount: null });
@@ -70,7 +73,7 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
       const raw = await deps.serpapi.search({ engine: query.engine, q: query.q, num: '10' }, deps.signal);
       check(deps);
       if (serpapiResponseFailed(raw) || !hasSearchResultSurface(raw, query.kind)) throw new TopicSearchResponseError(raw);
-      const batch = normalizeSearchResponse(raw, query.kind, { retrievedAt: now.toISOString() });
+      const batch = normalizeSearchResponse(raw, query.kind, { retrievedAt: new Date(deps.now?.() ?? Date.now()).toISOString() });
       log.returned = batch.reportedCount; log.searchId = batch.searchId;
       let duplicateCount = 0;
       for (const candidate of batch.candidates) {
@@ -89,10 +92,16 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
         droppedBeforeNormalizationCount: null, duplicateCount: null, failure: topicSearchFailure(error) };
       limitations.push(`Search ${index + 1} was unavailable; no replacement results were invented.`);
     }
+    // Continue independently into the missing facets of a nonempty trail.
+    // An empty/unavailable initial pass does not authorize speculative retries.
+    if (index === 2 && candidates.size > 0) searches.push(...followupSearches(topic));
   }
   // Safe document leads get bounded priority, then lexical tiers balance
   // search surfaces. Returned order also determines the five page reads.
   const selected = selectTopicSources(topic, [...candidates.values()]);
+  const originalSelectionLength = selected.length;
+  const referenceLeads: TopicCandidate[] = [];
+  const knownUrls = new Set([...candidates.keys()]);
   record.coverage.omittedEvidenceCount = Math.max(0, candidates.size - selected.length);
   const assessments: AutomaticResearchResult['assessments'] = [];
   const sourceReads: CaseSourceRead[] = [];
@@ -109,7 +118,8 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
     let attribution: 'page_quote' | 'search_snippet' = 'search_snippet';
     let title = candidate.title;
     let retainedDates = dates;
-    const read: CaseSourceRead = { evidenceId: candidate.id, requestedUrl: sourceUrl, finalUrl: null, sourceBinding: 'not_established', outcome: 'not_attempted' };
+    let retrievedAt = entry.reference ? null : candidate.retrievals[0]?.retrievedAt ?? now.toISOString();
+    const read: CaseSourceRead = { ...(entry.reference ? { reference: entry.reference } : {}), evidenceId: candidate.id, requestedUrl: sourceUrl, finalUrl: null, sourceBinding: 'not_established', outcome: 'not_attempted' };
     sourceReads.push(read);
     if (index < LIMITS.topicPageReads) {
       emit({ type: 'research.progress', message: `Reading source ${index + 1} of ${Math.min(selected.length, LIMITS.topicPageReads)}…` });
@@ -118,15 +128,41 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
         check(deps);
         const extractedUrl = retainableSourceUrl(page.url);
         read.finalUrl = extractedUrl;
-        read.sourceBinding = bindFetchedSource(sourceUrl, page.url);
-        if (!extractedUrl || (read.sourceBinding !== 'same_resource' && read.sourceBinding !== 'normalized_resource')) {
+        read.sourceBinding = entry.reference && extractedUrl ? 'reference_destination' : bindFetchedSource(sourceUrl, page.url);
+        if (!extractedUrl || (read.sourceBinding !== 'same_resource' && read.sourceBinding !== 'normalized_resource' && read.sourceBinding !== 'reference_destination')) {
           read.outcome = 'binding_rejected';
           limitations.push(`Source ${index + 1} led to an unrelated, blocked or unsafe destination. Its original search lead remains; destination text and dates were not used.`);
         } else {
           const extracted = extractPage(page.html, page.url);
-          const actualQuote = topicPassages(topic, extracted.paragraphs);
+          let actualQuote = topicPassages(topic, extracted.paragraphs);
+          // Follow only explicit references within inspected article paragraphs.
+          // Reserve two of the existing read/source slots; no recursive crawl,
+          // provider call, guessed URL or authority whitelist is introduced.
+          if (actualQuote && !entry.reference && index < Math.min(8, originalSelectionLength)) {
+            const topicTerms = new Set((searchQuestion.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []).filter(word => !/^(?:the|and|for|from|with|this|that|how|why|what|when|where|which|who|was|were|has|have|does|did|can|could|should|would|will|evidence|research|investigate|read|article|report|source|study|more)$/.test(word)));
+            const acronyms = new Set((searchQuestion.match(/\b[A-Z][A-Z0-9]{1,8}\b/g) ?? []).map(word => word.toLowerCase()));
+            for (const link of extracted.sourceLinks) {
+              if (referenceLeads.length >= 2 || !link.text.trim() || knownUrls.has(link.url) || !retainableSourceUrl(link.url)) continue;
+              // Surrounding citation wording also contains author and hashtag
+              // links. Require an actual document cue on the anchor, or an
+              // explicitly displayed URL; never spend a read on sign-up/profile
+              // navigation just because its paragraph discusses research.
+              if (/^#|^(?:sign[ -]?in|sign[ -]?up|log[ -]?in|join|subscribe)\b/i.test(link.text) || /\/(?:signup|login|signin|auth|subscribe)(?:\/|$)/i.test(new URL(link.url).pathname)) continue;
+              if (!/^https?:\/\//i.test(link.text) && !/\b(?:study|research|report|article|source|paper|publication|read|original|full|download)\b/i.test(link.text)) continue;
+              if (referenceLeads.some(lead => lead.reference?.text === link.text)) continue;
+              const words = (link.supportingText + ' ' + link.text).toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [];
+              if ((!words.some(word => acronyms.has(word)) && new Set(words.filter(word => topicTerms.has(word))).size < 2) || !/\b(?:study|research|report|article|source|data|paper|according|publication|read|original)\b/i.test(link.supportingText + ' ' + link.text)) continue;
+              if (!actualQuote.includes(link.supportingText)) {
+                if (actualQuote.length + link.supportingText.length + 2 > 8000) continue;
+                actualQuote += '\n\n' + link.supportingText;
+              }
+              knownUrls.add(link.url);
+              referenceLeads.push({ candidate: { ...candidate, id: `reference-${randomUUID()}`, sourceUrl: link.url, canonicalUrl: link.url, title: link.text, snippet: null, serpPosition: null }, dates: {}, search: -1, reference: { fromEvidenceId: candidate.id, text: link.text, supportingText: link.supportingText } });
+            }
+          }
           if (actualQuote) {
             read.outcome = 'page_quote';
+            retrievedAt = new Date(deps.now?.() ?? Date.now()).toISOString();
             finalUrl = extractedUrl;
             retainedDates = { ...dates, pageJsonLd: extracted.jsonLdDates[0], pageMeta: extracted.metaDates[0], pageTime: extracted.timeDates[0] };
             quote = actualQuote; attribution = 'page_quote'; title = extracted.title ?? title;
@@ -144,8 +180,12 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
       content: quote?.trim() ? { kind: 'text', text: quote, attribution } : { kind: 'reference' },
       publicationDate: publicationDate(retainedDates, finalUrl, now),
       provenance: { method: attribution === 'page_quote' ? 'page_extraction' : 'retrieval', toolVersion: null,
-        capturedAt: null, retrievedAt: now.toISOString(), rights: 'unknown', retention: 'reference_only', contentHash: null } };
-    record.evidence.push(evidence); record.coverage.searches[entry.search].retained++;
+        capturedAt: null, retrievedAt, rights: 'unknown', retention: 'reference_only', contentHash: null } };
+    record.evidence.push(evidence); if (!entry.reference) record.coverage.searches[entry.search].retained++;
+    if (index === Math.min(8, originalSelectionLength) - 1 && referenceLeads.length) {
+      selected.splice(index + 1, 0, ...referenceLeads); selected.splice(LIMITS.topicSources);
+      emit({ type: 'research.progress', message: `Following ${referenceLeads.length} explicit source references…` });
+    }
     let answer: JevAskResult | null = null;
     if (deps.jev && quote) {
       emit({ type: 'research.progress', message: `Assessing the scope and excerpt relationship of source ${index + 1}…` });
@@ -160,8 +200,10 @@ export async function investigateTopic(topic: string, emit: Progress, deps: Auto
   }
   if (!record.evidence.length) limitations.push('No usable source evidence was retrieved. The topic remains unresolved.');
   if (assessments.some(item => item.relevance === null)) limitations.push('Some relevance assessments were unavailable; those sources remain unassessed leads.');
+  if (referenceLeads.length) limitations.push('Up to two one-hop references from inspected passages were followed within the existing read/source limits. A citation does not establish authority, independence or truth. Destination passages and dates belong to the destination, not the referring page.');
+  record.coverage.omittedEvidenceCount = Math.max(0, candidates.size - selected.filter(entry => !entry.reference).length);
   record.coverage.limitations = [...new Set(limitations)];
-  record.coverage.topicCandidateAudit = buildTopicCandidateAudit([...candidates.values()], selected, candidateSearches);
+  record.coverage.topicCandidateAudit = buildTopicCandidateAudit([...candidates.values()], selected.filter(entry => !entry.reference), candidateSearches);
   return { kind: 'topic', question: topic, caseRecord: parseCaseRecord(record), frames: [], limitations: record.coverage.limitations, assessments, claimReport: buildClaimReport(topic, record, claimSources) };
 }
 
@@ -172,16 +214,55 @@ function videoCase(video: PreparedVideo, timestampMs: number, result: Investigat
   record.occurrences = record.occurrences.map(item => ({ ...item, assetId: video.mediaId, span: { kind: 'time', startMs: Math.floor(timestampMs), durationMs: 1 },
     identity: { status: 'unknown', reason: 'A sampled still-frame search is a lead for this video interval; it does not establish identity of the whole video.' } }));
   record.coverage.limitations = [...record.coverage.limitations.filter(value => value !== 'image_investigation_only'),
-    'Decoded still-frame samples are searched independently. Unsampled intervals and audio are not searched.',
+    'Decoded still-frame samples are searched independently. Unsampled visual intervals are not searched. Speech recognition and its text research are reported separately.',
     'Frame matches do not establish the source, continuity or authenticity of the whole video.',
     'Decoded timestamps are offsets within the supplied video, not publication dates.'];
   return parseCaseRecord(record);
 }
+async function recognizedSpeech(input: Exclude<AutomaticResearchInput, { kind: 'topic' }>, emit: Progress, deps: AutomaticResearchDeps): Promise<MediaTranscript> {
+  emit({ type: 'research.progress', message: 'Transcribing the full audio track locally…' });
+  try { return await (deps.transcribeMedia ?? transcribeMedia)(input.bytes, deps.signal); }
+  catch { check(deps); return unavailableTranscript('Local speech recognition failed. No replacement transcription was invented.'); }
+}
+async function audioResearch(input: Exclude<AutomaticResearchInput, { kind: 'topic' }>, transcript: MediaTranscript, emit: Progress, deps: AutomaticResearchDeps): Promise<AutomaticResearchResult | undefined> {
+  const question = speechSearchQuestion(transcript, input.claim ?? null) ?? (input.kind === 'audio' && input.claim?.trim() ? `Claim: ${input.claim.trim()}` : null);
+  if (!question) return undefined;
+  emit({ type: 'research.progress', message: 'Investigating unreviewed spoken leads against web sources…' });
+  const result = await investigateTopic(question, emit, deps);
+  const contentHash = createHash('sha256').update(input.bytes).digest('hex');
+  result.caseRecord.assets = [{ id: `${input.kind}:sha256:${contentHash}`, kind: input.kind, durationMs: transcript.durationMs === null ? null : Math.round(transcript.durationMs), location: { kind: 'not_retained' },
+    provenance: { method: 'user_submission', toolVersion: null, capturedAt: null, retrievedAt: null, rights: input.rights, retention: 'not_retained', contentHash: `sha256:${contentHash}` } }];
+  result.caseRecord.coverage.limitations.push('The transcript is an unreviewed machine recognition. Source relevance does not verify its wording or establish that a speaker said it.');
+  result.caseRecord = parseCaseRecord(result.caseRecord);
+  if (result.claimReport) result.claimReport = buildClaimReport(question, result.caseRecord, result.claimReport.sources);
+  return { ...result, caseRecord: parseCaseRecord(result.caseRecord), limitations: result.caseRecord.coverage.limitations };
+}
+function partialVideoResult(input: Exclude<AutomaticResearchInput, { kind: 'topic' }>, transcript: MediaTranscript, spokenResearch: AutomaticResearchResult | undefined, reasons: string[], now: string, video?: PreparedVideo): AutomaticResearchResult {
+  const record = emptyCase(now), hash = video?.contentHash ?? createHash('sha256').update(input.bytes).digest('hex');
+  record.assets = [{ id: video?.mediaId ?? `video:sha256:${hash}`, kind: 'video', durationMs: video ? Math.round(video.durationMs) : transcript.durationMs === null ? null : Math.round(transcript.durationMs), location: { kind: 'not_retained' }, provenance: { method: 'user_submission', toolVersion: null, capturedAt: null, retrievedAt: null, rights: input.rights, retention: 'not_retained', contentHash: `sha256:${hash}` } }];
+  record.coverage.limitations = [...reasons, 'No completed visual search was retained. The speech trail is separate; it cannot verify visual identity, continuity or the caption.'];
+  return { kind: 'video', question: input.claim?.trim() || 'What context can be recovered from this supplied video?', caseRecord: parseCaseRecord(record), frames: [], assessments: [], limitations: record.coverage.limitations, transcript, submittedClaim: input.claim ?? null, ...(video?.visualScan ? { visualScan: video.visualScan } : {}), ...(spokenResearch ? { spokenResearch } : {}) };
+}
 export async function runAutomaticResearch(input: AutomaticResearchInput, emit: Progress, deps: AutomaticResearchDeps): Promise<AutomaticResearchResult> {
   check(deps);
   if (input.kind === 'topic') return investigateTopic(input.topic, emit, deps);
+  const transcript = await recognizedSpeech(input, emit, deps);
+  check(deps);
+  const spokenResearch = await audioResearch(input, transcript, emit, deps);
+  check(deps);
+  if (input.kind === 'audio') {
+    const result = spokenResearch ?? { kind: 'topic' as const, question: input.claim?.trim() || 'What context can be recovered from this supplied audio?', caseRecord: emptyCase(new Date(deps.now?.() ?? Date.now()).toISOString()), frames: [], assessments: [], limitations: [] };
+    if (!spokenResearch) {
+      const hash = createHash('sha256').update(input.bytes).digest('hex');
+      result.caseRecord.assets = [{ id: `audio:sha256:${hash}`, kind: 'audio', durationMs: transcript.durationMs === null ? null : Math.round(transcript.durationMs), location: { kind: 'not_retained' }, provenance: { method: 'user_submission', toolVersion: null, capturedAt: null, retrievedAt: null, rights: 'user_provided', retention: 'not_retained', contentHash: `sha256:${hash}` } }];
+      result.caseRecord.coverage.limitations = ['No usable recognized speech was available for automatic searching. Audio authenticity and speaker identity remain unknown.'];
+    }
+    return { ...result, kind: 'audio', transcript, submittedClaim: input.claim ?? null, limitations: [...result.caseRecord.coverage.limitations, ...transcript.limitations] };
+  }
   emit({ type: 'research.progress', message: 'Decoding timestamped frames locally…' });
-  const video = await (deps.prepareVideo ?? prepareVideo)(input.bytes, { signal: deps.signal });
+  let video: PreparedVideo;
+  try { video = await (deps.prepareVideo ?? prepareVideo)(input.bytes, { signal: deps.signal, scanTrack: true }); }
+  catch { check(deps); return partialVideoResult(input, transcript, spokenResearch, ['The visual track could not be decoded within its format, size, duration or process limits.'], new Date(deps.now?.() ?? Date.now()).toISOString()); }
   check(deps);
   if (!video.frames.length || video.frames.length > 3) throw new Error('The decoder must supply between one and three bounded frames.');
   const frames: AutomaticResearchResult['frames'] = [], cases: CaseRecord[] = [], failures: string[] = [];
@@ -201,10 +282,10 @@ export async function runAutomaticResearch(input: AutomaticResearchInput, emit: 
     frames.push({ timestampMs: frame.timestampMs, imageResult });
     cases.push(videoCase(video, frame.timestampMs, imageResult, new Date(deps.now?.() ?? Date.now()).toISOString()));
   }
-  const first = cases[0]; if (!first) throw new Error('None of the sampled-frame investigations completed.');
+  const first = cases[0]; if (!first) return partialVideoResult(input, transcript, spokenResearch, failures, new Date(deps.now?.() ?? Date.now()).toISOString(), video);
   const record = parseCaseRecord({ ...first, evidence: cases.flatMap(item => item.evidence), occurrences: cases.flatMap(item => item.occurrences), relations: cases.flatMap(item => item.relations), coverage: {
     ...first.coverage, searches: cases.flatMap(item => item.coverage.searches), omittedEvidenceCount: cases.reduce((sum, item) => sum + item.coverage.omittedEvidenceCount, 0),
     limitations: [...new Set([...cases.flatMap(item => item.coverage.limitations), ...failures, `${frames.length} distinct sampled frames completed; ${samples.length - frames.length} failed. ${video.frames.length - samples.length} byte-identical samples were skipped.`])],
   } });
-  return { kind: 'video', question: input.claim?.trim() ? input.claim : 'Where have these sampled video frames appeared, and in what context?', caseRecord: record, frames, limitations: record.coverage.limitations, assessments: [] };
+  return { kind: 'video', ...(video.visualScan ? { visualScan: video.visualScan } : {}), transcript, submittedClaim: input.claim ?? null, ...(spokenResearch ? { spokenResearch } : {}), question: input.claim?.trim() ? input.claim : 'Where have these sampled video frames appeared, and in what context?', caseRecord: record, frames, limitations: record.coverage.limitations, assessments: [] };
 }

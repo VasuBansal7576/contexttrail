@@ -59,7 +59,6 @@ it('rejects malformed multipart, paths, URLs, extra/duplicate fields, missing ri
   const url = form(); url.set('right', 'https://no-fetch.example/video.mp4'); await expectCode(await POST(request(url)), 400, 'INVALID_INPUT');
   const duplicate = form(); duplicate.append('rights', 'user_provided'); await expectCode(await POST(request(duplicate)), 400, 'INVALID_INPUT');
   const wrongType = form(); wrongType.set('left', new Blob([new Uint8Array(syntheticPng(2))], { type: 'text/html' }), 'left.png'); await expectCode(await POST(request(wrongType)), 415, 'UNSUPPORTED_MEDIA');
-  const bothImages = form(); bothImages.set('rightKind', 'image'); bothImages.set('right', new Blob([new Uint8Array(syntheticPng(2))], { type: 'image/png' }), 'right.png'); await expectCode(await POST(request(bothImages)), 400, 'VIDEO_REQUIRED');
   await expectCode(await POST(request(form())), 415, 'SIGNATURE_MISMATCH');
   expect(await readdir(directory)).toEqual([]);
 });
@@ -120,4 +119,13 @@ describe.skipIf(!available)('real decoder route and frozen matcher', () => {
     controller.abort();
     await expect(comparePreparedMediaAsync(left, right, controller.signal)).rejects.toMatchObject({ code: 'cancelled' });
   }, 30000);
+});
+
+it.skipIf(!available)('compares two actual decoded still images without inventing identity or source evidence', async () => {
+  const both = form(); both.set('left', new Blob([new Uint8Array(syntheticPng(2))], { type: 'image/png' }), 'left.png'); both.set('rightKind', 'image'); both.set('right', new Blob([new Uint8Array(syntheticPng(3))], { type: 'image/png' }), 'right.png');
+  const response = await POST(request(both)); expect(response.status).toBe(200);
+  const result = await response.json(); expect(result.report.comparedFramePairs).toBe(1);
+  expect(result.report.inputs.left.coverage.kind).toBe('still_image'); expect(result.report.inputs.right.coverage.kind).toBe('still_image');
+  expect(result.frames.left).toHaveLength(1); expect(result.frames.right).toHaveLength(1);
+  expect(result.persistence.status).toBe('not_saved'); expect(await readdir(directory)).toEqual([]);
 });

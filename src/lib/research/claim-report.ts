@@ -142,7 +142,7 @@ function stable(value: unknown): string {
 }
 /** Validate persisted output by re-deriving every label, reference, signal and binding from its retained probabilities and actual evidence. */
 export function parseClaimReport(value: unknown, record: CaseRecord, question: string): ClaimReport | null {
-  if (!object(value) || value.schemaVersion !== 'contexttrail-claim-report-v1' || value.question !== question || value.evidenceBinding !== binding(record, question) || !Array.isArray(value.sources) || value.sources.length !== record.evidence.length || value.sources.length > 8) return null;
+  if (!object(value) || value.schemaVersion !== 'contexttrail-claim-report-v1' || value.question !== question || value.evidenceBinding !== binding(record, question) || !Array.isArray(value.sources) || value.sources.length !== record.evidence.length || value.sources.length > 12) return null;
   const sources: ClaimSourceAssessment[] = [];
   for (let index = 0; index < record.evidence.length; index++) {
     const item: unknown = value.sources[index];

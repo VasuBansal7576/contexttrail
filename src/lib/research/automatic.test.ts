@@ -40,18 +40,18 @@ describe('automatic topic investigation (offline providers only)', () => {
     const search = vi.fn(async (params: SerpapiParams) => response(params.engine));
     const dependencies = deps(search);
     const result = await investigateTopic('What evidence shows coral recovery?', () => {}, dependencies);
-    expect(search).toHaveBeenCalledTimes(3);
-    expect(dependencies.fetchPage).toHaveBeenCalledTimes(5);
-    expect(result.caseRecord.coverage.sourceReads).toHaveLength(8);
-    expect(result.caseRecord.coverage.sourceReads?.filter(read => read.outcome === 'not_attempted')).toHaveLength(3);
-    expect(result.caseRecord.evidence).toHaveLength(8);
+    expect(search).toHaveBeenCalledTimes(6);
+    expect(dependencies.fetchPage).toHaveBeenCalledTimes(10);
+    expect(result.caseRecord.coverage.sourceReads).toHaveLength(12);
+    expect(result.caseRecord.coverage.sourceReads?.filter(read => read.outcome === 'not_attempted')).toHaveLength(2);
+    expect(result.caseRecord.evidence).toHaveLength(12);
     expect(result.caseRecord.evidence.some(item => item.sourceUrl.includes('news.'))).toBe(true);
     expect(result.caseRecord.evidence[0].content).toMatchObject({ kind: 'text', attribution: 'page_quote' });
-    expect(result.caseRecord.evidence[7].content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
+    expect(result.caseRecord.evidence[11].content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
     expect(result.caseRecord.evidence[0].publicationDate).toMatchObject({ status: 'observed', observation: { value: '2020-02-03' } });
     expect(result.caseRecord.claims).toEqual([]);
     expect(result.caseRecord.relations).toEqual([]);
-    expect(result.caseRecord.coverage.searches.map(item => item.retained).reduce((a, b) => a + b)).toBe(8);
+    expect(result.caseRecord.coverage.searches.map(item => item.retained).reduce((a, b) => a + b)).toBe(12);
     expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
   });
   it('keeps snippets as leads when the retrieved page has no question-overlapping paragraph', async () => {
@@ -222,7 +222,7 @@ describe('one-video automatic orchestration (offline providers only)', () => {
     expect(result.caseRecord.occurrences.every(item => item.identity.status === 'unknown' && item.span.kind === 'time' && [0, 1000, 2000].includes(item.span.startMs))).toBe(true);
     expect(result.frames.map(frame => frame.timestampMs)).toEqual([0, 1000, 2000]);
     expect(result.caseRecord.assets[0]).toMatchObject({ kind: 'video', durationMs: 3000, location: { kind: 'not_retained' } });
-    expect(result.limitations.some(item => item.includes('Unsampled intervals and audio are not searched'))).toBe(true);
+    expect(result.limitations.some(item => item.includes('Unsampled visual intervals are not searched'))).toBe(true);
     expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
     const streamed: unknown = JSON.parse(JSON.stringify(result));
     const parsed = parseAutomaticResearchResult(streamed);

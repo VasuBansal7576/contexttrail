@@ -6,12 +6,12 @@ import type { RetainedMaterial } from "@/lib/inquiries/materials";
 import PaperDialog from "./PaperDialog";
 import { newId } from "./EvidenceEditor";
 
-export default function FindingEditor({ evidence, material, questionId, existing, onSave, onClose }: { evidence: CaseEvidence; material: RetainedMaterial | null; questionId: string; existing?: Finding; onSave: (finding: Finding) => Promise<void>; onClose: () => void }) {
+export default function FindingEditor({ evidence, material, questionId, existing, initialAnchor, onSave, onClose }: { evidence: CaseEvidence; material: RetainedMaterial | null; questionId: string; existing?: Finding; initialAnchor?: ExactAnchor; onSave: (finding: Finding) => Promise<void>; onClose: () => void }) {
   const [findingId] = useState(() => newId("finding"));
-  const savedAnchor = existing?.support.find(support => support.evidenceId === evidence.id)?.anchor;
+  const savedAnchor = existing?.support.find(support => support.evidenceId === evidence.id)?.anchor ?? initialAnchor;
   const multipleSupports = Boolean(existing && existing.support.length !== 1);
   const [text, setText] = useState(existing?.text ?? "");
-  const [quote, setQuote] = useState(existing?.support[0].anchor.kind === "text" ? existing.support[0].anchor.quote : "");
+  const [quote, setQuote] = useState(savedAnchor?.kind === "text" ? savedAnchor.quote : "");
   const [start, setStart] = useState(savedAnchor?.kind === "text" ? savedAnchor.start : 0);
   const [relationship, setRelationship] = useState<"supports" | "challenges" | "context">(existing?.support[0].relationship ?? "context");
   const [assessmentKind, setAssessmentKind] = useState<"source_statement" | "operator_inference">(existing?.assessment.kind ?? "operator_inference");

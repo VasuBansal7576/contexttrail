@@ -43,7 +43,7 @@ describe('future-only topic search failure diagnostics', () => {
     expect(JSON.stringify(result)).not.toContain(secret);
     expect(JSON.stringify(result)).not.toContain('DO_NOT_RETAIN');
     expect(parseAutomaticResearchResult(result).caseRecord).toEqual(result.caseRecord);
-    expect(search).toHaveBeenCalledTimes(3); expect(fetchPage).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledTimes(6); expect(fetchPage).toHaveBeenCalledTimes(1);
   });
 
   it.each([

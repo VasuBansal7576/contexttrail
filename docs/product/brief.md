@@ -8,7 +8,7 @@ ContextTrail investigates a question, claim or piece of media. It finds sources 
 
 One clear starting point accepts a question, claim, image or video. Retrieval is the main workflow. Manual evidence entry is an optional correction and investigation tool. Results lead with an evidence-bound explanation, then let the reader inspect retained passages, source relationships and chronology inside the app. Opening an original source is deliberate. Unknowns remain visible. Saved investigations retain their input question, evidence, assessments and correction history.
 
-The frontend follows the owner's authored editorial HTML direction: Instrument Serif, Geist Sans, warm paper, brick red and blue chapter contrasts, composed illustration and gradual meaningful reveals. This implementation follows A Place for the Question, matching the existing authored interface. Borrowed Moment remains an alternate reference. Every implemented screen must share the selected direction.
+The frontend follows the owner's authored editorial HTML direction: Instrument Serif, Geist Sans, warm paper, brick red and blue chapter contrasts, composed illustration and gradual meaningful reveals. The selected reference is the owner’s exact `/Users/vasu/Desktop/Product HTMLs/ContextTrail.html`, titled A Place for the Question. Its nine chapters, scaled desktop stage, chapter transport, source inspection, evidence selection and revision controls are the visual and interaction reference. Every implemented screen must share that direction. Fictional walkthrough records are not factual product evidence. See [frontend reference](../frontend-reference.md) for the mapping and verification record.
 
 ## Required scope and acceptance
 
@@ -25,6 +25,8 @@ The frontend follows the owner's authored editorial HTML direction: Instrument S
 | Audio | Include in broader media research, with actual decoding/transcription before making audio claims | No automatic audio research |
 
 Government targeting is outside scope. Earliest found appearance never proves authorship. Multiple sources never prove independence merely because their domains differ. A model classification never supplies missing evidence.
+
+The baseline column above records `d881a58`, not the latest implementation. The current branch adds expanded question retrieval and source facets, one-hop citation recovery, full-track local luminance scanning and speech recognition, separate spoken-source research, cross-saved-source wording groups, automatic watches and two-still local comparison. The current specification and work log distinguish tested software paths from real product acceptance. These additions do not shrink the required outcomes above.
 
 ## Completion rule
 

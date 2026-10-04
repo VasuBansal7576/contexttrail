@@ -43,30 +43,30 @@ describe('future-only bounded topic candidate references', () => {
     expect(audit).toMatchObject({ uniqueNormalizedCount: 2, safeReferenceCount: 2, retainedCount: 2, withheldReferenceCount: 0, uncapturedSafeReferenceCount: 0 });
     expect(audit?.references.map(row => row.sourceUrl)).toEqual(['https://source.example/article?id=1', 'https://source.example/article?id=1']);
     expect(new Set(audit?.references.map(row => row.candidateId)).size).toBe(2);
-    expect(audit?.searches.map(search => search.duplicateCount)).toEqual([0, 2, 2]);
+    expect(audit?.searches.map(search => search.duplicateCount)).toEqual([0, 2, 2, 2, 2, 2]);
     expect(result.caseRecord.coverage.sourceReads?.map(read => read.requestedUrl)).toEqual(audit?.references.map(row => row.sourceUrl));
     expect(parseAutomaticResearchResult(result).caseRecord.coverage.topicCandidateAudit).toEqual(audit);
   });
   it('captures safe omitted identities without promoting them to evidence or retaining provider text', async () => {
     const { result, search, fetchPage, requests } = await run();
     const audit = result.caseRecord.coverage.topicCandidateAudit;
-    expect(audit).toMatchObject({ schemaVersion: 'contexttrail-topic-candidate-audit-v1', uniqueNormalizedCount: 39, safeReferenceCount: 36, withheldReferenceCount: 3, retainedCount: 8, notRetainedCount: 28, uncapturedSafeReferenceCount: 0 });
-    expect(audit?.references).toHaveLength(36);
-    expect(audit?.searches).toEqual([0, 1, 2].map(searchIndex => ({ searchIndex, outcome: 'succeeded', normalizedCount: 16, droppedBeforeNormalizationCount: 2, duplicateCount: searchIndex === 0 ? 1 : 4 })));
-    expect(audit?.references.slice(0, 8).map(row => row.candidateId)).toEqual(result.caseRecord.evidence.map(item => item.id));
-    expect(audit?.references.slice(8).every(row => row.disposition === 'not_retained')).toBe(true);
+    expect(audit).toMatchObject({ schemaVersion: 'contexttrail-topic-candidate-audit-v1', uniqueNormalizedCount: 75, safeReferenceCount: 72, withheldReferenceCount: 3, retainedCount: 12, notRetainedCount: 60, uncapturedSafeReferenceCount: 0 });
+    expect(audit?.references).toHaveLength(72);
+    expect(audit?.searches).toEqual([0, 1, 2, 3, 4, 5].map(searchIndex => ({ searchIndex, outcome: 'succeeded', normalizedCount: 16, droppedBeforeNormalizationCount: 2, duplicateCount: searchIndex === 0 ? 1 : 4 })));
+    expect(audit?.references.slice(0, 12).map(row => row.candidateId)).toEqual(result.caseRecord.evidence.map(item => item.id));
+    expect(audit?.references.slice(12).every(row => row.disposition === 'not_retained')).toBe(true);
     expect(audit?.references.some(row => row.sourceUrl === 'https://surface-0.example/source?id=11')).toBe(true);
-    expect(result.caseRecord.evidence).toHaveLength(8);
-    expect(result.caseRecord.coverage.omittedEvidenceCount).toBe(31);
+    expect(result.caseRecord.evidence).toHaveLength(12);
+    expect(result.caseRecord.coverage.omittedEvidenceCount).toBe(63);
     expect(JSON.stringify(audit)).not.toMatch(/Synthetic|Duplicate title|access_token|secret|127\.0\.0\.1|authority|official/);
-    expect(search).toHaveBeenCalledTimes(3); expect(fetchPage).toHaveBeenCalledTimes(5);
-    expect(requests).toHaveBeenCalledTimes(8);
+    expect(search).toHaveBeenCalledTimes(6); expect(fetchPage).toHaveBeenCalledTimes(10);
+    expect(requests).toHaveBeenCalledTimes(12);
     const questions = requests.mock.calls.reduce((total, [, init]) => {
       const body: unknown = JSON.parse(String(init?.body));
       if (!body || typeof body !== 'object' || !('questions' in body) || !body.questions || typeof body.questions !== 'object') throw new Error('Missing bounded questions');
       return total + Object.keys(body.questions).length;
     }, 0);
-    expect(questions).toBe(40);
+    expect(questions).toBe(60);
     expect(result.claimReport?.sources.every(source => source.relation === 'insufficient')).toBe(true);
   });
 
@@ -78,7 +78,7 @@ describe('future-only bounded topic candidate references', () => {
 
   it('binds selected audit rows to the original requested lead when fetched query resources differ', async () => {
     const { result } = await run(12, false, true);
-    expect(result.caseRecord.coverage.sourceReads?.filter(read => read.outcome === 'binding_rejected')).toHaveLength(5);
+    expect(result.caseRecord.coverage.sourceReads?.filter(read => read.outcome === 'binding_rejected')).toHaveLength(10);
     expect(result.caseRecord.coverage.topicCandidateAudit?.references.every(row => !row.sourceUrl.includes('different='))).toBe(true);
     expect(parseCaseRecord(result.caseRecord)).toEqual(result.caseRecord);
     // Coverage describes the past retrieval even if a current source is removed.
@@ -104,10 +104,10 @@ describe('future-only bounded topic candidate references', () => {
   it('captures every selected reference before truncating the remaining safe pool at100', async () => {
     const { result } = await run(110);
     const audit = result.caseRecord.coverage.topicCandidateAudit;
-    expect(audit).toMatchObject({ uniqueNormalizedCount: 333, safeReferenceCount: 330, retainedCount: 8, notRetainedCount: 322, uncapturedSafeReferenceCount: 230 });
+    expect(audit).toMatchObject({ uniqueNormalizedCount: 663, safeReferenceCount: 660, retainedCount: 12, notRetainedCount: 648, uncapturedSafeReferenceCount: 560 });
     expect(audit?.references).toHaveLength(100);
-    expect(audit?.references.slice(0, 8).map(row => row.candidateId)).toEqual(result.caseRecord.evidence.map(item => item.id));
-    expect(audit?.references.slice(8, 11).map(row => row.sourceUrl)).toEqual(['https://surface-0.example/source?id=3', 'https://surface-0.example/source?id=4', 'https://surface-0.example/source?id=5']);
+    expect(audit?.references.slice(0, 12).map(row => row.candidateId)).toEqual(result.caseRecord.evidence.map(item => item.id));
+    expect(audit?.references.slice(12, 15).map(row => row.sourceUrl)).toEqual(['https://surface-0.example/source?id=2', 'https://surface-0.example/source?id=3', 'https://surface-0.example/source?id=4']);
   });
 
   it('keeps unavailable search counts unknown rather than treating failures as successful empties', async () => {

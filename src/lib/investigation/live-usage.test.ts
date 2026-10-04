@@ -97,6 +97,20 @@ describe("server-only opt-in configuration", () => {
 });
 
 describe("durable whole-run admission", () => {
+  it("adds only verified search capacity while still requiring the existing TypeSafe allowance", async () => {
+    config.allowance={...topicRunAllocation(),searches:0};
+    await initialize();
+    const before=await readFile(config.ledgerPath,"utf8");
+    const expanded={...config,allowance:topicRunAllocation()};
+    const grantEnv={...env,CONTEXTTRAIL_LIVE_ENABLED:"false",CONTEXTTRAIL_FREE_SERPAPI_SEARCHES:"6",CONTEXTTRAIL_FREE_SERPAPI_UPLOADS:"0",CONTEXTTRAIL_FREE_JEV_REQUESTS:"12",CONTEXTTRAIL_FREE_JEV_QUESTIONS:"60",CONTEXTTRAIL_ALLOWANCE_GRANT:JSON.stringify({searches:6,uploads:0,jevRequests:0,jevQuestions:0}),CONTEXTTRAIL_ALLOWANCE_GRANT_REASON:"verified-search-balance"};
+    await exec(process.execPath,[resolve("scripts/grant-live-allowance.mjs")],{env:grantEnv});
+    expect((await readFile(config.ledgerPath,"utf8")).startsWith(before)).toBe(true);
+    const run=await reserveTopicRun(expanded);await run.release();
+    await expect(reserveTopicRun(expanded)).rejects.toThrow("cannot cover");
+    const rows=(await readFile(config.ledgerPath,"utf8")).trim().split("\n").map(line=>JSON.parse(line));
+    expect(rows[1].allocation).toEqual({searches:6,uploads:0,jevRequests:0,jevQuestions:0});
+    expect(rows[2].allocation).toEqual(topicRunAllocation());
+  });
   it("appends one explicit offline grant, preserves prior reservations, and never authorizes a third run", async () => {
     config.allowance=liveRunAllocation("claim",true);
     await initialize();
@@ -369,13 +383,13 @@ describe("automatic topic fixed reservation", () => {
     const topic = await reserveTopicRun(config); leases.push(topic);
     const provider = vi.fn(async () => new Response("failed", { status: 500 }));
     const search = topic.fetchFor("serpapi", provider);
-    for (let i = 0; i < 3; i++) await search(SERPAPI_SEARCH_URL);
+    for (let i = 0; i < topicRunAllocation().searches; i++) await search(SERPAPI_SEARCH_URL);
     await expect(search(SERPAPI_SEARCH_URL)).rejects.toThrow("allowance");
     await expect(search(SERPAPI_IMAGE_UPLOAD_URL)).rejects.toThrow("allowance");
     const jev = topic.fetchFor("jev", provider);
-    for (let i = 0; i < 8; i++) await jev(JEV_ENDPOINT, jevBody(5));
+    for (let i = 0; i < topicRunAllocation().jevRequests; i++) await jev(JEV_ENDPOINT, jevBody(5));
     await expect(jev(JEV_ENDPOINT, jevBody())).rejects.toThrow("allowance");
-    expect(provider).toHaveBeenCalledTimes(11);
+    expect(provider).toHaveBeenCalledTimes(topicRunAllocation().searches + topicRunAllocation().jevRequests);
   });
 });
 

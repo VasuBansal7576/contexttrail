@@ -124,17 +124,20 @@ export function liveRunAllocation(claim: string | null, publicImage = false): Li
 
 /** Topic retrieval has a distinct fixed ceiling. No caller-supplied quota is accepted. */
 export function topicRunAllocation(): LiveAllowance {
-  return { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 40 };
+  return { searches: 6, uploads: 0, jevRequests: 12, jevQuestions: 60 };
 }
 
 /** Three sampled frame searches share one reservation and one provider counter. */
 export function videoRunAllocation(claim: string | null): LiveAllowance {
   const frame = liveRunAllocation(claim);
-  return { searches: frame.searches * 3, uploads: frame.uploads * 3, jevRequests: frame.jevRequests * 3, jevQuestions: frame.jevQuestions * 3 };
+  const speech = topicRunAllocation();
+  return { searches: frame.searches * 3 + speech.searches, uploads: frame.uploads * 3, jevRequests: frame.jevRequests * 3 + speech.jevRequests, jevQuestions: frame.jevQuestions * 3 + speech.jevQuestions };
 }
 
 /** Existing reservations/grants keep their original charge; old topic allocations never authorize the expanded workflow. */
 const LEGACY_TOPIC_ALLOCATION: LiveAllowance = { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 8 };
+const PREVIOUS_VIDEO_ALLOCATIONS: LiveAllowance[] = [null, 'claim'].map(claim => { const frame = liveRunAllocation(claim); return { searches: frame.searches * 3, uploads: frame.uploads * 3, jevRequests: frame.jevRequests * 3, jevQuestions: frame.jevQuestions * 3 }; });
+const PREVIOUS_TOPIC_ALLOCATION: LiveAllowance = { searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 40 };
 
 function validAllowance(value: unknown): value is LiveAllowance {
   return isRecord(value) && Object.keys(value).length === ALLOWANCE_KEYS.length &&
@@ -151,7 +154,7 @@ function withinAllowance(a: LiveAllowance, b: LiveAllowance): boolean {
 
 function validRunAllocation(value: unknown): value is LiveAllowance {
   return validAllowance(value) &&
-    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION, videoRunAllocation(null), videoRunAllocation('claim')]
+    [liveRunAllocation(null), liveRunAllocation("claim"), liveRunAllocation(null, true), liveRunAllocation("claim", true), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION, PREVIOUS_TOPIC_ALLOCATION, ...PREVIOUS_VIDEO_ALLOCATIONS, videoRunAllocation(null), videoRunAllocation('claim')]
       .some((allocation) => sameAllowance(value, allocation));
 }
 
@@ -173,7 +176,7 @@ function parseLedger(raw: string, config: LiveUsageConfig): LiveAllowance {
     if (isRecord(entry) && entry.type === "grant") {
       if (Object.keys(entry).length !== 4 || typeof entry.id !== "string" || !/^[0-9a-f-]{36}$/.test(entry.id) || ids.has(entry.id) ||
           typeof entry.reason !== "string" || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(entry.reason) || !validAllowance(entry.allocation) ||
-          ![liveRunAllocation(null, true),liveRunAllocation("claim", true), liveRunAllocation(null), liveRunAllocation("claim"), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION].some((a) => sameAllowance(a, entry.allocation as LiveAllowance))) {
+          ![liveRunAllocation(null, true),liveRunAllocation("claim", true), liveRunAllocation(null), liveRunAllocation("claim"), topicRunAllocation(), LEGACY_TOPIC_ALLOCATION, PREVIOUS_TOPIC_ALLOCATION, {searches:6,uploads:0,jevRequests:0,jevQuestions:0}].some((a) => sameAllowance(a, entry.allocation as LiveAllowance))) {
         throw new LiveUsageError(STORAGE_ERROR);
       }
       ids.add(entry.id);

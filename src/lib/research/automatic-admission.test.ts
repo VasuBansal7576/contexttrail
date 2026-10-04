@@ -20,10 +20,10 @@ it.each([null, 'This video depicts a current incident.'])('reserves a shared thr
   const production = await automaticProductionDeps(input, new AbortController().signal);
   try {
     const entries = (await readFile(ledgerPath, 'utf8')).trimEnd().split('\n').map(line => JSON.parse(line));
-    expect(entries[1].allocation).toEqual(claim ? { searches: 18, uploads: 3, jevRequests: 180, jevQuestions: 816 } : { searches: 12, uploads: 3, jevRequests: 180, jevQuestions: 339 });
+    expect(entries[1].allocation).toEqual(claim ? { searches: 24, uploads: 3, jevRequests: 192, jevQuestions: 876 } : { searches: 18, uploads: 3, jevRequests: 192, jevQuestions: 399 });
     expect(fetch).not.toHaveBeenCalled();
   } finally { await production.release(); }
 });
 it('declares bounded five-question topic classification without additional requests', () => {
-  expect(topicRunAllocation()).toEqual({ searches: 3, uploads: 0, jevRequests: 8, jevQuestions: 40 });
+  expect(topicRunAllocation()).toEqual({ searches: 6, uploads: 0, jevRequests: 12, jevQuestions: 60 });
 });

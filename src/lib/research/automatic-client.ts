@@ -1,4 +1,6 @@
 import { retainVideoResult, type RetainedVideoResult } from './video-retention';
+import { parseVisualScan } from '../video/visual-scan';
+import { parseMediaTranscript, speechSearchQuestion, legacySpeechSearchQuestion } from '../video/transcript';
 import { JEV_MODEL } from '../jev/model';
 import { parseCaseRecord } from '../cases/parse';
 import { parseClaimReport } from './claim-report';
@@ -21,9 +23,10 @@ export interface AutomaticFrameSource {
   classificationContext: string | null;
   mediaRelationship: string | null;
 }
-export type AutomaticResearchView = Omit<AutomaticResearchResult, 'frames'> & {
+export type AutomaticResearchView = Omit<AutomaticResearchResult, 'frames' | 'spokenResearch'> & {
   /** Exact completed video report archive; never input media bytes. */
   retainedResult?: RetainedVideoResult;
+  spokenResearch?: AutomaticResearchView;
   frames: Array<{ timestampMs: number; imageResult: { captionComparison?: { mode: 'claim_check'; claim: string; status: ClaimStatus; takeaways: Takeaway[]; evidenceWarning?: string }; captionFindings: CaptionFindingsView; readSelectionAudit?: DeepReadSelectionAudit | null; limitations: string[]; timeline: AutomaticFrameSource[]; undatedEvidence: AutomaticFrameSource[]; supportingEvidence: AutomaticFrameSource[]; contextualEvidence: AutomaticFrameSource[] } }>;
 };
 function record(value: unknown): Record<string, unknown> {
@@ -75,9 +78,10 @@ function captionComparison(image: Record<string, unknown>, evidence: AutomaticFr
   return { mode: 'claim_check', claim: image.claim, status, takeaways };
 }
 /** Validate the case and project only inspected frame fields. No trust cast to InvestigationResult. */
-export function parseAutomaticResearchResult(value: unknown): AutomaticResearchView {
+export function parseAutomaticResearchResult(value: unknown, depth = 0): AutomaticResearchView {
+  if (depth > 1) throw new Error('Nested speech investigations are invalid.');
   const result = record(value);
-  if ((result.kind !== 'topic' && result.kind !== 'video') || typeof result.question !== 'string' || !Array.isArray(result.frames)) throw new Error('The research service returned an invalid result.');
+  if ((result.kind !== 'topic' && result.kind !== 'video' && result.kind !== 'audio') || typeof result.question !== 'string' || !Array.isArray(result.frames)) throw new Error('The research service returned an invalid result.');
   const caseRecord = parseCaseRecord(result.caseRecord);
   if (!Array.isArray(result.assessments)) throw new Error('The research service returned invalid relevance assessments.');
   const evidenceIds = new Set(caseRecord.evidence.map(item => item.id));
@@ -90,9 +94,20 @@ export function parseAutomaticResearchResult(value: unknown): AutomaticResearchV
     if (typeof assessment.relevance !== 'number' || !Number.isFinite(assessment.relevance) || assessment.relevance < 0 || assessment.relevance > 1 || assessment.model !== JEV_MODEL) throw new Error('The research service returned an invalid or unverified relevance assessment.');
     return { evidenceId: assessment.evidenceId, relevance: assessment.relevance, model: assessment.model };
   });
+  if (result.kind !== 'video' && result.frames.length !== 0) throw new Error('Only video investigations may contain frames.');
+  const submittedClaim = result.submittedClaim;
+  if (submittedClaim !== undefined && submittedClaim !== null && (typeof submittedClaim !== 'string' || !submittedClaim.trim() || submittedClaim.length > 500)) throw new Error('Invalid supplied caption');
+  const visualScan = result.visualScan === undefined ? undefined : parseVisualScan(result.visualScan);
+  if (visualScan && result.kind !== 'video') throw new Error('Only video has a visual scan.');
+  const transcript = result.transcript === undefined ? undefined : parseMediaTranscript(result.transcript);
+  const spokenResearch = result.spokenResearch === undefined ? undefined : parseAutomaticResearchResult(result.spokenResearch, depth + 1);
+  if (spokenResearch && (result.kind !== 'video' || spokenResearch.kind !== 'topic' || !transcript || transcript.status !== 'transcribed')) throw new Error('Invalid spoken evidence trail.');
+  const boundSpeechQueries = transcript ? [speechSearchQuestion(transcript, typeof submittedClaim === 'string' ? submittedClaim : null), legacySpeechSearchQuestion(transcript, typeof submittedClaim === 'string' ? submittedClaim : null)] : [];
+  if (spokenResearch && !boundSpeechQueries.includes(spokenResearch.question)) throw new Error('Spoken research is not bound to this transcript.');
+  if (result.kind === 'audio' && transcript?.status === 'transcribed' && transcript.segments.some(segment => segment.recognition === 'unreviewed') && !boundSpeechQueries.includes(result.question)) throw new Error('Audio research is not bound to this transcript.');
   const claimReport = result.claimReport === undefined ? null : parseClaimReport(result.claimReport, caseRecord, result.question);
   if (result.claimReport !== undefined && !claimReport) throw new Error('The research service returned an invalid or stale claim report.');
-  return { ...(result.kind === 'video' ? { retainedResult: retainVideoResult(result) } : {}), kind: result.kind, question: result.question, caseRecord, assessments, ...(claimReport ? { claimReport } : {}), limitations: strings(result.limitations), frames: result.frames.map(item => {
+  return { ...(result.kind !== 'topic' ? { retainedResult: retainVideoResult(result) } : {}), ...(visualScan ? { visualScan } : {}), ...(submittedClaim !== undefined ? { submittedClaim: typeof submittedClaim === 'string' ? submittedClaim : null } : {}), ...(transcript ? { transcript } : {}), ...(spokenResearch ? { spokenResearch } : {}), kind: result.kind, question: result.question, caseRecord, assessments, ...(claimReport ? { claimReport } : {}), limitations: strings(result.limitations), frames: result.frames.map(item => {
     const frame = record(item), image = record(frame.imageResult);
     if (typeof frame.timestampMs !== 'number' || !Number.isFinite(frame.timestampMs) || frame.timestampMs < 0) throw new Error('The research service returned an invalid frame timestamp.');
     const timeline = sources(image.timeline), undatedEvidence = sources(image.undatedEvidence), supportingEvidence = sources(image.supportingEvidence), contextualEvidence = sources(image.contextualEvidence);

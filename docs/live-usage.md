@@ -165,4 +165,6 @@ key-backed unrestricted endpoint to the public.
 
 ## Automatic questions, video and watches
 
-Questions and each watch check reserve 3 searches / 0 uploads / 8 Jev requests / 40 questions. An uploaded three-frame video reserves 18 / 3 / 180 / 816 with a caption, or 12 / 3 / 180 / 339 without one. The entire reservation precedes provider dispatch; unused units are not automatically refunded. Identical samples are skipped and completed frames survive another frame's failure. See automatic-investigation.md and automatic-watches.md.
+Questions, audio research and each watch check reserve 6 searches / 0 uploads / 12 Jev requests / 60 questions. An uploaded video reserves 24 / 3 / 192 / 876 with a caption, or 18 / 3 / 192 / 399 without one, including one separately reported spoken-source investigation. The entire reservation precedes provider dispatch; unused units are not automatically refunded. Identical samples are skipped and completed frame/speech results survive failure of the other part. Historical ledger entries retain their earlier allocations and are not reset or repriced. See automatic-investigation.md and automatic-watches.md.
+
+A separately verified SerpApi balance can add exactly six searches with zero uploads, TypeSafe requests or TypeSafe questions. This search-only grant does not authorize a reduced-cost investigation: each subsequent run still reserves its full normal allocation from all remaining units. Prior reservations remain charged. The operator must verify the current free search balance before appending this grant.

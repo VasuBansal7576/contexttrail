@@ -70,6 +70,7 @@ export default function UploadForm({
     return () => window.removeEventListener("paste", onPaste);
   }, [acceptFile]);
 
+  const [captionMode,setCaptionMode] = useState(Boolean(claim.trim()));
   const canSubmit = (selection !== null || Boolean(publicImageId) || Boolean(publicImageUrl)) && !preparing;
 
   return (
@@ -95,18 +96,10 @@ export default function UploadForm({
           <ChapterHeading number="01" label="Image investigation" description="Follow the image on its own, or examine the story attached to it.">Start with<br /><em>what you see.</em></ChapterHeading>
           {/* Dropzone: a real button-like label so keyboard users get a native file dialog. */}
           {publicImageId ? (
-            <div className="rounded-2xl bg-white/70 p-4 ring-1 ring-ink/10">
-              <div className="flex items-center gap-4">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={PUBLIC_IMAGES[publicImageId].previewUrl} alt={PUBLIC_IMAGES[publicImageId].title} className="h-20 w-20 shrink-0 rounded-lg object-cover" />
-                <div className="min-w-0">
-                  <p className="font-medium">{PUBLIC_IMAGES[publicImageId].title}</p>
-                  <p className="mt-1 text-xs text-ink-soft">Already public · searched by source URL · no upload</p>
-                  <button type="button" onClick={onRemove} className="mt-1 min-h-[44px] text-sm text-signal-ink underline underline-offset-2">Remove</button>
-                </div>
-              </div>
-              <p className="mt-3 text-xs text-ink-soft">{PUBLIC_IMAGES[publicImageId].credit}</p>
-              <a href={PUBLIC_IMAGES[publicImageId].sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center text-xs text-signal-ink underline">View NASA source and credit ↗</a>
+            <div className="image-public-selection">
+              <div className="sheet-topline"><strong>{PUBLIC_IMAGES[publicImageId].title}</strong><button type="button" onClick={onRemove} className="text-link">Remove</button></div>
+              <p>Already public · searched by source URL · no upload</p>
+              <a href={PUBLIC_IMAGES[publicImageId].sourceUrl} target="_blank" rel="noopener noreferrer" className="text-link">View NASA source and credit ↗</a>
             </div>
           ) : publicImageUrl ? (
             <div className="rounded-2xl bg-white/70 p-4 ring-1 ring-ink/10">
@@ -135,7 +128,7 @@ export default function UploadForm({
                 acceptFile(e.dataTransfer.files?.[0]);
               }}
               className={cn(
-                "rounded-2xl border-2 border-dashed p-10 text-center transition",
+                "image-dropzone rounded-2xl border-2 border-dashed p-10 text-center transition",
                 "focus-within:border-signal focus-within:ring-2 focus-within:ring-signal/50 focus-within:ring-offset-2 focus-within:ring-offset-paper",
                 dragging ? "border-signal bg-signal/5" : "border-ink/20 bg-white/60",
               )}
@@ -210,18 +203,18 @@ export default function UploadForm({
           )}
 
           {!selection && !publicImageId && !publicImageUrl && onSelectPublicImage ? (
-            <button type="button" onClick={() => onSelectPublicImage("nasa-earthrise")} className="mt-3 flex min-h-[48px] w-full items-center justify-center rounded-xl bg-white/70 px-4 text-sm font-medium ring-1 ring-ink/15 transition hover:ring-ink/40">
+            <button type="button" onClick={() => onSelectPublicImage("nasa-earthrise")} className="image-public-example text-link">
               Try NASA&apos;s public Earthrise image →
             </button>
           ) : null}
 
           {!selection && !publicImageId && !publicImageUrl && onSelectPublicImageUrl ? (
-            <div className="mt-4">
+            <details className="image-url-entry"><summary>Use an already-public image URL ↗</summary>
               <label htmlFor="ct-public-url" className="text-sm font-medium">Already-public image URL</label>
               <input id="ct-public-url" type="url" value={urlDraft} onChange={(e) => setUrlDraft(e.target.value)} maxLength={2048} placeholder="https://example.org/public-photo.jpg" aria-describedby="ct-public-url-help" className="mt-2 w-full rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15" />
               <p id="ct-public-url-help" className="mt-2 text-xs text-ink-soft">Use a public HTTPS JPEG, PNG or WebP, without login, tokens or query parameters. Do not publish a private image to use this option.</p>
               <button type="button" disabled={!urlDraft.trim()} onClick={() => onSelectPublicImageUrl(urlDraft.trim())} className="mt-2 min-h-[44px] text-sm font-medium text-signal-ink underline disabled:opacity-40">Use public image URL →</button>
-            </div>
+            </details>
           ) : null}
 
           {error ? (
@@ -233,7 +226,8 @@ export default function UploadForm({
             </p>
           ) : null}
 
-          <div className="mt-6">
+          <div className="image-caption-switch" role="group" aria-label="Image investigation intent"><button type="button" aria-pressed={!captionMode && !claim.trim()} onClick={() => { setCaptionMode(false); onClaimChange(''); }}><span>Trace this photograph</span><small>NO CLAIM</small></button><button type="button" aria-pressed={captionMode || Boolean(claim.trim())} onClick={() => { setCaptionMode(true); }}><span>Check its attached caption</span><small>CHECK CAPTION</small></button></div>
+          <div className="image-caption-input" hidden={!captionMode && !claim.trim()}>
             <label htmlFor="ct-claim" className="text-sm font-medium">
               Claim or caption (optional)
             </label>
@@ -241,7 +235,7 @@ export default function UploadForm({
               id="ct-claim"
               value={claim}
               maxLength={CLAIM_MAX}
-              rows={3}
+              rows={2}
               onChange={(e) => onClaimChange(e.target.value)}
               placeholder="E.g. “This shows a recent incident in my city.”"
               aria-describedby="ct-claim-help"

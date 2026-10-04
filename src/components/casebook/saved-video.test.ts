@@ -40,7 +40,7 @@ it('offers save for completed video, safely retries a lost response and reopens 
   try {
     await act(async () => root.render(React.createElement(AutomaticResult, { result })));
     expect(container.textContent).toContain('Save video report');
-    expect(container.textContent).toContain('Original video bytes and sampled image bytes are excluded');
+    expect(container.textContent).toContain('Original recording and sampled image bytes are excluded');
     await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === 'Save video report')?.click(); });
     await waitForUi(() => expect(container.textContent).toContain('Lost response')); expect(requests).toHaveLength(1);
     await act(async () => root.render(React.createElement(AutomaticResult, { result, key: 'remount' })));

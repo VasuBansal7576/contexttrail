@@ -92,8 +92,13 @@ cannot inherit a public-source path around image-upload consent checks.
 A hosted multipart endpoint was deferred: native decoder capacity, deployment
 availability and per-frame provider authorization need a separate bounded worker
 integration. A byte-input library owns local decoding and provenance without
-changing established image request semantics. Audio, transcription, scene-cut
-sampling, social downloading and cross-frame result aggregation are not implemented.
+changing established image request semantics. The automatic local `/video` workflow
+now enables a two-fps whole-track luminance scan, selects endpoint/change search
+frames, and retains separate frame results. It also recognizes bounded speech locally
+and researches usable wording separately. The local comparison benchmark continues
+to use the uniform samples described above. Social downloading, fine-grained scene
+identity and verified full-video historical matching remain unimplemented. See
+[automatic research](automatic-investigation.md) for setup, coverage and real runs.
 
 ## Verify
 

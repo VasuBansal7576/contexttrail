@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LocalComparisonResponse } from './application-contract';
 import type { FramePairComparison } from './model';
 import { ComparisonClientError, compareFiles, formatTimestamp, frameSource, getComparisonCapabilities, parseComparisonCapabilities, parseComparisonResponse, validateComparisonFile } from './client';
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 const mediaHash = 'a'.repeat(64), frameHash = 'b'.repeat(64), leftId = `image:sha256:${frameHash}`, rightId = `video:sha256:${mediaHash}`;
 function fixture(): LocalComparisonResponse {

@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import InvestigatePage from './page';
 import { useInvestigation, type InvestigationSnapshot } from '@/lib/stream/useInvestigation';
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('@/lib/stream/useInvestigation', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/stream/useInvestigation')>();
   return { ...actual, useInvestigation: vi.fn(), readCachedResult: () => null };
