@@ -39,6 +39,12 @@ const watch=join(destination,'src/components/casebook/Watchlists.tsx');writeFile
 const automatic=join(destination,'src/lib/research/automatic.ts');writeFileSync(automatic,readFileSync(automatic,'utf8').replace('PDF reading is text-only, limited to the first twelve pages and 64,000 extracted characters. Scanned pages, audio, figures and later pages are not inspected.','This public trial inspects HTML source pages only. PDF, video and audio source contents remain uninspected.'));
 const api=join(destination,'src/app/api/investigate/route.ts');let route=readFileSync(api,'utf8');route="import { requireLocalResearchRequest } from '@/lib/research/local-boundary';\n"+route;route=route.replace('export async function POST(req: Request): Promise<Response> {',`export async function POST(req: Request): Promise<Response> {\n  try {requireLocalResearchRequest(req)} catch {return Response.json({error:'Sign in with ChatGPT to investigate; cross-origin requests are rejected.'},{status:401})}`);writeFileSync(api,route);
 
+// The hosted automatic endpoint accepts only short question forms, not native media uploads.
+const automaticApi=join(destination,'src/app/api/research/investigate/route.ts');
+let automaticRoute=readFileSync(automaticApi,'utf8').replace('const REQUEST_BYTES = VIDEO_LIMITS.bytes + 64 * 1024;','const REQUEST_BYTES = 64 * 1024;').replaceAll('Request exceeds the 32 MB video limit plus multipart framing.','The public question request exceeds 64 KiB.').replaceAll('Request exceeds the bounded video upload limit.','The public question request exceeds 64 KiB.');
+automaticRoute=automaticRoute.replace('const input = await parseAutomaticForm(form);',"if(form.get('kind') !== 'topic') throw new ResearchServiceError(503,'NATIVE_MEDIA_UNAVAILABLE','Native video and audio investigation require the local application.');\n    const input = await parseAutomaticForm(form);");
+writeFileSync(automaticApi,automaticRoute);
+
 // Starter root app would take precedence over the copied src/app.
 if(existsSync(join(destination,'app')))rmSync(join(destination,'app'),{recursive:true,force:true});
 const vite=join(destination,'vite.config.ts');
