@@ -1,0 +1,38 @@
+{
+  "provider": "kokoro",
+  "speed": "0.94",
+  "lines": [
+    {
+      "id": "01",
+      "text": "We pay with U P I every day. But what made it stick? Better internet? More places to pay?"
+    },
+    {
+      "id": "02",
+      "text": "Take that question to ContextTrail. This real investigation searched for the district-level evidence behind U P I adoption."
+    },
+    {
+      "id": "03",
+      "text": "One retrieved article makes a useful distinction. Internet laid the foundation. Its account points to how many merchants accept payment."
+    },
+    {
+      "id": "04",
+      "text": "Open the retained source. Check when it was published, and when it was retrieved. Here, the publication date is inferred."
+    },
+    {
+      "id": "05",
+      "text": "Other sources still need checking. Keep the open questions alongside what you found."
+    },
+    {
+      "id": "06",
+      "text": "Then come back. The same question. The same retained source. You can inspect the passage again, without trying to remember which tab it was."
+    },
+    {
+      "id": "07",
+      "text": "An image. A clip. A question you are trying to understand. Bring it to ContextTrail, and follow the evidence."
+    }
+  ],
+  "bgm": {
+    "mode": "none"
+  },
+  "voice": "am_michael"
+}

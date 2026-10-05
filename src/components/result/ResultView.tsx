@@ -326,9 +326,8 @@ export default function ResultView({
       </nav>
 
       <main id="main" tabIndex={-1} className="casebook-main">
-        <SaveToCasebook value={result.caseRecord} question={claim?.trim() || "What does the retrieved history of this image show?"} />
         {restoredNotice ? (
-          <p role="note" className="mb-6 rounded-xl bg-ink/5 px-4 py-3 text-sm leading-relaxed text-ink/75 ring-1 ring-ink/10">
+          <p role="note" className="result-restored-notice mb-6 rounded-xl bg-ink/5 px-4 py-3 text-sm leading-relaxed text-ink/75 ring-1 ring-ink/10">
             {restoredNotice}
           </p>
         ) : null}
@@ -338,7 +337,7 @@ export default function ResultView({
             role="tabpanel"
             id="ct-panel-overview"
             aria-labelledby="ct-tab-overview"
-            className="grid gap-10 lg:grid-cols-[1fr_2fr]"
+            className="image-result-overview grid gap-10 lg:grid-cols-[1fr_2fr]"
           >
             {/* Result first in DOM and on mobile; submitted material beside it on desktop. */}
             <section aria-label="Investigation result" className="lg:order-2">
@@ -367,7 +366,7 @@ export default function ResultView({
               {/* Metrics: at most three, unknowns explicit. */}
               <dl className="mt-6 grid gap-4 sm:grid-cols-3">
                 <div className="rounded-xl bg-white/70 p-5 ring-1 ring-ink/10">
-                  <dt className="text-sm text-ink-soft">Source domains</dt>
+                  <dt className="text-sm text-ink-soft">Confirmed image domains</dt>
                   <dd className="mt-1 font-serif text-4xl">
                     {metrics.sourceDomains ?? "—"}
                   </dd>
@@ -451,7 +450,7 @@ export default function ResultView({
             </section>
 
             {/* Submitted material — after the result in DOM/mobile, left column on desktop. */}
-            <aside aria-label="Submitted material" className="lg:order-1">
+            <aside aria-label="Submitted material" className="image-result-specimen lg:order-1">
               {submittedImageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -1043,6 +1042,7 @@ export default function ResultView({
             </section>
           </div>
         )}
+        <SaveToCasebook value={result.caseRecord} question={claim?.trim() || "What does the retrieved history of this image show?"} />
       </main>
 
       <footer className="border-t border-ink/10">

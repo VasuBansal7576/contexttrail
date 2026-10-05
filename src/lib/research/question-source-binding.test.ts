@@ -36,7 +36,7 @@ it.each([
   expect(result.caseRecord.coverage.sourceReads).toEqual([{ evidenceId: result.caseRecord.evidence[0].id, requestedUrl: requested, finalUrl: final, sourceBinding: binding, outcome: 'binding_rejected' }]);
   expect(JSON.stringify(result)).not.toContain('published on a different page');
   expect(JSON.stringify(result)).not.toContain('2026-09-27');
-  expect(search).toHaveBeenCalledTimes(3); expect(fetchPage).toHaveBeenCalledTimes(1);
+  expect(search).toHaveBeenCalledTimes(6); expect(fetchPage).toHaveBeenCalledTimes(1);
 });
 
 it.each([

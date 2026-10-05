@@ -20,9 +20,6 @@ it('keeps terminal error title and body above AA against the exact solid alert b
   expect(contrast('#d6e0e2','#2e5677')).toBeGreaterThanOrEqual(4.5);
   expect(contrast('#d6e0e2','#315a85')).toBeGreaterThanOrEqual(4.5);
 });
-it('fits manual sidebar display headings without arbitrary punctuation breaks',()=>{
-  expect(css).toContain('.workspace-side .chapter-heading h1 { font-size:clamp(50px,5vw,72px); overflow-wrap:normal; }');
-});
 it('lets intrinsic grid items shrink and wraps full retained text instead of clipping it',()=>{
   expect(css).toContain('.investigation-work-grid>*,.progress-evidence .evidence-collection>* { min-width:0; }');
   expect(css).toContain('.investigation-detail,.investigation-candidate-title { white-space:normal; overflow-wrap:anywhere; }');

@@ -1,0 +1,408 @@
+{
+  "tts_provider": "kokoro",
+  "voice_id": "am_michael",
+  "bgm": null,
+  "bgm_pending": false,
+  "bgm_provider": null,
+  "bgm_pid": null,
+  "bgm_log": null,
+  "bgm_mode": null,
+  "bgm_target_duration_s": null,
+  "bgm_seed_duration_s": null,
+  "bgm_loop_count": null,
+  "voices": [
+    {
+      "id": "fresh-01",
+      "path": "assets/voice/fresh-01.wav",
+      "duration_s": 4.373,
+      "words": [
+        {
+          "id": "w0",
+          "text": "ContextTrail",
+          "start": 0.03,
+          "end": 0.82
+        },
+        {
+          "id": "w1",
+          "text": "finds",
+          "start": 0.95,
+          "end": 1.2
+        },
+        {
+          "id": "w2",
+          "text": "the",
+          "start": 1.2,
+          "end": 1.41
+        },
+        {
+          "id": "w3",
+          "text": "sources",
+          "start": 1.41,
+          "end": 1.9
+        },
+        {
+          "id": "w4",
+          "text": "behind",
+          "start": 1.97,
+          "end": 2.37
+        },
+        {
+          "id": "w5",
+          "text": "questions,",
+          "start": 2.37,
+          "end": 3.16
+        },
+        {
+          "id": "w6",
+          "text": "claims,",
+          "start": 3.21,
+          "end": 3.68
+        },
+        {
+          "id": "w7",
+          "text": "and",
+          "start": 3.68,
+          "end": 3.89
+        },
+        {
+          "id": "w8",
+          "text": "media.",
+          "start": 3.89,
+          "end": 4.24
+        }
+      ]
+    },
+    {
+      "id": "fresh-02",
+      "path": "assets/voice/fresh-02.wav",
+      "duration_s": 4.267,
+      "words": [
+        {
+          "id": "w0",
+          "text": "1,000",
+          "start": 0.1,
+          "end": 0.99
+        },
+        {
+          "id": "w1",
+          "text": "kilometers",
+          "start": 0.99,
+          "end": 1.71
+        },
+        {
+          "id": "w2",
+          "text": "of",
+          "start": 1.71,
+          "end": 1.85
+        },
+        {
+          "id": "w3",
+          "text": "Metro",
+          "start": 1.85,
+          "end": 1.93
+        },
+        {
+          "id": "w4",
+          "text": "by",
+          "start": 2.39,
+          "end": 2.42
+        },
+        {
+          "id": "w5",
+          "text": "January",
+          "start": 2.42,
+          "end": 3.05
+        },
+        {
+          "id": "w6",
+          "text": "2025.",
+          "start": 3.05,
+          "end": 4.2
+        }
+      ]
+    },
+    {
+      "id": "fresh-03",
+      "path": "assets/voice/fresh-03.wav",
+      "duration_s": 3.712,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Ask",
+          "start": 0.04,
+          "end": 0.23
+        },
+        {
+          "id": "w1",
+          "text": "once,",
+          "start": 0.23,
+          "end": 0.56
+        },
+        {
+          "id": "w2",
+          "text": "context",
+          "start": 0.67,
+          "end": 1.23
+        },
+        {
+          "id": "w3",
+          "text": "trail",
+          "start": 1.23,
+          "end": 1.59
+        },
+        {
+          "id": "w4",
+          "text": "searches",
+          "start": 1.67,
+          "end": 2.21
+        },
+        {
+          "id": "w5",
+          "text": "and",
+          "start": 2.27,
+          "end": 2.47
+        },
+        {
+          "id": "w6",
+          "text": "reads",
+          "start": 2.47,
+          "end": 2.85
+        },
+        {
+          "id": "w7",
+          "text": "the",
+          "start": 2.86,
+          "end": 3.09
+        },
+        {
+          "id": "w8",
+          "text": "sources.",
+          "start": 3.09,
+          "end": 3.68
+        }
+      ]
+    },
+    {
+      "id": "fresh-04",
+      "path": "assets/voice/fresh-04.wav",
+      "duration_s": 3.733,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Read",
+          "start": 0.05,
+          "end": 0.32
+        },
+        {
+          "id": "w1",
+          "text": "the",
+          "start": 0.37,
+          "end": 0.56
+        },
+        {
+          "id": "w2",
+          "text": "passage,",
+          "start": 0.56,
+          "end": 1.28
+        },
+        {
+          "id": "w3",
+          "text": "which",
+          "start": 1.33,
+          "end": 1.5
+        },
+        {
+          "id": "w4",
+          "text": "date",
+          "start": 1.58,
+          "end": 1.74
+        },
+        {
+          "id": "w5",
+          "text": "does",
+          "start": 1.82,
+          "end": 1.99
+        },
+        {
+          "id": "w6",
+          "text": "that",
+          "start": 2.01,
+          "end": 2.2
+        },
+        {
+          "id": "w7",
+          "text": "number",
+          "start": 2.2,
+          "end": 2.48
+        },
+        {
+          "id": "w8",
+          "text": "actually",
+          "start": 2.55,
+          "end": 3
+        },
+        {
+          "id": "w9",
+          "text": "describe?",
+          "start": 3,
+          "end": 3.46
+        }
+      ]
+    },
+    {
+      "id": "fresh-05",
+      "path": "assets/voice/fresh-05.wav",
+      "duration_s": 2.688,
+      "words": [
+        {
+          "id": "w0",
+          "text": "keep",
+          "start": 0.08,
+          "end": 0.2
+        },
+        {
+          "id": "w1",
+          "text": "publication",
+          "start": 0.31,
+          "end": 0.97
+        },
+        {
+          "id": "w2",
+          "text": "and",
+          "start": 0.98,
+          "end": 1.17
+        },
+        {
+          "id": "w3",
+          "text": "retrieval",
+          "start": 1.17,
+          "end": 1.76
+        },
+        {
+          "id": "w4",
+          "text": "dates",
+          "start": 1.76,
+          "end": 2.09
+        },
+        {
+          "id": "w5",
+          "text": "separate.",
+          "start": 2.09,
+          "end": 2.68
+        }
+      ]
+    },
+    {
+      "id": "fresh-06",
+      "path": "assets/voice/fresh-06.wav",
+      "duration_s": 3.904,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Come",
+          "start": 0.08,
+          "end": 0.28
+        },
+        {
+          "id": "w1",
+          "text": "back",
+          "start": 0.28,
+          "end": 0.54
+        },
+        {
+          "id": "w2",
+          "text": "to",
+          "start": 0.56,
+          "end": 0.7
+        },
+        {
+          "id": "w3",
+          "text": "the",
+          "start": 0.7,
+          "end": 0.91
+        },
+        {
+          "id": "w4",
+          "text": "exact",
+          "start": 0.91,
+          "end": 1.2
+        },
+        {
+          "id": "w5",
+          "text": "evidence.",
+          "start": 1.28,
+          "end": 2.08
+        },
+        {
+          "id": "w6",
+          "text": "Your",
+          "start": 2.16,
+          "end": 2.36
+        },
+        {
+          "id": "w7",
+          "text": "investigation",
+          "start": 2.36,
+          "end": 3.18
+        },
+        {
+          "id": "w8",
+          "text": "is",
+          "start": 3.28,
+          "end": 3.42
+        },
+        {
+          "id": "w9",
+          "text": "saved.",
+          "start": 3.42,
+          "end": 3.85
+        }
+      ]
+    },
+    {
+      "id": "fresh-07",
+      "path": "assets/voice/fresh-07.wav",
+      "duration_s": 2.091,
+      "words": [
+        {
+          "id": "w0",
+          "text": "bring",
+          "start": 0.04,
+          "end": 0.3
+        },
+        {
+          "id": "w1",
+          "text": "something",
+          "start": 0.3,
+          "end": 0.84
+        },
+        {
+          "id": "w2",
+          "text": "you",
+          "start": 0.84,
+          "end": 1.02
+        },
+        {
+          "id": "w3",
+          "text": "want",
+          "start": 1.02,
+          "end": 1.26
+        },
+        {
+          "id": "w4",
+          "text": "to",
+          "start": 1.26,
+          "end": 1.38
+        },
+        {
+          "id": "w5",
+          "text": "understand.",
+          "start": 1.38,
+          "end": 2
+        }
+      ]
+    }
+  ],
+  "sfx": [],
+  "total_duration_s": 24.768
+}

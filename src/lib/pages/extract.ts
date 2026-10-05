@@ -356,8 +356,10 @@ export function extractPage(html: string, pageUrl?: string): PageExtraction {
   }
   title ??= doc.title?.trim() || null;
 
-  const paragraphs = (text ?? "")
-    .split(/\n{2,}|\r?\n/)
+  const blocks = readableArticle ? [...readableArticle.querySelectorAll('p, blockquote, li, pre')]
+    .filter(element => !element.querySelector('p, blockquote, li, pre'))
+    .map(element => element.textContent ?? '') : [];
+  const paragraphs = (blocks.length ? blocks : (text ?? "").split(/\n{2,}|\r?\n/))
     .map((p) => p.replace(/\s+/g, " ").trim())
     .filter((p) => p.length >= 40);
 

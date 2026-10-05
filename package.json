@@ -2,7 +2,7 @@
   "name": "contexttrail",
   "version": "0.1.0",
   "private": true,
-  "description": "ContextTrail — reconstruct the web history of an image. Image-first v1 frontend.",
+  "description": "ContextTrail investigates questions, claims and media through inspectable source evidence.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,7 +15,8 @@
     "research:verify": "node scripts/verify-research-http.mjs",
     "research:coverage": "tsc --module commonjs --moduleResolution node --target ES2022 --esModuleInterop --skipLibCheck --strict --outDir .topic-coverage-build scripts/topic-coverage.ts && node .topic-coverage-build/scripts/topic-coverage.js",
     "media:match": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/match-media.ts && node .media-match-build/scripts/match-media.js",
-    "media:evaluate": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/evaluate-media-matching.ts && node .media-match-build/scripts/evaluate-media-matching.js"
+    "media:evaluate": "tsc --module commonjs --moduleResolution node --target ES2020 --esModuleInterop --skipLibCheck --strict --outDir .media-match-build scripts/evaluate-media-matching.ts && node .media-match-build/scripts/evaluate-media-matching.js",
+    "judge:preview": "node scripts/start-judge-preview.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -24,6 +25,7 @@
     "framer-motion": "^12.0.0",
     "jsdom": "^26.1.0",
     "next": "^15.1.6",
+    "pdfjs-dist": "6.4.299",
     "pngjs": "7.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -39,9 +41,12 @@
     "playwright": "^1.63.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "4.1.11"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
+  },
+  "overrides": {
+    "postcss": "8.5.28"
   }
 }

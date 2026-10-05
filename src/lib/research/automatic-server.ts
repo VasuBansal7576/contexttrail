@@ -1,11 +1,11 @@
 /** Server-only assembly. Automatic flows share the image gate and durable lock. */
 import { JevClient, JEV_MODEL } from '../jev/client';
 import { SerpapiClient } from '../serpapi/client';
-import { fetchPageHtml } from '../pages/fetch';
-import { LiveUsageError, readLiveUsageConfig, reserveLiveRun, reserveTopicRun } from '../investigation/live-usage';
+import { fetchPageDocument } from '../pages/fetch';
+import { LiveUsageError, readLiveUsageConfig, reserveVideoRun, reserveTopicRun } from '../investigation/live-usage';
 import { VideoIngestError } from '../video/ingest';
 import { runAutomaticResearch, type AutomaticResearchDeps } from './automatic';
-import type { AutomaticResearchInput, AutomaticResearchEvent } from './automatic-contract';
+import { AUTOMATIC_RESEARCH_DEADLINES_MS, type AutomaticResearchInput, type AutomaticResearchEvent } from './automatic-contract';
 
 export function automaticConfiguration(): void {
   readLiveUsageConfig(process.env);
@@ -19,10 +19,11 @@ export async function automaticProductionDeps(input: AutomaticResearchInput, sig
   if (!serpapiKey || !jevKey) throw new LiveUsageError('Provider configuration unavailable.');
   // One reservation covers the entire workflow. No ledger resets, nested image
   // admissions, per-frame refunds, or independent request counters are allowed.
-  const lease = input.kind === 'topic' ? await reserveTopicRun(config, signal) : await reserveLiveRun(config, input.claim ?? null, signal);
+  const lease = input.kind !== 'video' ? await reserveTopicRun(config, signal) : await reserveVideoRun(config, input.claim ?? null, signal);
   return { deps: { serpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor('serpapi') }),
+    topicSerpapi: new SerpapiClient(serpapiKey, { fetchImpl: lease.fetchFor('serpapi'), searchProfile: 'topic' }),
     jev: new JevClient({ apiKey: jevKey, model: JEV_MODEL, fetchImpl: lease.fetchFor('jev') }),
-    fetchPage: fetchPageHtml, signal }, release: () => lease.release() };
+    fetchPage: fetchPageDocument, signal }, release: () => lease.release() };
 }
 export function automaticFailure(error: unknown): string {
   if (error instanceof LiveUsageError) return error.message;
@@ -44,7 +45,8 @@ export function createAutomaticResponse(input: AutomaticResearchInput, options: 
   options.signal.addEventListener('abort', abort, { once: true });
   if (options.signal.aborted) abort();
   let deadlineHit = false;
-  const deadline = setTimeout(() => { if (!controller.signal.aborted) { deadlineHit = true; abort(); } }, 180_000);
+  const deadlineMs = AUTOMATIC_RESEARCH_DEADLINES_MS[input.kind];
+  const deadline = setTimeout(() => { if (!controller.signal.aborted) { deadlineHit = true; abort(); } }, deadlineMs);
   const stream = new ReadableStream<Uint8Array>({
     start(streamController) {
       const emit = (event: AutomaticResearchEvent, terminalDeadline = false) => {
@@ -60,7 +62,7 @@ export function createAutomaticResponse(input: AutomaticResearchInput, options: 
           const result = await runAutomaticResearch(input, emit, production.deps);
           emit({ type: 'research.completed', result });
         } catch (error) {
-          emit({ type: 'research.error', message: deadlineHit ? 'The investigation exceeded its three-minute deadline. No complete result was produced; its reservation is not refunded.' : automaticFailure(error) }, deadlineHit);
+          emit({ type: 'research.error', message: deadlineHit ? `The investigation exceeded its ${deadlineMs / 60_000}-minute deadline. No complete result was produced; its reservation is not refunded.` : automaticFailure(error) }, deadlineHit);
         }
         finally {
           try { await production?.release(); } catch { console.warn('[research] live lock release failed; further live use remains blocked'); }

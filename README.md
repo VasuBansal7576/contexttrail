@@ -1,8 +1,14 @@
 # ContextTrail
 
-Investigate where an image appeared, inspect the retrieved sources and dates, and compare
-that evidence with a supplied caption. Questions and Video offer bounded automatic research;
-the local casebook preserves sources, exact findings, corrections and saved reports.
+The [current product brief](docs/product/brief.md) records the broader automatic research product requested by the owner. [Completion work](docs/product/work-log.md) records the active implementation and real-run verification. The [current specification](contexttrail_master_product_ux_architecture_spec_v1.1.md) tracks implementation and acceptance. The older image-first specification is preserved under `docs/archive`. The [frontend reference](docs/frontend-reference.md) identifies the exact authored HTML and its chapter interactions.
+
+Bring a question, claim, image or video. ContextTrail finds sources, retains readable evidence,
+compares scoped claims and keeps the trail for later inspection. Scheduled watches follow
+new sources while the local server is running. Manual evidence entry is optional.
+
+## Public trial and launch film
+
+[Try ContextTrail on ChatGPT Sites](https://contexttrail.zippy17.chatgpt.site). The public edition uses ChatGPT sign-in, server-side provider credentials and private per-user casebooks. It shares the authored nine-chapter interface with the local app. The bounded trial supports question and image investigations, with three attempts per account per UTC day and shared provider limits through 18 October 2026. Native video/audio processing and scheduled watches run locally. See [hosting setup and limits](hosting/sites/README.md) and the [real-run launch film source](videos/contexttrail/LAUNCH-README.md).
 
 ## Revision and release status
 
@@ -17,7 +23,7 @@ retrieval quality, an original upload, or a strong historical-reuse demonstratio
 
 ## Install and preview
 
-Use Node.js 20 or newer and npm. CI uses Node 24. Native video ingestion and comparison
+Use Node.js 22.13 or newer and npm. CI uses Node 24. Native video ingestion and comparison
 require FFmpeg and FFprobe on PATH.
 
 ```sh
@@ -49,9 +55,12 @@ builds and browser verification.
 | Entry | Input and behavior | Details |
 | --- | --- | --- |
 | `/investigate` | Image or reviewed public image URL, optional caption; Trace or Claim-check | [Live usage](docs/live-usage.md) |
-| `/questions` | One topic/question; bounded retrieved evidence and claim-scoped report | [Automatic research](docs/automatic-investigation.md) |
-| `/video` | One supplied video; research on one representative sampled frame | [Automatic research](docs/automatic-investigation.md) |
-| `/compare` | Supplied still/video or video/video; local sampled-frame comparison | [Media bridge](docs/local-media-application.md) |
+| `/questions` | Question or claim; automatic source retrieval, retained passages and scoped comparison | [Automatic research](docs/automatic-investigation.md) |
+| `/video` | Full-track local visual scan and speech recognition; up to three distinct frame searches and a separate spoken-source trail | [Automatic research](docs/automatic-investigation.md) |
+| `/audio` | Local multilingual speech recognition and automatic source research from usable recognized wording | [Automatic research](docs/automatic-investigation.md) |
+| `/compare` | Two supplied images, videos, or a mixed pair; local sampled comparison | [Media bridge](docs/local-media-application.md) |
+| `/families` | Automatically connect exact or similar retained wording across saved investigations | [Automatic research](docs/automatic-investigation.md) |
+| `/watch` | Automatic hourly/daily source checks, retained changes and failures | [Scheduled watches](docs/automatic-watches.md) |
 | `/casebook` | Saved cases, findings, retained material and correction history | [Casebook](docs/casebook-interface.md) |
 
 ## Verification
@@ -91,21 +100,29 @@ Read [live usage](docs/live-usage.md) before enabling providers. Live operation 
 server-only `SERPAPI_API_KEY`, `TYPESAFE_API_KEY`, pinned `TYPESAFE_MODEL=jev-1.13.0`, explicit
 single-host persistent deployment configuration, a durable existing usage ledger and an
 operator-verified allocation. Keys alone are insufficient. Never commit `.env.local`.
-Hosted/serverless live access currently fails closed.
+The standard Next.js build fails closed on unsupported serverless hosts. The separate [ChatGPT Sites adapter](hosting/sites/README.md) uses D1 reservations and private R2 persistence to support a bounded public question/image trial. Native video, audio and scheduled background watches require the local app.
 
 | Workflow | Maximum search attempts | Upload attempts | Jev requests | Jev questions |
 | --- | ---: | ---: | ---: | ---: |
 | Image Trace | 4 | 1 | 60 | 113 |
 | Image Claim-check | 6 | 1 | 60 | 272 |
-| Topic | 3 | 0 | 8 | 40 |
-| Representative video frame, no caption | 4 | 1 | 60 | 113 |
-| Representative video frame, caption | 6 | 1 | 60 | 272 |
+| Topic or audio | 6 | 0 | 12 | 60 |
+| Video, no caption (up to three frames and spoken research) | 18 | 3 | 192 | 399 |
+| Video, caption (up to three frames and spoken research) | 24 | 3 | 192 | 876 |
 
 Reviewed public-image URLs use zero upload attempts. The retired Lens About This Image
 surface is no longer dispatched or repurposed. At most one adaptive search and five source
 page reads remain permitted. The full worst-case allowance is reserved before dispatch;
-failures and cancellations do not refund it. Counts distinguish attempted, returned and
+failures and cancellations do not refund it. Topic research reads up to ten pages and follows up to two explicitly cited references within that same read/source ceiling. Counts distinguish attempted, returned and
 retained results. They do not represent independent sources or complete web coverage.
+
+For local speech recognition, install trusted FFmpeg/FFprobe and `whisper-cli`, then run
+`node scripts/setup-local-speech.mjs`. Setup verifies the pinned official multilingual
+Whisper small model (about 488 MB), stores it under ignored `.local-models/`, and adds
+its path to ignored `.env.local` while preserving other configuration. Restart the app.
+Original audio stays local; usable recognized text can be sent to the configured search
+and assessment providers. Repeated uncertain recognition is retained but excluded from
+automatic query wording. See [speech and scan details](docs/automatic-investigation.md).
 
 ## Evidence and retention
 
@@ -121,8 +138,9 @@ Image saves retain a validated evidence projection, not the full provider report
 image bytes. Topic saves retain their report and exact source bindings. Supplied-media comparison
 saves retain checked sampled frames and the comparison report, never original videos.
 
-Unsaved automatic results are lost on reload. Explicit video saves retain the complete bounded
-report and its original evidence, excluding video and sampled image bytes. The historical viewer
+Automatic investigations save by default; the reader can opt out before submitting. Unsaved results
+are lost on reload. Video saves retain the complete bounded report and its original evidence,
+excluding video and sampled image bytes. The historical viewer
 opens exact retained text, image regions and table cells when a current source is missing or changed.
 Read the [automatic retention contract](docs/automatic-investigation.md) and
 [casebook documentation](docs/casebook-interface.md). Corrections preserve history and require

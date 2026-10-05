@@ -1,0 +1,73 @@
+[
+  {
+    "documentWidth": 1280,
+    "empty": false,
+    "paper": [
+      {
+        "height": 610,
+        "scrollHeight": 610
+      }
+    ],
+    "sourceCount": [
+      9
+    ],
+    "url": "http://127.0.0.1:3242/ui-stress?mode=Worst&chapter=evidence",
+    "width": 1280
+  },
+  {
+    "documentWidth": 1280,
+    "empty": false,
+    "paper": [
+      {
+        "height": 610,
+        "scrollHeight": 610
+      }
+    ],
+    "sourceCount": [],
+    "url": "http://127.0.0.1:3242/ui-stress?mode=Empty&chapter=evidence",
+    "width": 1280
+  },
+  {
+    "documentWidth": 1280,
+    "empty": false,
+    "paper": [
+      {
+        "height": 610,
+        "scrollHeight": 610
+      }
+    ],
+    "sourceCount": [],
+    "url": "http://127.0.0.1:3242/ui-stress?mode=One&chapter=evidence",
+    "width": 1280
+  },
+  {
+    "documentWidth": 1280,
+    "empty": false,
+    "paper": [
+      {
+        "height": 610,
+        "scrollHeight": 610
+      }
+    ],
+    "sourceCount": [
+      1000
+    ],
+    "url": "http://127.0.0.1:3242/ui-stress?mode=1000&chapter=evidence",
+    "width": 1280
+  },
+  {
+    "documentWidth": 1280,
+    "empty": false,
+    "paper": [
+      {
+        "height": 610,
+        "scrollHeight": 610
+      }
+    ],
+    "sourceCount": [
+      3
+    ],
+    "url": "http://127.0.0.1:3242/ui-stress?mode=Demo&chapter=evidence",
+    "width": 1280
+  }
+]

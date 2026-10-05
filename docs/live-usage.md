@@ -47,9 +47,7 @@ that property.
 
 Vercel and known serverless environments fail closed. Multiple hosts with
 independent disks are unsupported. A hosted live endpoint needs a reviewed,
-shared, durable atomic quota store before this restriction can change. The
-Vercel deployment goal in the PRD remains open; a keyless deployment cannot
-demonstrate live provider utility.
+shared, durable atomic quota store before this restriction can change. A keyless deployment cannot demonstrate live provider utility; hosted scheduling and account isolation remain separate acceptance work.
 
 ## Server-only configuration
 
@@ -164,3 +162,9 @@ Never delete the ledger merely to make a demo run again.
 These controls limit admitted work. They are not authentication, a public
 abuse-prevention service or a provider billing guarantee. Do not expose a
 key-backed unrestricted endpoint to the public.
+
+## Automatic questions, video and watches
+
+Questions, audio research and each watch check reserve 6 searches / 0 uploads / 12 Jev requests / 60 questions. An uploaded video reserves 24 / 3 / 192 / 876 with a caption, or 18 / 3 / 192 / 399 without one, including one separately reported spoken-source investigation. The entire reservation precedes provider dispatch; unused units are not automatically refunded. Identical samples are skipped and completed frame/speech results survive failure of the other part. Historical ledger entries retain their earlier allocations and are not reset or repriced. See automatic-investigation.md and automatic-watches.md.
+
+A separately verified SerpApi balance can add exactly six searches with zero uploads, TypeSafe requests or TypeSafe questions. This search-only grant does not authorize a reduced-cost investigation: each subsequent run still reserves its full normal allocation from all remaining units. Prior reservations remain charged. The operator must verify the current free search balance before appending this grant.

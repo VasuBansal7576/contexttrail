@@ -8,6 +8,7 @@ import { buildClaimReport, assessClaimSource } from '@/lib/research/claim-report
 import { ClaimReportView } from './ClaimReportView';
 import { CASE_SCHEMA_VERSION } from '@/lib/cases/model';
 vi.mock('@/lib/research/automatic-client', () => ({ investigateAutomatically: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('next/link', () => ({ default: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => React.createElement('a', props) }));
 let root: Root, container: HTMLDivElement;
 const scrollIntoView = vi.fn();
@@ -84,7 +85,7 @@ describe('automatic research UI', () => {
     const signal = vi.mocked(investigateAutomatically).mock.calls[0][1];
     await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'video', key: 'video' })));
     expect(signal.aborted).toBe(true); expect(container.querySelector('a[href="/compare"]')).not.toBeNull();
-    expect(container.textContent).toContain('Audio and remaining frames are not searched.');
+    expect(container.textContent).toContain('Original audio is never uploaded to a speech service.');
   });
   it('requires video permission and submits one supplied file with rights', async () => {
     vi.mocked(investigateAutomatically).mockResolvedValue({ ...result, kind: 'video' });
@@ -100,7 +101,7 @@ describe('automatic research UI', () => {
     const body = vi.mocked(investigateAutomatically).mock.calls[0][0];
     expect(body.get('kind')).toBe('video'); expect(body.get('rights')).toBe('user_provided');
     expect(body.get('video')).toBe(file); expect(body.has('topic')).toBe(false); expect(body.has('claim')).toBe(false);
-    expect(container.textContent).toContain('113 questions');
+    expect(container.textContent).toContain('399 questions');
   });
   it('opens timestamped frame sources with explicit incomplete coverage', async () => {
     const source = { evidenceId: 'frame-source', sourceUrl: 'https://example.com/frame', title: 'Frame source', excerpt: 'Frame passage.', dateStatus: 'unknown', observedAt: null, identityBasis: 'unknown', excerptSource: 'search_snippet', displayAttribution: null, classificationContext: null, mediaRelationship: null };
@@ -123,8 +124,8 @@ it('sends a nonempty video caption once and shows its expanded reservation', asy
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(caption, '  This video is from yesterday.  '); caption.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => { container.querySelector<HTMLInputElement>('input[type=checkbox]')?.click(); });
-  expect(container.textContent).toContain('6 searches · 1 image upload · 60 TypeSafe / Jev requests · 272 questions');
-  expect(container.textContent).toContain('caption also goes to SerpApi / Google');
+  expect(container.textContent).toContain('24 searches · 3 image uploads · 192 TypeSafe / Jev requests · 876 questions');
+  expect(container.textContent).toContain('recognized speech, any supplied caption');
   await submit();
   const body = vi.mocked(investigateAutomatically).mock.calls[0][0];
   expect(body.get('claim')).toBe('This video is from yesterday.'); expect(body.getAll('video')).toEqual([file]);
@@ -132,7 +133,7 @@ it('sends a nonempty video caption once and shows its expanded reservation', asy
 
 it('shows the updated question assessment ceiling', async () => {
   await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'topic' })));
-  expect(container.textContent).toContain('3 searches · 0 uploads · 8 TypeSafe / Jev requests · 40 questions');
+  expect(container.textContent).toContain('6 searches · 0 uploads · 12 TypeSafe / Jev requests · 60 questions');
 });
 
 it('renders source-quoted candidates with unknown scope and no invented user assertion', async () => {
@@ -270,4 +271,31 @@ it.each([false, true])('explains bound caption leads in the shared result, saved
   expect(cards?.[0].querySelector('details')?.open).toBe(false);
   expect(leads?.textContent).toContain('not met in the recorded result');
   expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Save video report')).toBe(!saved);
+});
+
+it('lets the reader choose claim comparison without typing a protocol prefix', async () => {
+  vi.mocked(investigateAutomatically).mockResolvedValue(result);
+  await act(async () => root.render(React.createElement(AutomaticResearch, { kind: 'topic' })));
+  await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === 'Check a claim')?.click(); });
+  const field = container.querySelector('textarea'); if (!field) throw new Error('Missing claim');
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(field, 'UPI processed 24 billion transactions in August.'); field.dispatchEvent(new Event('input', { bubbles: true })); });
+  await submit();
+  expect(vi.mocked(investigateAutomatically).mock.calls[0][0].get('topic')).toBe('Claim: UPI processed 24 billion transactions in August.');
+  expect(field.maxLength).toBe(493);
+});
+
+it('shows exhausted live allowance before submission and never substitutes a saved result',async()=>{
+  await act(async()=>root.render(React.createElement(AutomaticResearch,{kind:'topic',readiness:{ready:false,message:'The live investigation allowance is exhausted.'}})));
+  await fillTopic();await submit();
+  expect(container.textContent).toContain('allowance is exhausted');
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+  expect(investigateAutomatically).not.toHaveBeenCalled();
+  expect(container.textContent).not.toContain('The actual retrieved passage.');
+});
+it('updates video admission status when adding a caption requires a larger reservation',async()=>{
+  await act(async()=>root.render(React.createElement(AutomaticResearch,{kind:'video',readiness:{ready:true,message:'Ready for frame research.'},captionReadiness:{ready:false,message:'Not enough allowance for caption research.'}})));
+  expect(container.textContent).toContain('Ready for frame research.');
+  await fillTopic();
+  expect(container.textContent).toContain('Not enough allowance for caption research.');
+  expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
 });

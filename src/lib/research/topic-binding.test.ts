@@ -20,11 +20,12 @@ const unrelated: Lead[] = [
 describe('topic binding before bounded admission and page reads', () => {
   it.each([false, true])('measures the synthetic high-ranked zero-overlap pool with first-search-unavailable=%s through the actual bounded pipeline', async unavailable => {
     const measured = await measureTopicBinding(unavailable);
-    expect(measured.actual).toMatchObject({ searches: 3, uploads: 0, requests: 8, questions: 40, sources: 8, pageReads: 5, zeroOverlapReadCount: 0, broadQuestionMode: 'source_assertions' });
-    expect(measured.actual.retainedBySearch).toEqual(unavailable ? [0, 4, 4] : [3, 3, 2]);
-    expect(measured.actual.queries).toEqual([topic, topic, `${topic} (statement OR clarification OR "press release" OR correction)`]);
+    expect(measured.actual).toMatchObject({ searches: 6, uploads: 0, requests: 12, questions: 60, sources: 12, pageReads: 10, zeroOverlapReadCount: 0, broadQuestionMode: 'source_assertions' });
+    expect(measured.actual.retainedBySearch).toEqual(unavailable ? [0, 3, 3, 2, 2, 2] : [2, 2, 2, 2, 2, 2]);
+    expect(measured.actual.queries.slice(0, 3)).toEqual([topic, topic, `${topic} (statement OR clarification OR "press release" OR correction)`]);
+    expect(new Set(measured.actual.queries.slice(2)).size).toBe(4);
     expect(measured.actual.readCandidateTitles.every(title => title?.includes('Agency Meridian'))).toBe(true);
-    expect(measured.actual.outcomes).toEqual(['fetch_failed', 'binding_rejected', 'page_quote', 'page_quote', 'page_quote', 'not_attempted', 'not_attempted', 'not_attempted']);
+    expect(measured.actual.outcomes).toEqual(['fetch_failed', 'binding_rejected', ...Array(8).fill('page_quote'), 'not_attempted', 'not_attempted']);
     expect(measured.actual.unresolved).toHaveLength(1);
     expect(measured.result.caseRecord.evidence[0].content).toMatchObject({ kind: 'text', attribution: 'search_snippet' });
     expect(measured.result.caseRecord.evidence[1]).toMatchObject({ sourceUrl: measured.reads[1], publicationDate: { status: 'unknown' }, content: { kind: 'text', attribution: 'search_snippet' } });
@@ -34,14 +35,14 @@ describe('topic binding before bounded admission and page reads', () => {
     expect(measured.result.limitations.some(value => value.startsWith('Source 2 led to an unrelated'))).toBe(true);
     expect(JSON.stringify(measured.result)).not.toContain('Rejected destination content');
   });
-  it('reads available topical leads before dictionary/sports results while retaining zero-overlap fallbacks when space permits', () => {
+  it('keeps topical leads without padding a useful trail with dictionary or sports results', () => {
     const selected = selectTopicSources(topic, entries([
       Array.from({ length: 3 }, (_, index) => topical(index)),
       Array.from({ length: 3 }, (_, index) => topical(index + 3)), unrelated,
     ]));
-    expect(selected).toHaveLength(8);
+    expect(selected).toHaveLength(6);
     expect(selected.slice(0, 5).every(entry => entry.candidate.title?.includes('Agency Meridian'))).toBe(true);
-    expect(selected.slice(6).map(entry => entry.candidate.title)).toEqual(unrelated.map(lead => lead.title));
+    expect(selected.some(entry => unrelated.some(lead => lead.title === entry.candidate.title))).toBe(false);
     expect(selected.slice(0, 5).map(entry => entry.search)).toEqual([0, 1, 0, 1, 0]);
   });
   it('ranks lower provider positions by question overlap within each balanced surface without requiring a document cue', () => {
@@ -50,9 +51,9 @@ describe('topic binding before bounded admission and page reads', () => {
       { title: 'General institutional lead' }, topical(2), topical(3), topical(4),
     ]);
     const selected = selectTopicSources(topic, entries(groups));
-    expect(selected).toHaveLength(8);
-    expect(selected.every(entry => entry.candidate.title?.includes('launch operations'))).toBe(true);
-    expect(selected.map(entry => entry.search)).toEqual([0, 1, 2, 0, 1, 2, 0, 1]);
+    expect(selected).toHaveLength(12);
+    expect(selected.slice(0, 9).every(entry => entry.candidate.title?.includes('launch operations'))).toBe(true);
+    expect(selected.slice(0, 9).map(entry => entry.search)).toEqual([0, 1, 2, 0, 1, 2, 0, 1, 2]);
   });
   it('puts substantial conduct/tool coverage ahead of multiword institution holiday-policy boilerplate', () => {
     const question = 'What changed in Bank of England interest-rate policy?';
@@ -62,14 +63,13 @@ describe('topic binding before bounded admission and page reads', () => {
     expect(selected.slice(0, 5).every(entry => entry.candidate.title === financial.title)).toBe(true);
     expect(selected.map(entry => entry.search).slice(0, 6)).toEqual([0, 1, 2, 0, 1, 2]);
   });
-  it('keeps at most two document-priority entries from distinct surfaces ahead of the balanced tiers', () => {
+  it('keeps three document-priority hosts ahead of the remaining balanced leads', () => {
     const statement = { title: 'Agency Meridian intends to privatise launch operations: clarification statement' };
     const selected = selectTopicSources(topic, entries([[topical(0), statement, statement], [topical(1), statement], [topical(2), statement]]));
-    expect(selected.slice(0, 2).map(entry => entry.search)).toEqual([0, 1]);
-    expect(selected.slice(2, 5).map(entry => entry.candidate.title)).toEqual([topical(0).title, topical(1).title, topical(2).title]);
-    // The third surface's statement follows the balanced first round.
-    expect(selected[5].candidate.title).toBe(statement.title);
-    expect(selected[5].search).toBe(2);
+    expect(selected.slice(0, 3).map(entry => entry.search)).toEqual([0, 1, 2]);
+    expect(selected.slice(0, 3).every(entry => entry.candidate.title === statement.title)).toBe(true);
+    expect(new Set(selected.slice(0, 3).map(entry => new URL(entry.candidate.sourceUrl).hostname)).size).toBe(3);
+    expect(selected.slice(3, 6).map(entry => entry.candidate.title)).toEqual([topical(0).title, topical(1).title, topical(2).title]);
   });
   it('retains and reads metadata-poor and semantic paraphrase fallbacks when higher tiers leave capacity', () => {
     const paraphrase = { title: 'Transfer of orbital manufacturing to commercial companies' };
@@ -91,7 +91,7 @@ describe('topic binding before bounded admission and page reads', () => {
     const selected = selectTopicSources(topic, entries(Array.from({ length: 3 }, () => [
       { ...topical(0), link: 'https://unsafe.example.org/topic?access_token=controlled' }, topical(1), topical(2), topical(3),
     ])));
-    expect(selected).toHaveLength(8);
+    expect(selected).toHaveLength(9);
     expect(selected.every(entry => !entry.candidate.sourceUrl.includes('access_token'))).toBe(true);
     expect(selected.slice(0, 5).map(entry => entry.search)).toEqual([0, 1, 2, 0, 1]);
   });

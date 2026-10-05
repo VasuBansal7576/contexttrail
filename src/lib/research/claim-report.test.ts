@@ -84,13 +84,13 @@ describe('claim-scoped policy fixtures (offline probabilities, not a live model 
     const forged = structuredClone(report); forged.sources[0].quote!.text='Invented quotation';
     expect(parseClaimReport(forged,r,question)).toBeNull();
   });
-  it('topic orchestration stays at 3 searches, 5 page reads, 8 provider calls and 40 questions', async () => {
+  it('topic orchestration stays at 6 searches, 10 page reads, 12 provider calls and 60 questions', async () => {
     const search = vi.fn(async (params: {engine:string;q?:string}) => ({ search_metadata:{status:'Success'}, [params.engine==='google_news'?'news_results':'organic_results']:Array.from({length:8},(_,i)=>({link:`https://${params.engine==='google_news'?'news':'web'}.example.org/${i}`,snippet:'Source text.',title:'Source'})) }));
     const fetchImpl = vi.fn(async () => Response.json({model:JEV_MODEL,answers:answer('context').answers}));
     const fetchPage = vi.fn(async (url:string) => ({url,html:`<html><body><article><p>${'Source text with relevant evidence for the topic. '.repeat(20)}</p></article></body></html>`}));
     const result = await investigateTopic('Are the reviews fake?',()=>{}, {serpapi:{search,uploadImage:vi.fn()},fetchPage,jev:new JevClient({apiKey:'offline-fixture',fetchImpl})});
-    expect(search).toHaveBeenCalledTimes(3);expect(search.mock.calls[2][0].q).toContain('(statement OR clarification OR "press release" OR correction)');expect(fetchPage).toHaveBeenCalledTimes(5);expect(fetchImpl).toHaveBeenCalledTimes(8);
-    expect(result.claimReport?.sources).toHaveLength(8);
+    expect(search).toHaveBeenCalledTimes(6);expect(search.mock.calls[2][0].q).toContain('(statement OR clarification OR "press release" OR correction)');expect(fetchPage).toHaveBeenCalledTimes(10);expect(fetchImpl).toHaveBeenCalledTimes(12);
+    expect(result.claimReport?.sources).toHaveLength(12);
     expect(parseClaimReport(result.claimReport,result.caseRecord,result.question)).not.toBeNull();
   });
 });

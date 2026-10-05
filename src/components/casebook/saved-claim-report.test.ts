@@ -98,7 +98,8 @@ it('reopened corrected cases show needs review with original report collapsed as
   expect(details?.open).toBe(false);
   expect(details?.textContent).toContain('Original retained text.');
   const coverage = report?.querySelector('[aria-label="Saved investigation coverage"]');
-  expect(coverage?.closest('details')).toBeNull();
+  expect(coverage?.closest('.saved-original-report')).toBeNull();
+  expect(coverage?.closest('details')?.querySelector('summary')?.textContent).toContain('Coverage and dates');
   expect(coverage?.textContent).toContain('original historical report');
   expect(coverage?.textContent).toContain(f.record.coverage.limitations[0]);
   expect(container.textContent).toContain('Corrected retained text.');

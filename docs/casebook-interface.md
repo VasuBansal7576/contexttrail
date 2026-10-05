@@ -1,6 +1,6 @@
 # Casebook application checkpoint
 
-The application uses the updated nine-chapter reference, “A Place for the Question,” inspected on 1 October 2026. The reference Site is unchanged. Its fictional Earthrise case was not imported as real research.
+The application follows the owner’s exact local `Product HTMLs/ContextTrail.html`, titled A Place for the Question. The complete HTML source, embedded assets and interaction handlers were inspected. Browser policy blocked direct interaction with that file URL; source inspection is not an original-browser walkthrough. The rebuilt product is being checked through computer use on loopback. Its fictional Earthrise case is not imported as real research. See [frontend reference](frontend-reference.md).
 
 ## Running locally
 
@@ -26,9 +26,11 @@ The image investigation still uses its existing provider configuration, consent,
 - Questions: saved subquestions and working hypotheses. Findings show reviewer assessment and exact source support, with changed-source review warnings.
 - Evidence: supplied passages, bounded PNG snapshots, and literal tab-separated tables. Findings bind a quote offset, image-pixel rectangle, or table row/column/value to retained source material.
 - Sources: supplied citations, retained targets, unresolved targets, exact quote checks, and shared citation targets. No inferred independence or first-publication count.
-- Changes: retained source snapshots side by side, capture and publication dates separated, and research revision counts.
+- Changes: source snapshots and exact retained material versions have separate comparison controls. Image/table pairs use material revision and digest. Source digests exclude timestamps and do not identify a particular material revision. Capture, retrieval and publication dates remain separate.
 - `/compare`: actual two-file local video/video or video/still comparison. It displays returned sampled frames, timestamps, approximate compared regions, raw pixel errors, sampling coverage and limitations.
-- Watch and AI answers: explicit planned-connection chapters. They perform no scheduling or model calls.
+- Watch: automatic local scheduled retrieval with baseline, changed-source history and pause/resume. See automatic-watches.md.
+- AI answers: selectable quotations from the retained original report, with the exact passage and source beside each selection. This is a working source reader. Model-generated synthesis remains incomplete.
+- Chapter transport: previous/next, keyboard arrows, guided playback, contents and About dialogs. A selected saved case follows chapter navigation; interaction pauses playback. The desktop stage scales from 1440×900 and the mobile layout scrolls.
 
 ## State and recovery
 
@@ -43,15 +45,15 @@ These are integration gaps, not simulated functionality:
 - Hosted accounts, team access, account sync and authenticated non-loopback storage
 - Persisting a completed image investigation directly into a casebook inquiry
 - Persisting local video candidates/frames as case evidence; current comparison is explicitly temporary
-- Broad web video search, audio comparison, continuous/full-video analysis
-- Scheduled watch execution and notifications
+- Proven crop/trim/subtitle video-segment identity and audio comparison. Current automatic media research scans the bounded visual track locally, recognizes speech and searches up to three frames plus usable spoken text; this does not establish whole-recording identity.
+- Hosted watch scheduling and notifications. Local scheduled checks already run while the loopback server is active.
 - Model-generated research answers
 - Editing the main inquiry question through the current application API
 - Binding findings to individual hypotheses; the existing contract binds them to questions
 - Re-reviewing a multi-support finding in the single-source UI. Such records stay readable and the UI preserves them rather than dropping supports
 - Historical time-span media playback. Original audiovisual bytes are not retained; the saved time selection remains inspectable in the finding
 - Lossless in-app edits for table cells containing literal tabs/newlines. Unchanged content can be carried into a metadata correction; edited complex cells remain a local-workflow task
-- Broader visual reskin of the existing image-progress/result screens
+- Remaining layout and interaction acceptance for long image-progress/result screens
 
 ## Verification and its limit
 

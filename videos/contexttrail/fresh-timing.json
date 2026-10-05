@@ -1,0 +1,33 @@
+{
+  "duration": 29.168,
+  "starts": [
+    0,
+    4.873,
+    13.652,
+    20.973,
+    25.477
+  ],
+  "durations": [
+    4.873,
+    8.779,
+    7.321,
+    4.504,
+    3.691
+  ],
+  "titles": [
+    "What ContextTrail does",
+    "Bring the question",
+    "Read the source and dates",
+    "Return to the evidence",
+    "Your next question"
+  ],
+  "voice_starts": {
+    "0": 0.1,
+    "1": 4.973,
+    "2": 9.34,
+    "3": 13.752,
+    "4": 17.585,
+    "5": 21.073,
+    "6": 25.577
+  }
+}

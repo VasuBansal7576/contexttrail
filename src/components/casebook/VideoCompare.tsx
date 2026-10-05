@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useFilePreview } from './use-file-preview';
 import SaveComparison from './SaveComparison';
 import { CasebookShell, ChapterHeading } from './CasebookShell';
 import type { LocalComparisonFrame, LocalComparisonResponse } from '@/lib/video/matching/application-contract';
@@ -14,16 +15,6 @@ const fallbackAccept = { image: '.jpg,.jpeg,.png,.webp', video: '.mp4,.mov,.webm
 const statusLabels: Record<FramePairComparison['status'], string> = { candidate_visual_overlap: 'Candidate visual overlap', no_candidate: 'No candidate', uninformative: 'Insufficient visual detail' };
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : 'Could not reach the local comparison server. Your files remain selected.'; }
 
-function useFilePreview(file: File | null): string | null {
-  const [preview, setPreview] = useState<{ file: File; url: string } | null>(null);
-  useEffect(() => {
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPreview({ file, url });
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-  return preview?.file === file ? preview.url : null;
-}
 
 function FileSlot({ side, selection, capabilities, onChange }: { side: 'A' | 'B'; selection: SelectedMedia; capabilities: ComparisonCapabilities | null; onChange: (selection: SelectedMedia) => void }) {
   const preview = useFilePreview(selection.file);
@@ -104,8 +95,7 @@ export function VideoCompare() {
   const capabilities = availability.kind === 'ready' ? availability.value : null;
   const leftError = left.file && capabilities ? validateComparisonFile(left.file, left.kind, capabilities) : null;
   const rightError = right.file && capabilities ? validateComparisonFile(right.file, right.kind, capabilities) : null;
-  const needsVideo = left.kind !== 'video' && right.kind !== 'video';
-  const ready = !!(capabilities && !capabilities.busy && left.file && right.file && rights && !leftError && !rightError && !needsVideo);
+  const ready = !!(capabilities && !capabilities.busy && left.file && right.file && rights && !leftError && !rightError);
   function replace(side: 'left' | 'right', selection: SelectedMedia) {
     requestId.current++; controller.current?.abort(); controller.current = null; setState({ kind: 'idle' }); setRights(false);
     if (side === 'left') setLeft(selection); else setRight(selection);
@@ -123,15 +113,15 @@ export function VideoCompare() {
     finally { if (current === requestId.current) controller.current = null; }
   }
   return <CasebookShell chapter="video" dark><main id="main" className="casebook-main video-workspace">
-    <div className="video-chapter-intro"><ChapterHeading number="02" label="Supplied video comparison">A trail, <em>frame by frame.</em></ChapterHeading><p>Put two supplied files side by side.<br />Keep each sampled moment beside its counterpart.<span>Local comparison · human inspection</span></p></div>
+    <div className="video-chapter-intro"><ChapterHeading number="02" label="Supplied media comparison">A trail, <em>frame by frame.</em></ChapterHeading><p>Put two supplied files side by side.<br />Keep each sampled moment beside its counterpart.<span>Local comparison · human inspection</span></p></div>
     <div className="video-availability" role="status" aria-live="polite">
       {availability.kind === 'loading' ? <p>Checking the local comparison server…</p> : availability.kind === 'unavailable' ? <><p><strong>Local comparison unavailable.</strong> {availability.message}</p><p>This chapter needs a single-user server bound to loopback, both local research and media opt-ins, and a trusted FFmpeg/FFprobe installation.</p><button type="button" onClick={() => void checkAvailability()}>Check again</button></> : <><p><span className="video-local-dot" aria-hidden="true" />{availability.value.busy ? 'The local decoder is busy. Wait for the active comparison, then check again.' : 'Local supplied-media comparison enabled. No web search or provider calls.'}</p><p>Up to {formatBytes(availability.value.limits.videoBytes)} and {availability.value.limits.videoDurationMs / 1000} seconds per video; {formatBytes(availability.value.limits.imageBytes)} per still. At most {availability.value.limits.videoSamples} sample points per video.</p>{availability.value.busy ? <button type="button" onClick={() => void checkAvailability()}>Check again</button> : null}</>}
     </div>
     <form onSubmit={submit} className="video-comparison-form">
       <div className="video-input-grid"><FileSlot side="A" selection={left} capabilities={capabilities} onChange={selection => replace('left', selection)} /><svg className="video-pair-arrow" aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 12h18M7 8l-4 4 4 4m10-8 4 4-4 4" /></svg><FileSlot side="B" selection={right} capabilities={capabilities} onChange={selection => replace('right', selection)} /></div>
-      <div className="video-form-bottom"><div><label className="video-rights"><input type="checkbox" checked={rights} disabled={state.kind === 'running'} onChange={event => setRights(event.target.checked)} /><span>I have the right to supply and compare both files on this local server.</span></label><p className="video-boundary-note">Choose two videos, or one video and a still image. Use trusted media: a native decoder is not a security sandbox. Files are sent only when you choose Compare.</p>{needsVideo ? <p className="video-file-error" role="alert">At least one file must be a video.</p> : null}</div><div className="video-submit-actions"><button type="submit" className="paper-button primary" disabled={!ready || state.kind === 'running'}>{state.kind === 'running' ? 'Comparing sampled frames…' : state.kind === 'complete' ? 'Compare again' : 'Compare sampled frames'}</button>{state.kind === 'running' ? <button type="button" className="video-cancel" onClick={cancel}>Cancel comparison</button> : null}</div></div>
+      <div className="video-form-bottom"><div><label className="video-rights"><input type="checkbox" checked={rights} disabled={state.kind === 'running'} onChange={event => setRights(event.target.checked)} /><span>I have the right to supply and compare both files on this local server.</span></label><p className="video-boundary-note">Compare two images, two videos, or an image and a video. Use trusted media: a native decoder is not a security sandbox. Files are sent only when you choose Compare.</p></div><div className="video-submit-actions"><button type="submit" className="paper-button primary" disabled={!ready || state.kind === 'running'}>{state.kind === 'running' ? 'Comparing sampled frames…' : state.kind === 'complete' ? 'Compare again' : 'Compare sampled frames'}</button>{state.kind === 'running' ? <button type="button" className="video-cancel" onClick={cancel}>Cancel comparison</button> : null}</div></div>
     </form>
     <div className="video-request-status" aria-live="polite" aria-atomic="true">{state.kind === 'running' ? <p role="status">Decoding the supplied files and comparing bounded frame pairs. This can take several minutes. You can cancel without losing the selected files.</p> : state.kind === 'cancelled' ? <p role="status">Comparison cancelled. Your files remain selected. The local decoder may need a moment to clean up before a retry.</p> : state.kind === 'error' ? <p role="alert">{state.message} Your selected files remain available. Retry with the same files or replace them.</p> : state.kind === 'complete' ? <p role="status">Comparison complete. {state.result.report.comparedFramePairs} sampled pairs inspected, {state.result.report.candidates.length} candidate overlaps. Comparison itself does not save a case. Use the save control below to retain this result.</p> : null}</div>
-    {state.kind === 'complete' ? <ComparisonResult key={requestId.current} result={state.result} /> : <div className="video-empty-note"><p className="eyebrow">Keep the question open</p><h2>A sampled match is <em>a place to look.</em></h2><p>The comparison checks a few decoded frames. It cannot search for an earlier source, assess a whole video, or establish what an image proves. Results can be explicitly saved to your local casebook after comparison.</p></div>}
+    {state.kind === 'complete' ? <ComparisonResult key={requestId.current} result={state.result} /> : <div className="video-empty-note"><p className="eyebrow">Keep the question open</p><h2>A sampled match is <em>a place to look.</em></h2><p>The comparison inspects supplied still images or a few decoded video frames. It cannot search for an earlier source, assess a whole video, or establish what an image proves. Results can be explicitly saved to your local casebook after comparison.</p></div>}
   </main></CasebookShell>;
 }

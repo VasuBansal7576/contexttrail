@@ -180,14 +180,17 @@ export function parseCaseRecord(value: unknown): CaseRecord {
         const read = object(item, path);
         const requestedUrl = auditUrl(read.requestedUrl, `${path}.requestedUrl`);
         const finalUrl = read.finalUrl === null ? null : auditUrl(read.finalUrl, `${path}.finalUrl`);
-        const sourceBinding = choice(read.sourceBinding, ['same_resource', 'normalized_resource', 'different_resource', 'blocked_destination', 'not_established'], `${path}.sourceBinding`);
+        const sourceBinding = choice(read.sourceBinding, ['same_resource', 'normalized_resource', 'different_resource', 'blocked_destination', 'not_established', 'reference_destination'], `${path}.sourceBinding`);
         const outcome = choice(read.outcome, ['not_attempted', 'fetch_failed', 'binding_rejected', 'no_readable_text', 'no_matching_quote', 'page_quote'], `${path}.outcome`);
-        const bound = sourceBinding === 'same_resource' || sourceBinding === 'normalized_resource';
+        const reference = read.reference === undefined ? undefined : (() => { const r = object(read.reference, `${path}.reference`); return { fromEvidenceId: id(r.fromEvidenceId, `${path}.reference.fromEvidenceId`), text: text(r.text, `${path}.reference.text`), supportingText: text(r.supportingText, `${path}.reference.supportingText`) }; })();
+        if (reference && (reference.text.length > 400 || reference.supportingText.length > 1200)) fail(path, 'reference exceeds its text limits');
+        if (sourceBinding === 'reference_destination' && !reference) fail(path, 'reference destination requires an inspected parent reference');
+        const bound = (sourceBinding === 'reference_destination' && !!reference) || sourceBinding === 'same_resource' || sourceBinding === 'normalized_resource';
         if (bound && !finalUrl) fail(path, 'bound read requires a final URL');
         if (outcome === 'not_attempted' && (finalUrl || sourceBinding !== 'not_established')) fail(path, 'unattempted read cannot bind a destination');
         if (outcome === 'binding_rejected' && bound) fail(path, 'rejected read cannot claim a bound resource');
         if (['no_readable_text', 'no_matching_quote', 'page_quote'].includes(outcome) && !bound) fail(path, 'extracted read requires a bound resource');
-        return { evidenceId: id(read.evidenceId, `${path}.evidenceId`), requestedUrl, finalUrl, sourceBinding, outcome };
+        return { evidenceId: id(read.evidenceId, `${path}.evidenceId`), requestedUrl, finalUrl, sourceBinding, outcome, ...(reference ? { reference } : {}) };
       }) }),
     },
   };

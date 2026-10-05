@@ -1,0 +1,39 @@
+{
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "speed": 1.1,
+  "lang": "en",
+  "bgm": {
+    "mode": "none"
+  },
+  "lines": [
+    {
+      "id": "fresh-01",
+      "text": "ContextTrail finds the sources behind questions, claims and media."
+    },
+    {
+      "id": "fresh-02",
+      "text": "A thousand kilometres of metro. By January twenty twenty-five?"
+    },
+    {
+      "id": "fresh-03",
+      "text": "Ask once. ContextTrail searches and reads the sources."
+    },
+    {
+      "id": "fresh-04",
+      "text": "Read the passage. Which date does that number actually describe?"
+    },
+    {
+      "id": "fresh-05",
+      "text": "Keep publication and retrieval dates separate."
+    },
+    {
+      "id": "fresh-06",
+      "text": "Come back to the exact evidence. Your investigation is saved."
+    },
+    {
+      "id": "fresh-07",
+      "text": "Bring something you want to understand."
+    }
+  ]
+}

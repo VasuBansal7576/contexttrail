@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { ChapterTurnProvider } from '@/components/casebook/ChapterTurn';
 
 /**
  * Project-owned font wiring (F16): Instrument Serif for editorial headings,
@@ -14,12 +15,14 @@ const instrumentSerif = localFont({
   ],
   variable: "--font-instrument-serif",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 const geistSans = localFont({
   src: [{ path: "./fonts/geist-sans-latin.woff2", weight: "100 900", style: "normal" }],
   variable: "--font-geist-sans",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {
@@ -34,7 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${instrumentSerif.variable} ${geistSans.variable} bg-paper text-ink antialiased`}
       >
-        {children}
+        <ChapterTurnProvider>{children}</ChapterTurnProvider>
       </body>
     </html>
   );

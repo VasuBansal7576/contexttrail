@@ -41,3 +41,13 @@ describe("applyEvent — evidence.discovered", () => {
     expect(s.evidence.map((e) => e.id)).toEqual(["ev-1", "ev-2"]);
   });
 });
+
+describe('HTTP input-validation feedback',()=>{
+  it('preserves the actionable local validation message and hides internal server failure details',async()=>{
+    const {requestFailure}=await import('./useInvestigation');
+    const message='Choose one already-public HTTPS image URL without login, tokens, query parameters or a custom port.';
+    expect(await requestFailure(Response.json({error:message},{status:400}))).toEqual({code:'invalid_input',message});
+    expect((await requestFailure(Response.json({error:'Internal secret diagnostic'},{status:500}))).message).not.toContain('Internal secret diagnostic');
+    expect((await requestFailure(new Response('<html>Failure</html>',{status:400,headers:{'content-type':'text/html'}}))).message).toContain('HTTP 400');
+  });
+});

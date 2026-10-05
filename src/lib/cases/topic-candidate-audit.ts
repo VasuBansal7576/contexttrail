@@ -53,9 +53,9 @@ function parseFailure(value: unknown): TopicSearchFailure {
 }
 
 /** Additive, browser-safe boundary. Deliberately excludes provider text/raw fields. */
-export function parseTopicCandidateAudit(value: unknown, logs: readonly { returned: number; retained: number }[], sourceReads: readonly { evidenceId: string; requestedUrl: string }[] | undefined): TopicCandidateAudit {
+export function parseTopicCandidateAudit(value: unknown, logs: readonly { returned: number; retained: number }[], sourceReads: readonly { evidenceId: string; requestedUrl: string; reference?: unknown }[] | undefined): TopicCandidateAudit {
   const v = object(value);
-  if (v.schemaVersion !== 'contexttrail-topic-candidate-audit-v1' || !Array.isArray(v.searches) || v.searches.length !== logs.length || v.searches.length > 3
+  if (v.schemaVersion !== 'contexttrail-topic-candidate-audit-v1' || !Array.isArray(v.searches) || v.searches.length !== logs.length || v.searches.length > 6
     || !Array.isArray(v.references) || v.references.length > TOPIC_CANDIDATE_AUDIT_LIMIT) return invalid();
   const searches = v.searches.map((value, searchIndex): TopicCandidateSearchAudit => {
     const search = object(value);
@@ -73,7 +73,7 @@ export function parseTopicCandidateAudit(value: unknown, logs: readonly { return
   const references = v.references.map((value): TopicCandidateReference => {
     const row = object(value);
     if (typeof row.candidateId !== 'string' || !row.candidateId.trim() || row.candidateId.length > 256 || typeof row.sourceUrl !== 'string') return invalid();
-    const sourceUrl = diagnosticReferenceUrl(row.sourceUrl), searchIndex = integer(row.searchIndex, 2);
+    const sourceUrl = diagnosticReferenceUrl(row.sourceUrl), searchIndex = integer(row.searchIndex, 5);
     if (!sourceUrl || searches[searchIndex]?.outcome !== 'succeeded' || (row.disposition !== 'retained' && row.disposition !== 'not_retained')) return invalid();
     return { candidateId: row.candidateId, sourceUrl, searchIndex, providerRank: row.providerRank === null ? null : integer(row.providerRank), disposition: row.disposition };
   });
@@ -81,7 +81,7 @@ export function parseTopicCandidateAudit(value: unknown, logs: readonly { return
   // trailing-dot aliases can remain separate candidates but share a safe URL.
   if (new Set(references.map(row => row.candidateId)).size !== references.length) return invalid();
   const uniqueNormalizedCount = integer(v.uniqueNormalizedCount), safeReferenceCount = integer(v.safeReferenceCount), withheldReferenceCount = integer(v.withheldReferenceCount);
-  const retainedCount = integer(v.retainedCount, 8), notRetainedCount = integer(v.notRetainedCount), uncapturedSafeReferenceCount = integer(v.uncapturedSafeReferenceCount);
+  const retainedCount = integer(v.retainedCount, 12), notRetainedCount = integer(v.notRetainedCount), uncapturedSafeReferenceCount = integer(v.uncapturedSafeReferenceCount);
   if (uniqueNormalizedCount !== searches.reduce((total, search) => total + (search.normalizedCount ?? 0) - (search.duplicateCount ?? 0), 0)
     || uniqueNormalizedCount !== safeReferenceCount + withheldReferenceCount || safeReferenceCount !== retainedCount + notRetainedCount
     || safeReferenceCount !== references.length + uncapturedSafeReferenceCount || references.length !== Math.min(safeReferenceCount, TOPIC_CANDIDATE_AUDIT_LIMIT)
@@ -93,6 +93,7 @@ export function parseTopicCandidateAudit(value: unknown, logs: readonly { return
   }
   // Original requested leads own retained disposition, including after source
   // corrections/removals. Current evidence URLs are deliberately not substituted.
+  sourceReads = sourceReads?.filter(read => read.reference === undefined);
   if (!sourceReads || sourceReads.length !== retainedCount || new Set(sourceReads.map(read => read.evidenceId)).size !== retainedCount) return invalid();
   for (const row of references.filter(row => row.disposition === 'retained')) {
     const read = sourceReads.find(read => read.evidenceId === row.candidateId);

@@ -7,13 +7,19 @@ import {randomUUID} from 'node:crypto';
 const keys=['searches','uploads','jevRequests','jevQuestions'];
 const publicClaim={searches:6,uploads:0,jevRequests:60,jevQuestions:272};
 const publicTrace={searches:4,uploads:0,jevRequests:60,jevQuestions:113};
-const topic={searches:3,uploads:0,jevRequests:8,jevQuestions:40};
-const legacyTopic={...topic,jevQuestions:8};
-const grants=[publicClaim,publicTrace,{...publicTrace,uploads:1},{...publicClaim,uploads:1},topic];
-const historyGrants=[...grants,legacyTopic];
+const topic={searches:6,uploads:0,jevRequests:12,jevQuestions:60};
+// A separately verified search balance never expands TypeSafe or upload access.
+const searchTopUp={searches:6,uploads:0,jevRequests:0,jevQuestions:0};
+const previousTopic={searches:3,uploads:0,jevRequests:8,jevQuestions:40};
+const legacyTopic={...previousTopic,jevQuestions:8};
+const grants=[publicClaim,publicTrace,{...publicTrace,uploads:1},{...publicClaim,uploads:1},topic,searchTopUp];
+const videoTrace={searches:12,uploads:3,jevRequests:180,jevQuestions:339};
+const videoClaim={searches:18,uploads:3,jevRequests:180,jevQuestions:816};
+const historyGrants=[...grants,legacyTopic,previousTopic];
+const historyAllocations=[...historyGrants,videoTrace,videoClaim,{searches:18,uploads:3,jevRequests:192,jevQuestions:399},{searches:24,uploads:3,jevRequests:192,jevQuestions:876}];
 const same=(a,b)=>keys.every(k=>a[k]===b[k]);
 const valid=a=>a&&typeof a==='object'&&Object.keys(a).length===4&&keys.every(k=>Number.isSafeInteger(a[k])&&a[k]>=0);
-const allocation=a=>valid(a)&&historyGrants.some(b=>same(a,b));
+const allocation=a=>valid(a)&&historyAllocations.some(b=>same(a,b));
 const cap=n=>{const v=process.env[n];if(!/^(0|[1-9]\d*)$/.test(v??'')||!Number.isSafeInteger(Number(v)))throw Error();return Number(v);};
 async function grant(){
  if(process.env.CONTEXTTRAIL_LIVE_ENABLED!=='false'||process.env.CONTEXTTRAIL_LIVE_DEPLOYMENT!=='single-host-persistent'||process.env.CONTEXTTRAIL_FREE_ALLOWANCE_ACKNOWLEDGED!=='true'||['VERCEL','VERCEL_ENV','NETLIFY','AWS_LAMBDA_FUNCTION_NAME','AWS_EXECUTION_ENV','FUNCTIONS_WORKER_RUNTIME','K_SERVICE','CLOUD_RUN_JOB'].some(k=>process.env[k]!==undefined))throw Error();

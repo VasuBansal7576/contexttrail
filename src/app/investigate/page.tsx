@@ -241,8 +241,9 @@ export default function InvestigatePage() {
 
   return (
     <div className="bg-paper">
-      {cachedAvailable ? (
-        <div className="mx-auto max-w-[560px] px-5 pt-6 sm:pt-10" role="note" aria-label="Restore previous result">
+      <UploadForm
+        resumeActions={cachedAvailable ? (
+        <div className="resume-result" role="note" aria-label="Restore previous result">
           <div className="rounded-2xl bg-white/70 p-5 ring-1 ring-ink/10">
             <p className="text-sm font-medium">Your last completed result is still in this tab.</p>
             <p className="mt-1 text-sm leading-relaxed text-ink/60">
@@ -252,6 +253,7 @@ export default function InvestigatePage() {
             <div className="mt-3 flex flex-wrap gap-3">
               <button
                 type="button"
+                disabled={preprocessing}
                 onClick={handleRestore}
                 className="inline-flex min-h-[44px] items-center rounded-full bg-ink px-5 py-2 text-sm font-medium text-white transition hover:bg-black"
               >
@@ -259,6 +261,7 @@ export default function InvestigatePage() {
               </button>
               <button
                 type="button"
+                disabled={preprocessing}
                 onClick={handleDiscardCached}
                 className="inline-flex min-h-[44px] items-center rounded-full px-5 py-2 text-sm font-medium ring-1 ring-ink/20 transition hover:ring-ink/50"
               >
@@ -268,7 +271,6 @@ export default function InvestigatePage() {
           </div>
         </div>
       ) : null}
-      <UploadForm
         selection={selection}
         publicImageId={publicImageId}
         publicImageUrl={publicImageUrl}

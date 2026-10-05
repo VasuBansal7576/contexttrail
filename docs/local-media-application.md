@@ -1,6 +1,6 @@
 # Local supplied-media application bridge
 
-The application can compare two supplied videos, or a still image and a video,
+The application can compare two supplied images, two videos, or an image and a video,
 through `/api/media/compare`. It reuses the frozen `bounded-pixel-alignment-v1`
 matcher. Results are candidate sampled-frame overlaps for human inspection.
 No request searches the web, contacts a provider, reads a user-supplied path or
@@ -38,7 +38,7 @@ media or result. The response has `Cache-Control: no-store`.
 `POST /api/media/compare` accepts multipart FormData with exactly these fields:
 
 - `left` and `right`, one file each
-- `leftKind` and `rightKind`, each `image` or `video`; at least one must be `video`
+- `leftKind` and `rightKind`, each `image` or `video`
 - `rights`, exactly `user_provided`, the caller's attestation for both files
 
 Only supplied bytes reach the decoder. Original names are checked for a bounded
@@ -49,8 +49,8 @@ validates the actual container and stream.
 
 Accepted formats are `.jpg`/`.jpeg` with `image/jpeg`, `.png` with `image/png`,
 `.webp` with `image/webp`, `.mp4` with `video/mp4`, `.mov` with `video/quicktime`,
-`.webm` with `video/webm` and `.mkv` with `video/x-matroska`. MP4/MOV inputs must
-start with an `ftyp` box; legacy MOV without this signature is rejected. WebM/MKV
+`.webm` with `video/webm` and `.mkv` with `video/x-matroska`. MP4/MOV inputs must have a bounded self-contained movie/media layout.
+Validated legacy MOV layouts without `ftyp` are supported; external data references are rejected. WebM/MKV
 must start with EBML. This check does not establish validity. The bounded
 extractor subsequently rejects malformed containers and unsupported streams.
 Animated PNG/WebP remain rejected.
@@ -105,19 +105,20 @@ This bridge does not alter the held-out evaluation: 21 of 33 positive pairs had
 candidates, and 1 of 91 negative pairs did. Those are results on that dataset,
 not a guarantee for new files. See the [frozen evaluation](local-media-matching-evaluation.md).
 
-## Why a comparison is not saved to a case
+## Retaining a comparison
 
-The response explicitly says "Comparison not saved to case." CaseEvidence v1
-requires a source URL and does not model local supplied candidate pairs. The
-retained-material envelope supports PNG and structured tables, not retained
-video or the JPEG samples produced by this decoder. Approximate matcher crop
-rectangles are not validated evidence anchors.
+Comparison requests return `not_saved` and never write a case implicitly. The
+explicit save control retains the exact report and decoded frame bytes in a
+versioned comparison snapshot. Frame hashes are checked on reopen. Original
+video files are excluded. Saved snapshots can be inspected without decoding,
+searching or reclassifying the inputs.
 
-No placeholder source URL, claim support, provenance date, occurrence identity,
-or conclusion is manufactured to fit those contracts. A later persistence
-adapter needs versioned local media references, retained-byte bindings, candidate
-pair records, case revision checks, and explicit unavailable/stale handling.
-It must preserve user review and must not promote a match into claim support.
+Local pair records are kept separately from web source evidence. No placeholder
+source URL, claim support, provenance date, occurrence identity or conclusion
+is manufactured. Approximate crop rectangles remain inspection aids, rather
+than validated source evidence anchors. Image pairs also support inspecting an
+advertised and received item; pixel overlap alone cannot establish a shopping
+mismatch, material, variant or seller conduct.
 
 ## Repeatable verification
 

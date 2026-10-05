@@ -1,0 +1,236 @@
+{
+  "duration": 90.0,
+  "fps": 60,
+  "beat_seconds": 0.625,
+  "scenes": [
+    {
+      "n": 1,
+      "start": 0,
+      "duration": 8.75,
+      "voice_start": 0.35,
+      "voice_duration": 6.613333333333333,
+      "text": "An image gets reposted. A clip loses its date. An answer sounds certain. But where did it come from?"
+    },
+    {
+      "n": 2,
+      "start": 8.75,
+      "duration": 8.125,
+      "voice_start": 9.1,
+      "voice_duration": 5.738666666666667,
+      "text": "Hi, I'm Vasu. I built ContextTrail. A place to follow the question, and keep the evidence."
+    },
+    {
+      "n": 3,
+      "start": 16.875,
+      "duration": 11.875,
+      "voice_start": 17.225,
+      "voice_duration": 9.472,
+      "text": "Start with an image, a video, or a question. This Earthrise run retained thirteen source records, with reporting origins still unresolved."
+    },
+    {
+      "n": 4,
+      "start": 28.75,
+      "duration": 13.125,
+      "voice_start": 29.1,
+      "voice_duration": 9.834666666666667,
+      "text": "Open the passage. NASA names Bill Anders aboard Apollo Eight. Keep the publication date beside the quote. A page date isn't the photograph's date."
+    },
+    {
+      "n": 5,
+      "start": 41.875,
+      "duration": 9.375,
+      "voice_start": 42.225,
+      "voice_duration": 6.250666666666667,
+      "text": "Pin exactly what the source supports. Then select an answer's sentence to inspect the evidence behind it."
+    },
+    {
+      "n": 6,
+      "start": 51.25,
+      "duration": 10.625,
+      "voice_start": 51.6,
+      "voice_duration": 8.448,
+      "text": "Questions get their own investigation. Here, twelve sources, three inspected quotes, and nine leads still waiting for a closer look."
+    },
+    {
+      "n": 7,
+      "start": 61.875,
+      "duration": 8.75,
+      "voice_start": 62.225,
+      "voice_duration": 6.250666666666667,
+      "text": "For video, each searched moment keeps its own source trail. This lead's identity is still unconfirmed."
+    },
+    {
+      "n": 8,
+      "start": 70.625,
+      "duration": 10.0,
+      "voice_start": 70.975,
+      "voice_duration": 5.930666666666666,
+      "text": "Save the case and come back. Keep version history. Set a watch to return for new evidence."
+    },
+    {
+      "n": 9,
+      "start": 80.625,
+      "duration": 9.375,
+      "voice_start": 80.975,
+      "voice_duration": 5.525333333333333,
+      "text": "Because the question doesn't end when the tab closes. ContextTrail. Follow the question."
+    }
+  ],
+  "captions": [
+    {
+      "start": 0.419,
+      "end": 2.31,
+      "text": "An image gets reposted. A clip"
+    },
+    {
+      "start": 2.335,
+      "end": 4.329,
+      "text": "loses its date. An answer sounds"
+    },
+    {
+      "start": 4.354,
+      "end": 6.434,
+      "text": "certain. But where did it come"
+    },
+    {
+      "start": 6.712,
+      "end": 6.963,
+      "text": "from?"
+    },
+    {
+      "start": 9.21,
+      "end": 12.195,
+      "text": "Hi, I'm Vasu. I built ContextTrail."
+    },
+    {
+      "start": 12.22,
+      "end": 13.635,
+      "text": "a place to follow the question"
+    },
+    {
+      "start": 13.66,
+      "end": 14.81,
+      "text": "and keep the evidence."
+    },
+    {
+      "start": 17.295,
+      "end": 19.28,
+      "text": "Start with an image, a video,"
+    },
+    {
+      "start": 19.305,
+      "end": 21.655,
+      "text": "or a question. This Earthrise run"
+    },
+    {
+      "start": 21.775,
+      "end": 24.885,
+      "text": "retained 13 source records with reporting"
+    },
+    {
+      "start": 24.925,
+      "end": 26.697,
+      "text": "origins still unresolved."
+    },
+    {
+      "start": 29.219,
+      "end": 31.745,
+      "text": "Open the passage. NASA names Bill"
+    },
+    {
+      "start": 31.77,
+      "end": 34.275,
+      "text": "Anders aboard Apollo 8. Keep the"
+    },
+    {
+      "start": 34.3,
+      "end": 36.146,
+      "text": "publication date beside the quote. A"
+    },
+    {
+      "start": 36.603,
+      "end": 38.935,
+      "text": "page date isn't the photograph's date."
+    },
+    {
+      "start": 42.265,
+      "end": 44.832,
+      "text": "Pin exactly what the source supports,"
+    },
+    {
+      "start": 44.857,
+      "end": 46.656,
+      "text": "then select an answer sentence to"
+    },
+    {
+      "start": 46.681,
+      "end": 48.476,
+      "text": "inspect the evidence behind it."
+    },
+    {
+      "start": 51.718,
+      "end": 54.644,
+      "text": "Questions get their own investigation. Here,"
+    },
+    {
+      "start": 54.669,
+      "end": 57.496,
+      "text": "12 sources, three inspected quotes, and"
+    },
+    {
+      "start": 57.521,
+      "end": 59.125,
+      "text": "nine leads still waiting for a"
+    },
+    {
+      "start": 59.15,
+      "end": 60.048,
+      "text": "closer look."
+    },
+    {
+      "start": 62.304,
+      "end": 64.172,
+      "text": "For video, each searched moment keeps"
+    },
+    {
+      "start": 64.197,
+      "end": 66.317,
+      "text": "its own source trail. This lead's"
+    },
+    {
+      "start": 66.395,
+      "end": 68.476,
+      "text": "identity is still unconfirmed."
+    },
+    {
+      "start": 71.044,
+      "end": 72.95299999999999,
+      "text": "Save the case and come back."
+    },
+    {
+      "start": 72.978,
+      "end": 75.064,
+      "text": "Keep version history. Set a watch"
+    },
+    {
+      "start": 75.089,
+      "end": 76.906,
+      "text": "to return for new evidence."
+    },
+    {
+      "start": 81.005,
+      "end": 82.722,
+      "text": "because the question doesn't end when"
+    },
+    {
+      "start": 82.747,
+      "end": 85.67899999999999,
+      "text": "the tab closes. ContextTrail. follow the"
+    },
+    {
+      "start": 85.704,
+      "end": 86.5,
+      "text": "question."
+    }
+  ]
+}

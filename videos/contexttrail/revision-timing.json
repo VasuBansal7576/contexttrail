@@ -1,0 +1,30 @@
+{
+  "duration": 49.465,
+  "starts": [
+    0,
+    8.615,
+    16.035,
+    25.086,
+    32.656,
+    37.495,
+    43.116
+  ],
+  "durations": [
+    8.615,
+    7.42,
+    9.051,
+    7.57,
+    4.839,
+    5.621,
+    6.349
+  ],
+  "titles": [
+    "Meet ContextTrail",
+    "A question about UPI",
+    "Read the distinction",
+    "Check the dates",
+    "Keep the open questions",
+    "Return to the evidence",
+    "Bring your next question"
+  ]
+}

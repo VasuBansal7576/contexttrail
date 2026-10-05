@@ -1,0 +1,1070 @@
+{
+  "tts_provider": "kokoro",
+  "voice_id": "am_michael",
+  "bgm": null,
+  "bgm_pending": false,
+  "bgm_provider": null,
+  "bgm_pid": null,
+  "bgm_log": null,
+  "bgm_mode": null,
+  "bgm_target_duration_s": null,
+  "bgm_seed_duration_s": null,
+  "bgm_loop_count": null,
+  "voices": [
+    {
+      "id": "launch-01",
+      "path": "assets/voice/launch-01.wav",
+      "duration_s": 6.613,
+      "words": [
+        {
+          "id": "w0",
+          "text": "An",
+          "start": 0.08,
+          "end": 0.18
+        },
+        {
+          "id": "w1",
+          "text": "image",
+          "start": 0.25,
+          "end": 0.59
+        },
+        {
+          "id": "w2",
+          "text": "gets",
+          "start": 0.67,
+          "end": 1.05
+        },
+        {
+          "id": "w3",
+          "text": "reposted.",
+          "start": 1.05,
+          "end": 1.88
+        },
+        {
+          "id": "w4",
+          "text": "A",
+          "start": 1.88,
+          "end": 1.96
+        },
+        {
+          "id": "w5",
+          "text": "clip",
+          "start": 1.96,
+          "end": 2.29
+        },
+        {
+          "id": "w6",
+          "text": "loses",
+          "start": 2.29,
+          "end": 2.66
+        },
+        {
+          "id": "w7",
+          "text": "its",
+          "start": 2.7,
+          "end": 2.94
+        },
+        {
+          "id": "w8",
+          "text": "date.",
+          "start": 3,
+          "end": 3.46
+        },
+        {
+          "id": "w9",
+          "text": "An",
+          "start": 3.64,
+          "end": 3.71
+        },
+        {
+          "id": "w10",
+          "text": "answer",
+          "start": 3.71,
+          "end": 4.15
+        },
+        {
+          "id": "w11",
+          "text": "sounds",
+          "start": 4.17,
+          "end": 4.62
+        },
+        {
+          "id": "w12",
+          "text": "certain.",
+          "start": 4.62,
+          "end": 5.18
+        },
+        {
+          "id": "w13",
+          "text": "But",
+          "start": 5.48,
+          "end": 5.69
+        },
+        {
+          "id": "w14",
+          "text": "where",
+          "start": 5.69,
+          "end": 6.17
+        },
+        {
+          "id": "w15",
+          "text": "did",
+          "start": 6.17,
+          "end": 6.46
+        },
+        {
+          "id": "w16",
+          "text": "it",
+          "start": 6.46,
+          "end": 6.65
+        },
+        {
+          "id": "w17",
+          "text": "come",
+          "start": 6.65,
+          "end": 6.95
+        },
+        {
+          "id": "w18",
+          "text": "from?",
+          "start": 7.34,
+          "end": 7.63
+        }
+      ]
+    },
+    {
+      "id": "launch-02",
+      "path": "assets/voice/launch-02.wav",
+      "duration_s": 5.739,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Hi,",
+          "start": 0.11,
+          "end": 0.4
+        },
+        {
+          "id": "w1",
+          "text": "I'm",
+          "start": 0.4,
+          "end": 0.7
+        },
+        {
+          "id": "w2",
+          "text": "Vasu.",
+          "start": 0.7,
+          "end": 1.12
+        },
+        {
+          "id": "w3",
+          "text": "I",
+          "start": 1.5,
+          "end": 1.52
+        },
+        {
+          "id": "w4",
+          "text": "built",
+          "start": 1.52,
+          "end": 1.94
+        },
+        {
+          "id": "w5",
+          "text": "Context",
+          "start": 1.95,
+          "end": 2.53
+        },
+        {
+          "id": "w6",
+          "text": "Trail,",
+          "start": 2.53,
+          "end": 3.12
+        },
+        {
+          "id": "w7",
+          "text": "a",
+          "start": 3.12,
+          "end": 3.18
+        },
+        {
+          "id": "w8",
+          "text": "place",
+          "start": 3.18,
+          "end": 3.51
+        },
+        {
+          "id": "w9",
+          "text": "to",
+          "start": 3.56,
+          "end": 3.6
+        },
+        {
+          "id": "w10",
+          "text": "follow",
+          "start": 3.6,
+          "end": 4
+        },
+        {
+          "id": "w11",
+          "text": "the",
+          "start": 4,
+          "end": 4.12
+        },
+        {
+          "id": "w12",
+          "text": "question",
+          "start": 4.17,
+          "end": 4.56
+        },
+        {
+          "id": "w13",
+          "text": "and",
+          "start": 4.56,
+          "end": 4.69
+        },
+        {
+          "id": "w14",
+          "text": "keep",
+          "start": 4.69,
+          "end": 4.88
+        },
+        {
+          "id": "w15",
+          "text": "the",
+          "start": 4.88,
+          "end": 5.04
+        },
+        {
+          "id": "w16",
+          "text": "evidence.",
+          "start": 5.04,
+          "end": 5.65
+        }
+      ]
+    },
+    {
+      "id": "launch-03",
+      "path": "assets/voice/launch-03.wav",
+      "duration_s": 9.472,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Start",
+          "start": 0.07,
+          "end": 0.34
+        },
+        {
+          "id": "w1",
+          "text": "with",
+          "start": 0.4,
+          "end": 0.72
+        },
+        {
+          "id": "w2",
+          "text": "an",
+          "start": 0.72,
+          "end": 0.88
+        },
+        {
+          "id": "w3",
+          "text": "image,",
+          "start": 0.88,
+          "end": 1.44
+        },
+        {
+          "id": "w4",
+          "text": "a",
+          "start": 1.44,
+          "end": 1.52
+        },
+        {
+          "id": "w5",
+          "text": "video,",
+          "start": 1.52,
+          "end": 2.08
+        },
+        {
+          "id": "w6",
+          "text": "or",
+          "start": 2.08,
+          "end": 2.17
+        },
+        {
+          "id": "w7",
+          "text": "a",
+          "start": 2.24,
+          "end": 2.32
+        },
+        {
+          "id": "w8",
+          "text": "question.",
+          "start": 2.32,
+          "end": 3.28
+        },
+        {
+          "id": "w9",
+          "text": "This",
+          "start": 3.35,
+          "end": 3.56
+        },
+        {
+          "id": "w10",
+          "text": "Earthrise",
+          "start": 3.56,
+          "end": 4.2
+        },
+        {
+          "id": "w11",
+          "text": "run",
+          "start": 4.2,
+          "end": 4.37
+        },
+        {
+          "id": "w12",
+          "text": "retained",
+          "start": 4.55,
+          "end": 4.98
+        },
+        {
+          "id": "w13",
+          "text": "13",
+          "start": 4.98,
+          "end": 5.41
+        },
+        {
+          "id": "w14",
+          "text": "source",
+          "start": 5.41,
+          "end": 5.86
+        },
+        {
+          "id": "w15",
+          "text": "records",
+          "start": 5.87,
+          "end": 6.68
+        },
+        {
+          "id": "w16",
+          "text": "with",
+          "start": 6.75,
+          "end": 6.98
+        },
+        {
+          "id": "w17",
+          "text": "reporting",
+          "start": 6.98,
+          "end": 7.6
+        },
+        {
+          "id": "w18",
+          "text": "origins",
+          "start": 7.7,
+          "end": 8.19
+        },
+        {
+          "id": "w19",
+          "text": "still",
+          "start": 8.19,
+          "end": 8.51
+        },
+        {
+          "id": "w20",
+          "text": "unresolved.",
+          "start": 8.68,
+          "end": 9.43
+        }
+      ]
+    },
+    {
+      "id": "launch-04",
+      "path": "assets/voice/launch-04.wav",
+      "duration_s": 9.835,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Open",
+          "start": 0.12,
+          "end": 0.42
+        },
+        {
+          "id": "w1",
+          "text": "the",
+          "start": 0.42,
+          "end": 0.74
+        },
+        {
+          "id": "w2",
+          "text": "Passage.",
+          "start": 0.74,
+          "end": 1.52
+        },
+        {
+          "id": "w3",
+          "text": "NASA",
+          "start": 1.59,
+          "end": 1.88
+        },
+        {
+          "id": "w4",
+          "text": "names",
+          "start": 1.88,
+          "end": 2.29
+        },
+        {
+          "id": "w5",
+          "text": "Bill",
+          "start": 2.32,
+          "end": 2.69
+        },
+        {
+          "id": "w6",
+          "text": "Anders",
+          "start": 2.69,
+          "end": 3.23
+        },
+        {
+          "id": "w7",
+          "text": "aboard",
+          "start": 3.23,
+          "end": 3.76
+        },
+        {
+          "id": "w8",
+          "text": "Apollo",
+          "start": 3.77,
+          "end": 4.31
+        },
+        {
+          "id": "w9",
+          "text": "8.",
+          "start": 4.31,
+          "end": 4.86
+        },
+        {
+          "id": "w10",
+          "text": "Keep",
+          "start": 4.96,
+          "end": 5.12
+        },
+        {
+          "id": "w11",
+          "text": "the",
+          "start": 5.2,
+          "end": 5.24
+        },
+        {
+          "id": "w12",
+          "text": "publication",
+          "start": 5.24,
+          "end": 6
+        },
+        {
+          "id": "w13",
+          "text": "date",
+          "start": 6,
+          "end": 6.23
+        },
+        {
+          "id": "w14",
+          "text": "beside",
+          "start": 6.34,
+          "end": 6.64
+        },
+        {
+          "id": "w15",
+          "text": "the",
+          "start": 6.64,
+          "end": 6.71
+        },
+        {
+          "id": "w16",
+          "text": "quote.",
+          "start": 6.72,
+          "end": 7
+        },
+        {
+          "id": "w17",
+          "text": "A",
+          "start": 7,
+          "end": 7.04
+        },
+        {
+          "id": "w18",
+          "text": "page",
+          "start": 7.56,
+          "end": 7.96
+        },
+        {
+          "id": "w19",
+          "text": "date",
+          "start": 7.96,
+          "end": 8
+        },
+        {
+          "id": "w20",
+          "text": "isn't",
+          "start": 8,
+          "end": 8.41
+        },
+        {
+          "id": "w21",
+          "text": "the",
+          "start": 8.41,
+          "end": 8.66
+        },
+        {
+          "id": "w22",
+          "text": "photograph's",
+          "start": 8.77,
+          "end": 9.61
+        },
+        {
+          "id": "w23",
+          "text": "date.",
+          "start": 9.61,
+          "end": 9.91
+        }
+      ]
+    },
+    {
+      "id": "launch-05",
+      "path": "assets/voice/launch-05.wav",
+      "duration_s": 6.251,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Pin",
+          "start": 0.04,
+          "end": 0.25
+        },
+        {
+          "id": "w1",
+          "text": "exactly",
+          "start": 0.27,
+          "end": 0.83
+        },
+        {
+          "id": "w2",
+          "text": "what",
+          "start": 0.83,
+          "end": 1.16
+        },
+        {
+          "id": "w3",
+          "text": "the",
+          "start": 1.16,
+          "end": 1.41
+        },
+        {
+          "id": "w4",
+          "text": "source",
+          "start": 1.41,
+          "end": 1.9
+        },
+        {
+          "id": "w5",
+          "text": "supports,",
+          "start": 1.9,
+          "end": 2.6
+        },
+        {
+          "id": "w6",
+          "text": "then",
+          "start": 2.64,
+          "end": 2.85
+        },
+        {
+          "id": "w7",
+          "text": "select",
+          "start": 2.87,
+          "end": 3.25
+        },
+        {
+          "id": "w8",
+          "text": "an",
+          "start": 3.36,
+          "end": 3.39
+        },
+        {
+          "id": "w9",
+          "text": "answer",
+          "start": 3.39,
+          "end": 3.79
+        },
+        {
+          "id": "w10",
+          "text": "sentence",
+          "start": 3.79,
+          "end": 4.34
+        },
+        {
+          "id": "w11",
+          "text": "to",
+          "start": 4.38,
+          "end": 4.47
+        },
+        {
+          "id": "w12",
+          "text": "inspect",
+          "start": 4.47,
+          "end": 4.93
+        },
+        {
+          "id": "w13",
+          "text": "the",
+          "start": 4.93,
+          "end": 5.12
+        },
+        {
+          "id": "w14",
+          "text": "evidence",
+          "start": 5.12,
+          "end": 5.64
+        },
+        {
+          "id": "w15",
+          "text": "behind",
+          "start": 5.64,
+          "end": 6
+        },
+        {
+          "id": "w16",
+          "text": "it.",
+          "start": 6.07,
+          "end": 6.27
+        }
+      ]
+    },
+    {
+      "id": "launch-06",
+      "path": "assets/voice/launch-06.wav",
+      "duration_s": 8.448,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Questions",
+          "start": 0.12,
+          "end": 0.53
+        },
+        {
+          "id": "w1",
+          "text": "get",
+          "start": 0.58,
+          "end": 0.67
+        },
+        {
+          "id": "w2",
+          "text": "their",
+          "start": 0.77,
+          "end": 1.02
+        },
+        {
+          "id": "w3",
+          "text": "own",
+          "start": 1.02,
+          "end": 1.2
+        },
+        {
+          "id": "w4",
+          "text": "investigation.",
+          "start": 1.2,
+          "end": 2.14
+        },
+        {
+          "id": "w5",
+          "text": "Here,",
+          "start": 2.74,
+          "end": 3.11
+        },
+        {
+          "id": "w6",
+          "text": "12",
+          "start": 3.11,
+          "end": 3.61
+        },
+        {
+          "id": "w7",
+          "text": "sources,",
+          "start": 3.61,
+          "end": 4.38
+        },
+        {
+          "id": "w8",
+          "text": "three",
+          "start": 4.38,
+          "end": 4.69
+        },
+        {
+          "id": "w9",
+          "text": "inspected",
+          "start": 4.69,
+          "end": 5.37
+        },
+        {
+          "id": "w10",
+          "text": "quotes,",
+          "start": 5.37,
+          "end": 5.8
+        },
+        {
+          "id": "w11",
+          "text": "and",
+          "start": 5.92,
+          "end": 6
+        },
+        {
+          "id": "w12",
+          "text": "nine",
+          "start": 6,
+          "end": 6.26
+        },
+        {
+          "id": "w13",
+          "text": "leads",
+          "start": 6.26,
+          "end": 6.59
+        },
+        {
+          "id": "w14",
+          "text": "still",
+          "start": 6.59,
+          "end": 6.92
+        },
+        {
+          "id": "w15",
+          "text": "waiting",
+          "start": 6.92,
+          "end": 7.39
+        },
+        {
+          "id": "w16",
+          "text": "for",
+          "start": 7.39,
+          "end": 7.59
+        },
+        {
+          "id": "w17",
+          "text": "a",
+          "start": 7.59,
+          "end": 7.65
+        },
+        {
+          "id": "w18",
+          "text": "closer",
+          "start": 7.65,
+          "end": 7.87
+        },
+        {
+          "id": "w19",
+          "text": "look.",
+          "start": 8.06,
+          "end": 8.56
+        }
+      ]
+    },
+    {
+      "id": "launch-07",
+      "path": "assets/voice/launch-07.wav",
+      "duration_s": 6.251,
+      "words": [
+        {
+          "id": "w0",
+          "text": "For",
+          "start": 0.08,
+          "end": 0.18
+        },
+        {
+          "id": "w1",
+          "text": "video,",
+          "start": 0.18,
+          "end": 0.59
+        },
+        {
+          "id": "w2",
+          "text": "each",
+          "start": 0.73,
+          "end": 0.85
+        },
+        {
+          "id": "w3",
+          "text": "searched",
+          "start": 0.91,
+          "end": 1.29
+        },
+        {
+          "id": "w4",
+          "text": "moment",
+          "start": 1.37,
+          "end": 1.7
+        },
+        {
+          "id": "w5",
+          "text": "keeps",
+          "start": 1.76,
+          "end": 1.99
+        },
+        {
+          "id": "w6",
+          "text": "its",
+          "start": 2,
+          "end": 2.26
+        },
+        {
+          "id": "w7",
+          "text": "own",
+          "start": 2.26,
+          "end": 2.52
+        },
+        {
+          "id": "w8",
+          "text": "source",
+          "start": 2.52,
+          "end": 2.91
+        },
+        {
+          "id": "w9",
+          "text": "trail.",
+          "start": 3.48,
+          "end": 3.5
+        },
+        {
+          "id": "w10",
+          "text": "This",
+          "start": 3.58,
+          "end": 3.79
+        },
+        {
+          "id": "w11",
+          "text": "lead's",
+          "start": 3.79,
+          "end": 4.09
+        },
+        {
+          "id": "w12",
+          "text": "identity",
+          "start": 4.23,
+          "end": 4.79
+        },
+        {
+          "id": "w13",
+          "text": "is",
+          "start": 4.87,
+          "end": 4.94
+        },
+        {
+          "id": "w14",
+          "text": "still",
+          "start": 4.94,
+          "end": 5.26
+        },
+        {
+          "id": "w15",
+          "text": "unconfirmed.",
+          "start": 5.32,
+          "end": 6.34
+        }
+      ]
+    },
+    {
+      "id": "launch-08",
+      "path": "assets/voice/launch-08.wav",
+      "duration_s": 5.931,
+      "words": [
+        {
+          "id": "w0",
+          "text": "Save",
+          "start": 0.07,
+          "end": 0.32
+        },
+        {
+          "id": "w1",
+          "text": "the",
+          "start": 0.36,
+          "end": 0.61
+        },
+        {
+          "id": "w2",
+          "text": "case",
+          "start": 0.61,
+          "end": 0.96
+        },
+        {
+          "id": "w3",
+          "text": "and",
+          "start": 0.96,
+          "end": 1.22
+        },
+        {
+          "id": "w4",
+          "text": "come",
+          "start": 1.22,
+          "end": 1.45
+        },
+        {
+          "id": "w5",
+          "text": "back.",
+          "start": 1.58,
+          "end": 1.96
+        },
+        {
+          "id": "w6",
+          "text": "Keep",
+          "start": 2.04,
+          "end": 2.25
+        },
+        {
+          "id": "w7",
+          "text": "version",
+          "start": 2.26,
+          "end": 2.78
+        },
+        {
+          "id": "w8",
+          "text": "history.",
+          "start": 2.78,
+          "end": 3.41
+        },
+        {
+          "id": "w9",
+          "text": "Set",
+          "start": 3.62,
+          "end": 3.76
+        },
+        {
+          "id": "w10",
+          "text": "a",
+          "start": 3.76,
+          "end": 3.83
+        },
+        {
+          "id": "w11",
+          "text": "watch",
+          "start": 3.83,
+          "end": 4.19
+        },
+        {
+          "id": "w12",
+          "text": "to",
+          "start": 4.19,
+          "end": 4.33
+        },
+        {
+          "id": "w13",
+          "text": "return",
+          "start": 4.33,
+          "end": 4.77
+        },
+        {
+          "id": "w14",
+          "text": "for",
+          "start": 4.77,
+          "end": 4.96
+        },
+        {
+          "id": "w15",
+          "text": "new",
+          "start": 4.98,
+          "end": 5
+        },
+        {
+          "id": "w16",
+          "text": "evidence.",
+          "start": 5.55,
+          "end": 6.04
+        }
+      ]
+    },
+    {
+      "id": "launch-09",
+      "path": "assets/voice/launch-09.wav",
+      "duration_s": 5.525,
+      "words": [
+        {
+          "id": "w0",
+          "text": "because",
+          "start": 0.03,
+          "end": 0.34
+        },
+        {
+          "id": "w1",
+          "text": "the",
+          "start": 0.4,
+          "end": 0.51
+        },
+        {
+          "id": "w2",
+          "text": "question",
+          "start": 0.51,
+          "end": 0.92
+        },
+        {
+          "id": "w3",
+          "text": "doesn't",
+          "start": 0.92,
+          "end": 1.28
+        },
+        {
+          "id": "w4",
+          "text": "end",
+          "start": 1.28,
+          "end": 1.46
+        },
+        {
+          "id": "w5",
+          "text": "when",
+          "start": 1.46,
+          "end": 1.78
+        },
+        {
+          "id": "w6",
+          "text": "the",
+          "start": 1.78,
+          "end": 2.02
+        },
+        {
+          "id": "w7",
+          "text": "tab",
+          "start": 2.02,
+          "end": 2.26
+        },
+        {
+          "id": "w8",
+          "text": "closes.",
+          "start": 2.26,
+          "end": 2.98
+        },
+        {
+          "id": "w9",
+          "text": "Context",
+          "start": 3.01,
+          "end": 3.52
+        },
+        {
+          "id": "w10",
+          "text": "Trail,",
+          "start": 3.52,
+          "end": 4.06
+        },
+        {
+          "id": "w11",
+          "text": "follow",
+          "start": 4.06,
+          "end": 4.52
+        },
+        {
+          "id": "w12",
+          "text": "the",
+          "start": 4.52,
+          "end": 4.75
+        },
+        {
+          "id": "w13",
+          "text": "question.",
+          "start": 4.75,
+          "end": 5.55
+        }
+      ]
+    }
+  ],
+  "sfx": [],
+  "total_duration_s": 64.065
+}

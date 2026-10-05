@@ -1,0 +1,12 @@
+
+> contexttrail@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/vasu/Desktop/Cook/contexttrail
+
+
+ Test Files  100 passed (100)
+      Tests  1652 passed | 17 skipped (1669)
+   Start at  12:56:56
+   Duration  26.17s (transform 2.16s, setup 0ms, import 14.48s, tests 26.48s, environment 2.31s)

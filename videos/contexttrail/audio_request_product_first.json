@@ -1,0 +1,16 @@
+{
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "speed": 1.04,
+  "lang": "en",
+  "bgm": { "mode": "none" },
+  "lines": [
+    { "id": "product-first-01", "text": "ContextTrail helps you investigate questions, claims and media. It finds sources and keeps the evidence you can inspect." },
+    { "id": "product-first-02", "text": "What drove U P I adoption in India? This investigation searched for district-level evidence." },
+    { "id": "product-first-03", "text": "One article separates two explanations. Internet laid the foundation. Its analysis points to merchant acceptance." },
+    { "id": "product-first-04", "text": "Open the source. Check the publication and retrieval dates. Here, the publication date is inferred." },
+    { "id": "product-first-05", "text": "Keep other explanations open while their sources still need checking." },
+    { "id": "product-first-06", "text": "Save the investigation. Return to the same passage, dates and source links." },
+    { "id": "product-first-07", "text": "Bring an image, a clip, or a question. Follow the sources. Keep what you find." }
+  ]
+}

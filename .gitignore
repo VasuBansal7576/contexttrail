@@ -20,3 +20,53 @@ data/
 .media-match-build/
 
 .topic-coverage-build/
+
+.video-venv*/
+videos/*/renders/
+videos/*/.hyperframes/
+videos/*/.media/
+
+# Local launch deliveries can be regenerated from the committed composition.
+.lavish/contexttrail-assets/contexttrail-launch.mp4
+.lavish/contexttrail-launch-portable.html
+videos/*/snapshots/
+videos/*/snapshots-final/
+videos/*/render.log
+videos/*/assets/delhi-caption-input.mp4
+
+# Private provider/account records and incidental local diagnostics.
+runs/**/provider-auth*.json
+runs/**/allowance*.json
+runs/**/*.log
+runs/2026-10-04/*.jpg
+!runs/2026-10-04/reference-cover-phone.jpg
+!runs/2026-10-04/reference-questions-phone.jpg
+!runs/2026-10-04/reference-source-inspection-phone.jpg
+!runs/2026-10-04/reference-citation-recheck.jpg
+runs/2026-10-04/upi-baseline-summary.json
+runs/2026-10-04/audit-production.json
+
+# Verified local speech model; downloaded from its pinned upstream revision.
+.local-models/
+
+# Revised local launch exports and duplicate capture inputs.
+.lavish/contexttrail-assets/contexttrail-launch-revised.mp4
+videos/contexttrail/capture/revision/
+
+# Generated HyperFrames preview caches.
+videos/*/.thumbnails/
+videos/*/.waveform-cache/
+
+# Fresh launch encode copied into the local companion.
+.lavish/contexttrail-assets/contexttrail-launch-fresh.mp4
+
+# Disposable release captures and build state.
+videos/*/snapshots-launch*/
+videos/*/render-*.log
+runs/2026-10-05/**/*.png
+runs/2026-10-05/**/*.jpg
+:memory:.ses
+hosting/sites/node_modules/
+hosting/sites/dist/
+hosting/sites/.wrangler/
+hosting/sites/.sites-runtime/

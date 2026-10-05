@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import type { IncomingMessage, request as httpRequest, RequestOptions } from "node:http";
 import type { LookupFunction } from "node:net";
-import { fetchPageHtml, validatePublicImageUrl, isPublicPageAddress, type PageFetchDeps } from "./fetch";
+import { fetchPageHtml, fetchPageDocument, validatePublicImageUrl, isPublicPageAddress, type PageFetchDeps } from "./fetch";
 import { pinnedPageRequest } from "./pinned-http";
 import { PAGE_FETCH_MAX_BYTES, TIMEOUTS } from "../investigation/limits";
 
@@ -68,6 +68,42 @@ describe("canonical destination validation", () => {
 });
 
 describe("DNS and redirects", () => {
+  const notice = (destination: string, displayed = destination, extra = '') => new Response(`<html><body><h1>This link will take you to a page that’s not on LinkedIn</h1><a data-tracking-control-name="external_url_click" href="${destination}">${displayed}</a>${extra}</body></html>`, { headers: { 'content-type': 'text/html' } });
+  it('resolves an explicit short-link notice through the same pinned boundary', async () => {
+    const deps = harness();
+    deps.request.mockResolvedValueOnce(notice('https://publisher.example/article')).mockResolvedValueOnce(html());
+    const page = await fetchPageDocument('https://lnkd.in/abcdEF12', undefined, deps);
+    expect(page).toEqual({ url: 'https://publisher.example/article', html: '<html>public synthetic source</html>' });
+    expect(deps.resolve.mock.calls.map(([host]) => host)).toEqual(['lnkd.in', 'publisher.example']);
+    expect(deps.request.mock.calls.map(([, address]) => address)).toEqual([publicAnswer, publicAnswer]);
+  });
+  it.each(['https://127.0.0.1/private', 'https://publisher.example/?token=secret', 'https://name:secret@publisher.example/article', 'http://publisher.example/article'])('never follows unsafe notice destination %s', async destination => {
+    const deps = harness(); deps.request.mockResolvedValue(notice(destination));
+    await fetchPageDocument('https://lnkd.in/abcdEF12', undefined, deps);
+    expect(deps.request).toHaveBeenCalledTimes(1);
+  });
+  it('does not infer redirects from ordinary pages, mismatched text or ambiguous notices', async () => {
+    for (const [url, displayed, extra] of [
+      ['https://article.example/post', 'https://publisher.example/article', ''],
+      ['https://lnkd.in/abcdEF12', 'Another destination', ''],
+      ['https://lnkd.in/abcdEF12', 'https://publisher.example/article', '<a data-tracking-control-name="external_url_click" href="https://other.example/">https://other.example/</a>'],
+    ]) {
+      const deps = harness(); deps.request.mockResolvedValue(notice('https://publisher.example/article', displayed, extra));
+      expect((await fetchPageDocument(url, undefined, deps)).url).toBe(url);
+      expect(deps.request).toHaveBeenCalledTimes(1);
+    }
+  });
+  it('rejects private DNS at the displayed destination before opening its socket', async () => {
+    const deps = harness(); deps.request.mockResolvedValue(notice('https://publisher.example/article'));
+    deps.resolve.mockResolvedValueOnce([publicAnswer]).mockResolvedValueOnce([{ address: '10.0.0.1', family: 4 }]);
+    await expect(fetchPageDocument('https://lnkd.in/abcdEF12', undefined, deps)).rejects.toThrow('DNS destination rejected');
+    expect(deps.request).toHaveBeenCalledTimes(1);
+  });
+  it('shares the redirect cap with HTTP redirects and bounds notice loops', async () => {
+    const deps = harness(); deps.request.mockImplementation(async () => notice('https://lnkd.in/abcdEF12'));
+    await expect(fetchPageDocument('https://lnkd.in/abcdEF12', undefined, deps)).rejects.toThrow('redirect limit exceeded');
+    expect(deps.request).toHaveBeenCalledTimes(4);
+  });
   it.each([[], [{ address: "127.0.0.1", family: 4 }], [publicAnswer, { address: "10.0.0.1", family: 4 }],
     [publicAnswer, { address: "::1", family: 6 }], [{ address: "93.184.216.34", family: 6 }],
     [{ address: "not-an-ip", family: 4 }]].map(answers => ({ answers })) )("rejects the entire unsafe DNS answer set %j", async ({ answers }) => {

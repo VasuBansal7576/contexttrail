@@ -58,7 +58,6 @@ export async function parseComparisonForm(form: FormData, signal: AbortSignal): 
   if ([...form.keys()].some(key => !fields.includes(key)) || fields.some(key => form.getAll(key).length !== 1)) throw new LocalComparisonError(400, 'INVALID_INPUT', 'Expected exactly left, right, leftKind, rightKind and rights.');
   if (form.get('rights') !== 'user_provided') throw new LocalComparisonError(400, 'RIGHTS_REQUIRED', 'Confirm that you may supply and compare both files.');
   const left = inputFile(form, 'left'), right = inputFile(form, 'right');
-  if (left.kind !== 'video' && right.kind !== 'video') throw new LocalComparisonError(400, 'VIDEO_REQUIRED', 'Choose two videos, or a still image and a video.');
   async function read(input: ReturnType<typeof inputFile>): Promise<LocalMediaInput> {
     if (signal.aborted) throw new LocalComparisonError(499, 'CANCELLED', 'Comparison cancelled. No case was changed.');
     const bytes = Buffer.from(await input.file.arrayBuffer());
@@ -77,6 +76,6 @@ export async function compareSuppliedMedia(inputs: Awaited<ReturnType<typeof par
   return {
     schemaVersion: 'contexttrail-local-media-comparison-v1', report,
     frames: { left: left.frames.map(framePayload), right: right.frames.map(framePayload) },
-    persistence: { status: 'not_saved', reason: 'Comparison not saved to case. Local candidate pairs and retained videos do not yet have a compatible case-evidence model. No source URLs, findings or identity claims were created.' },
+    persistence: { status: 'not_saved', reason: 'Comparison not saved to case. Use the explicit save control to retain the comparison snapshot; original videos are excluded. No source URLs, findings or identity claims were created.' },
   };
 }

@@ -94,7 +94,9 @@ export interface CaseSourceRead {
   evidenceId: string;
   requestedUrl: string;
   finalUrl: string | null;
-  sourceBinding: 'same_resource' | 'normalized_resource' | 'different_resource' | 'blocked_destination' | 'not_established';
+  sourceBinding: 'same_resource' | 'normalized_resource' | 'different_resource' | 'blocked_destination' | 'not_established' | 'reference_destination';
+  /** One-hop reference from an inspected parent; retained as acquisition provenance, not proof of independence. */
+  reference?: { fromEvidenceId: string; text: string; supportingText: string };
   outcome: 'not_attempted' | 'fetch_failed' | 'binding_rejected' | 'no_readable_text' | 'no_matching_quote' | 'page_quote';
 }
 

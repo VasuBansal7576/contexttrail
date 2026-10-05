@@ -1,0 +1,15 @@
+{
+  "name": "contexttrail",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes hyperframes@0.8.127 preview",
+    "check": "npx --yes hyperframes@0.8.127 check",
+    "render": "npx --yes hyperframes@0.8.127 render",
+    "publish": "npx --yes hyperframes@0.8.127 publish"
+  },
+  "devDependencies": {
+    "@hyperframes/core": "^0.8.127",
+    "gsap": "^3.14.2"
+  }
+}

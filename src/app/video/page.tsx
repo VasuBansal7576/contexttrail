@@ -1,2 +1,7 @@
 import AutomaticResearch from '@/components/casebook/AutomaticResearch';
-export default function VideoPage() { return <AutomaticResearch kind="video" />; }
+import { automaticReadiness } from '@/lib/research/automatic-readiness';
+export const dynamic = 'force-dynamic';
+export default async function VideoPage() {
+  const [readiness, captionReadiness] = await Promise.all([automaticReadiness('video'), automaticReadiness('video',true)]);
+  return <AutomaticResearch kind="video" readiness={readiness} captionReadiness={captionReadiness} />;
+}

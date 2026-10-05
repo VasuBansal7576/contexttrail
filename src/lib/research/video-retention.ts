@@ -1,7 +1,7 @@
 /** Opaque report JSON is archived for inspection, never trusted as an assessment. */
 export type ReportJson = null | boolean | number | string | ReportJson[] | { [key: string]: ReportJson };
 export interface RetainedVideoResult { [key: string]: ReportJson }
-const resultKeys = new Set(['kind', 'question', 'caseRecord', 'frames', 'limitations', 'assessments', 'claimReport']);
+const resultKeys = new Set(['kind', 'question', 'caseRecord', 'frames', 'limitations', 'assessments', 'claimReport', 'visualScan', 'transcript', 'submittedClaim', 'spokenResearch']);
 const frameKeys = new Set(['timestampMs', 'imageResult']);
 const reportKeys = new Set(['mode', 'headline', 'caseRecord', 'caseProjectionError', 'sourceLinkedReport', 'earliestObservedOccurrence', 'sourceDomainCount', 'reportingGroupCount', 'unresolvedOriginCount', 'contextSegmentCount', 'firstObservedContextDivergence', 'comparisonCoverage', 'requestLog', 'reportingGroups', 'unresolvedCandidateIds', 'comparisons', 'provenance', 'limitations', 'undatedEvidence', 'timeline', 'supportingEvidence', 'contextualEvidence', 'status', 'statusBasis', 'policyReasons', 'claim', 'claimDate', 'doesNotProveClaimTrue', 'webContextAvailable', 'takeaways']);
 function object(value: unknown): Record<string, unknown> {
@@ -29,7 +29,7 @@ function keys(value: Record<string, unknown>, allowed: Set<string>) {
 }
 export function retainVideoResult(value: unknown): RetainedVideoResult {
   const result = object(value); keys(result, resultKeys);
-  if (result.kind !== 'video' || !Array.isArray(result.frames) || result.frames.length > 32) throw new Error('Expected a completed video report');
+  if ((result.kind !== 'video' && result.kind !== 'audio') || !Array.isArray(result.frames) || result.frames.length > 32) throw new Error('Expected a completed video report');
   for (const item of result.frames) {
     const frame = object(item); keys(frame, frameKeys); keys(object(frame.imageResult), reportKeys);
   }

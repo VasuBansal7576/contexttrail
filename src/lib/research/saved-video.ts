@@ -1,10 +1,11 @@
 import { parseAutomaticResearchResult, type AutomaticResearchView } from './automatic-client';
 import { retainVideoResult, type RetainedVideoResult } from './video-retention';
 import type { CaseRecord } from '../cases/model';
-export interface SavedVideoReport { schemaVersion: 'contexttrail-video-report-v1'; result: RetainedVideoResult }
+export interface SavedVideoReport { schemaVersion: 'contexttrail-video-report-v1' | 'contexttrail-media-report-v2'; result: RetainedVideoResult }
 export function parseSavedVideoReport(value: unknown): SavedVideoReport {
-  if (!value || typeof value !== 'object' || !('schemaVersion' in value) || value.schemaVersion !== 'contexttrail-video-report-v1' || !('result' in value)) throw new Error('Invalid saved video report');
+  if (!value || typeof value !== 'object' || !('schemaVersion' in value) || (value.schemaVersion !== 'contexttrail-video-report-v1' && value.schemaVersion !== 'contexttrail-media-report-v2') || !('result' in value)) throw new Error('Invalid saved video report');
   const result = retainVideoResult(value.result);
+  if (value.schemaVersion === 'contexttrail-video-report-v1' && result.kind !== 'video') throw new Error('Audio requires the media report schema');
   if (!Array.isArray(result.frames) || !Array.isArray(result.limitations)) throw new Error('Incomplete saved video report');
   for (const frame of result.frames) {
     if (!frame || typeof frame !== 'object' || Array.isArray(frame)) throw new Error('Invalid saved frame report');

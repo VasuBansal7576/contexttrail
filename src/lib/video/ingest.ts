@@ -1,4 +1,5 @@
 /** Node-only, local preparation. Does not search, upload, or make a claim verdict. */
+import { inspectVisualTrack, type VisualScan } from './visual-scan';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -26,11 +27,12 @@ export interface PreparedVideo {
   durationMs: number;
   frames: VideoFrame[];
   coverage: 'sampled_frames_only';
+  visualScan?: VisualScan;
 }
 function hash(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
 
 /** Fixed executables, argv only, no shell; bounded output and wall time. */
-function execute(binary: 'ffprobe' | 'ffmpeg', args: string[], signal?: AbortSignal): Promise<{ output: Buffer; diagnostic: string }> {
+function execute(binary: 'ffprobe' | 'ffmpeg', args: string[], signal?: AbortSignal, maximumOutputBytes: number = VIDEO_LIMITS.frameBytes): Promise<{ output: Buffer; diagnostic: string }> {
   if (signal?.aborted) return Promise.reject(new VideoIngestError('cancelled'));
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -46,7 +48,7 @@ function execute(binary: 'ffprobe' | 'ffmpeg', args: string[], signal?: AbortSig
     if (signal?.aborted) abort();
     child.stdout.on('data', (chunk: Buffer) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes > VIDEO_LIMITS.frameBytes) stop(new VideoIngestError('limit_exceeded'));
+      if (stdoutBytes > maximumOutputBytes) stop(new VideoIngestError('limit_exceeded'));
       else stdout.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
@@ -83,7 +85,7 @@ export function sampleTimes(durationMs: number): number[] {
 }
 
 /** Accept bytes from an authorized upload or local file, never a path/URL supplied to FFmpeg. */
-export async function prepareVideo(bytes: Uint8Array, options: { signal?: AbortSignal } = {}): Promise<PreparedVideo> {
+export async function prepareVideo(bytes: Uint8Array, options: { signal?: AbortSignal; scanTrack?: boolean } = {}): Promise<PreparedVideo> {
   if (!bytes.byteLength) throw new VideoIngestError('invalid_video');
   if (bytes.byteLength > VIDEO_LIMITS.bytes) throw new VideoIngestError('limit_exceeded');
   if (options.signal?.aborted) throw new VideoIngestError('cancelled');
@@ -102,8 +104,13 @@ export async function prepareVideo(bytes: Uint8Array, options: { signal?: AbortS
     let metadata: unknown;
     try { metadata = JSON.parse(probe.output.toString('utf8')); } catch { throw new VideoIngestError('invalid_video'); }
     const { durationMs, streamIndex } = parseVideoMetadata(metadata);
+    let visualScan: VisualScan | undefined;
+    if (options.scanTrack) {
+      const scanned = await execute('ffmpeg', ['-hide_banner', '-nostdin', '-v', 'error', '-threads', '1', ...restrictions, '-i', input, '-map', `0:${streamIndex}`, '-an', '-sn', '-dn', '-vf', 'setpts=PTS-STARTPTS,fps=2:round=up,scale=64:64,format=gray', '-threads', '1', '-f', 'rawvideo', 'pipe:1'], options.signal, 1024 * 1024);
+      visualScan = inspectVisualTrack(scanned.output, durationMs);
+    }
     const frames: VideoFrame[] = [];
-    for (const target of sampleTimes(durationMs)) {
+    for (const target of visualScan?.searchTargetsMs ?? sampleTimes(durationMs)) {
       const filter = `setpts=PTS-STARTPTS,select=gte(t\\,${target / 1000}),scale=640:640:force_original_aspect_ratio=decrease,showinfo`;
       const decoded = await execute('ffmpeg', ['-hide_banner', '-nostdin', '-v', 'info', '-threads', '1', ...restrictions, '-i', input, '-map', `0:${streamIndex}`, '-an', '-sn', '-dn', '-vf', filter, '-frames:v', '1', '-threads', '1', '-c:v', 'mjpeg', '-q:v', '4', '-f', 'image2pipe', 'pipe:1'], options.signal);
       const pts = /\bpts_time:([\d.eE+-]+)/.exec(decoded.diagnostic)?.[1];
@@ -114,7 +121,7 @@ export async function prepareVideo(bytes: Uint8Array, options: { signal?: AbortS
       const frameHash = hash(decoded.output);
       frames.push({ id: `${mediaId}:frame:${timestampMs}`, mediaId, timestampMs, contentHash: frameHash, mimeType: 'image/jpeg', bytes: decoded.output });
     }
-    return { mediaId, contentHash, durationMs, frames, coverage: 'sampled_frames_only' };
+    return { mediaId, contentHash, durationMs, frames, coverage: 'sampled_frames_only', ...(visualScan ? { visualScan } : {}) };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

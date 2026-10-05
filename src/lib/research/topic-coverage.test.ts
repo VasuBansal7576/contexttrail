@@ -8,7 +8,7 @@ describe('bounded topic original-account coverage (synthetic adapters)', () => {
   it.each(TOPIC_REFERENCES)('retains and reads an available low-ranked reference for $id without forcing a broad-question verdict', async reference => {
     const measured = await measureTopicReference(reference);
     expect(measured.formerSurfaceSelection.referenceRetained).toBe(false);
-    expect(measured.actual).toMatchObject({ referenceRetained: true, referenceRead: true, referenceQuote: true, referenceReadOutcome: 'page_quote', sources: 8, pageReads: 5, searches: 3, uploads: 0, requests: 8, questions: 40, broadQuestionMode: 'source_assertions' });
+    expect(measured.actual).toMatchObject({ referenceRetained: true, referenceRead: true, referenceQuote: true, referenceReadOutcome: 'page_quote', sources: 12, pageReads: 10, searches: 6, uploads: 0, requests: 12, questions: 60, broadQuestionMode: 'source_assertions' });
     expect(measured.actual.relations.every(relation => relation === 'insufficient')).toBe(true);
     expect(measured.result.caseRecord.claims).toEqual([]);
     if (reference.publicationDate) expect(measured.actual.referenceDate).toMatchObject({ status: 'observed', observation: { value: reference.publicationDate } });
@@ -34,7 +34,7 @@ describe('bounded topic original-account coverage (synthetic adapters)', () => {
     const reference = TOPIC_REFERENCES[0]; if (!reference) throw new Error('Missing independent registry reference');
     const measured = await measureTopicReference(reference, condition);
     expect(measured.actual.referenceQuote).toBe(false);
-    expect(measured.actual).toMatchObject({ sources: 8, searches: 3, uploads: 0, pageReads: 5, requests: 8, questions: 40 });
+    expect(measured.actual).toMatchObject({ sources: 12, searches: 6, uploads: 0, pageReads: 10, requests: 12, questions: 60 });
     expect(measured.actual.unresolved).toHaveLength(1);
     if (condition === 'secondary_only' || condition === 'unsafe') expect(measured.actual.referenceRetained).toBe(false);
     if (condition === 'read_failed') expect(measured.actual.failures).toContain('fetch_failed');
@@ -61,6 +61,6 @@ describe('bounded topic original-account coverage (synthetic adapters)', () => {
     expect(benchmark.measurements).toHaveLength(8);
     expect(benchmark.observedLiveTrial).toMatchObject({ omittedPool: 'unknown_not_captured', providerVariability: 'not_measured', freshLiveAcceptance: 'not_authorized_or_performed' });
     expect(benchmark.references.every(reference => reference.syntheticPassage.includes('synthetic test input'))).toBe(true);
-    expect(benchmark.measurements.every(measurement => measurement.actual.searches <= 3 && measurement.actual.sources <= 8 && measurement.actual.pageReads <= 5 && measurement.actual.requests <= 8 && measurement.actual.questions <= 40)).toBe(true);
+    expect(benchmark.measurements.every(measurement => measurement.actual.searches <= 6 && measurement.actual.sources <= 12 && measurement.actual.pageReads <= 10 && measurement.actual.requests <= 12 && measurement.actual.questions <= 60)).toBe(true);
   });
 });

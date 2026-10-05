@@ -162,9 +162,9 @@ export default function InvestigationView({ stages, searchCounts, evidence, erro
                     return (
                       <motion.article
                         key={key}
-                        initial={mounted && !reduce ? { opacity: 0, y: 16 } : false}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: mounted && !reduce ? 0.35 : 0 }}
+                        initial={mounted && !reduce ? { opacity: 0, transform: "translateY(8px)" } : false}
+                        animate={{ opacity: 1, transform: "translateY(0)" }}
+                        transition={{ duration: mounted && !reduce ? 0.2 : 0, ease: [0.23, 1, 0.32, 1] }}
                         className="min-w-0 rounded-xl bg-white/5 ring-1 ring-white/10"
                       >
                         {image ? (
