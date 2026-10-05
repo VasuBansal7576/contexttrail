@@ -7,10 +7,10 @@
  */
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CasebookShell, ChapterHeading } from "@/components/casebook/CasebookShell";
 import { cn } from "@/components/cn";
-import { PUBLIC_IMAGES, type PublicImageId } from "@/lib/media/public-images";
+import { PUBLIC_IMAGES, publicImageUrlFormatError, type PublicImageId } from "@/lib/media/public-images";
 
 const CLAIM_MAX = 500;
 
@@ -20,6 +20,7 @@ export interface UploadSelection {
 }
 
 interface UploadFormProps {
+  resumeActions?: ReactNode;
   selection: UploadSelection | null;
   publicImageId?: PublicImageId | null;
   publicImageUrl?: string | null;
@@ -35,6 +36,7 @@ interface UploadFormProps {
 }
 
 export default function UploadForm({
+  resumeActions,
   selection,
   publicImageId,
   publicImageUrl,
@@ -51,13 +53,14 @@ export default function UploadForm({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [urlDraft, setUrlDraft] = useState("");
+  const [urlError, setUrlError] = useState<string | null>(null);
   const dragCount = useRef(0);
 
   const acceptFile = useCallback(
     (file: File | undefined | null) => {
-      if (file) onSelect(file);
+      if (file && !preparing) onSelect(file);
     },
-    [onSelect],
+    [onSelect, preparing],
   );
 
   // Paste-to-upload convenience; harmless when unused.
@@ -71,7 +74,7 @@ export default function UploadForm({
   }, [acceptFile]);
 
   const [captionMode,setCaptionMode] = useState(Boolean(claim.trim()));
-  const canSubmit = (selection !== null || Boolean(publicImageId) || Boolean(publicImageUrl)) && !preparing;
+  const canSubmit = (selection !== null || Boolean(publicImageId) || Boolean(publicImageUrl)) && !preparing && (!captionMode || Boolean(claim.trim()));
 
   return (
     <CasebookShell chapter="image" dark>
@@ -81,10 +84,10 @@ export default function UploadForm({
           <figure className="image-specimen-sheet">
             {/* Only local previews and the reviewed public catalogue render here. Arbitrary URLs remain server-validated. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={selection?.previewUrl ?? (publicImageId ? PUBLIC_IMAGES[publicImageId].previewUrl : "/illustrative-earthrise.jpg")} alt={selection ? `Your selected image: ${selection.file.name}` : publicImageId ? PUBLIC_IMAGES[publicImageId].title : "Illustrative Earthrise photograph, Apollo 8"} />
-            <figcaption>{selection || publicImageId ? (claim.trim() || "What can this photograph tell us?") : "Start with a photograph. Follow its story."}</figcaption>
+            {publicImageUrl ? <div className="public-image-preview-pending"><strong>Public image selected</strong><p>Its preview is checked when the investigation starts.</p></div> : <img src={selection?.previewUrl ?? (publicImageId ? PUBLIC_IMAGES[publicImageId].previewUrl : "/illustrative-earthrise.jpg")} alt={selection ? `Your selected image: ${selection.file.name}` : publicImageId ? PUBLIC_IMAGES[publicImageId].title : "Illustrative Earthrise photograph, Apollo 8"} />}
+            <figcaption title={claim.trim() || undefined}>{selection || publicImageId || publicImageUrl ? (claim.trim() || "What can this photograph tell us?") : "Start with a photograph. Follow its story."}</figcaption>
           </figure>
-          <p className="image-specimen-credit">{selection ? "Your selected image · held in this browser tab" : publicImageId ? PUBLIC_IMAGES[publicImageId].credit : "Illustrative reference · NASA / Bill Anders, Apollo 8. Select an image to begin."}</p>
+          <p className="image-specimen-credit">{selection ? "Your selected image · held in this browser tab" : publicImageId ? PUBLIC_IMAGES[publicImageId].credit : publicImageUrl ? "Already-public image · server validation pending" : "Illustrative reference · NASA / Bill Anders, Apollo 8. Select an image to begin."}</p>
         </aside>
         <form
           className="image-investigation-form"
@@ -94,10 +97,12 @@ export default function UploadForm({
           }}
         >
           <ChapterHeading number="01" label="Image investigation" description="Follow the image on its own, or examine the story attached to it.">Start with<br /><em>what you see.</em></ChapterHeading>
+          {resumeActions}
+          <input id="ct-image-input" ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" disabled={preparing} className="sr-only" aria-label="Choose image" onChange={e => { acceptFile(e.target.files?.[0]); e.target.value = ""; }} />
           {/* Dropzone: a real button-like label so keyboard users get a native file dialog. */}
           {publicImageId ? (
             <div className="image-public-selection">
-              <div className="sheet-topline"><strong>{PUBLIC_IMAGES[publicImageId].title}</strong><button type="button" onClick={onRemove} className="text-link">Remove</button></div>
+              <div className="sheet-topline"><strong>{PUBLIC_IMAGES[publicImageId].title}</strong><button type="button" disabled={preparing} onClick={onRemove} className="text-link">Remove</button></div>
               <p>Already public · searched by source URL · no upload</p>
               <a href={PUBLIC_IMAGES[publicImageId].sourceUrl} target="_blank" rel="noopener noreferrer" className="text-link">View NASA source and credit ↗</a>
             </div>
@@ -106,7 +111,7 @@ export default function UploadForm({
               <p className="font-medium">Public image URL</p>
               <p className="mt-2 break-all text-sm text-ink-soft">{publicImageUrl}</p>
               <p className="mt-2 text-xs text-ink-soft">Already public · no upload. The server checks public DNS, redirects, image type and size before provider search.</p>
-              <button type="button" onClick={onRemove} className="mt-2 min-h-[44px] text-sm text-signal-ink underline">Remove</button>
+              <button type="button" disabled={preparing} onClick={onRemove} className="mt-2 min-h-[44px] text-sm text-signal-ink underline">Remove</button>
             </div>
           ) : !selection ? (
             <div
@@ -142,18 +147,6 @@ export default function UploadForm({
               >
                 Drop an image here or click to browse
               </label>
-              <input
-                id="ct-image-input"
-                ref={inputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                className="sr-only"
-                aria-describedby="ct-formats"
-                onChange={(e) => {
-                  acceptFile(e.target.files?.[0]);
-                  e.target.value = "";
-                }}
-              />
               <p id="ct-formats" className="mt-2 text-sm text-ink-soft">
                 JPG, PNG or WebP
               </p>
@@ -174,6 +167,7 @@ export default function UploadForm({
                 <div className="mt-2 flex gap-3 text-sm">
                   <button
                     type="button"
+                    disabled={preparing}
                     onClick={() => inputRef.current?.click()}
                     className="min-h-[44px] font-medium text-signal-ink underline underline-offset-2"
                   >
@@ -181,6 +175,7 @@ export default function UploadForm({
                   </button>
                   <button
                     type="button"
+                    disabled={preparing}
                     onClick={onRemove}
                     className="min-h-[44px] font-medium text-ink-soft underline underline-offset-2 hover:text-ink"
                   >
@@ -188,22 +183,11 @@ export default function UploadForm({
                   </button>
                 </div>
               </div>
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                className="sr-only"
-                aria-label="Replace image"
-                onChange={(e) => {
-                  acceptFile(e.target.files?.[0]);
-                  e.target.value = "";
-                }}
-              />
             </div>
           )}
 
           {!selection && !publicImageId && !publicImageUrl && onSelectPublicImage ? (
-            <button type="button" onClick={() => onSelectPublicImage("nasa-earthrise")} className="image-public-example text-link">
+            <button type="button" disabled={preparing} onClick={() => onSelectPublicImage("nasa-earthrise")} className="image-public-example text-link">
               Try NASA&apos;s public Earthrise image →
             </button>
           ) : null}
@@ -211,28 +195,30 @@ export default function UploadForm({
           {!selection && !publicImageId && !publicImageUrl && onSelectPublicImageUrl ? (
             <details className="image-url-entry"><summary>Use an already-public image URL ↗</summary>
               <label htmlFor="ct-public-url" className="text-sm font-medium">Already-public image URL</label>
-              <input id="ct-public-url" type="url" value={urlDraft} onChange={(e) => setUrlDraft(e.target.value)} maxLength={2048} placeholder="https://example.org/public-photo.jpg" aria-describedby="ct-public-url-help" className="mt-2 w-full rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15" />
+              <input id="ct-public-url" type="url" disabled={preparing} value={urlDraft} onChange={(e) => { setUrlDraft(e.target.value); setUrlError(null); }} maxLength={2048} placeholder="https://example.org/public-photo.jpg" aria-invalid={Boolean(urlError)} aria-describedby="ct-public-url-help ct-public-url-error" className="mt-2 w-full rounded-xl bg-white/70 px-4 py-3 text-[16px] ring-1 ring-ink/15" />
               <p id="ct-public-url-help" className="mt-2 text-xs text-ink-soft">Use a public HTTPS JPEG, PNG or WebP, without login, tokens or query parameters. Do not publish a private image to use this option.</p>
-              <button type="button" disabled={!urlDraft.trim()} onClick={() => onSelectPublicImageUrl(urlDraft.trim())} className="mt-2 min-h-[44px] text-sm font-medium text-signal-ink underline disabled:opacity-40">Use public image URL →</button>
+              <button type="button" disabled={preparing || !urlDraft.trim()} onClick={() => { const issue = publicImageUrlFormatError(urlDraft.trim()); setUrlError(issue); if (!issue) onSelectPublicImageUrl(urlDraft.trim()); }} className="mt-2 min-h-[44px] text-sm font-medium text-signal-ink underline disabled:opacity-40">Use public image URL →</button>
+              {urlError ? <p id="ct-public-url-error" role="alert" className="error-note">{urlError}</p> : null}
             </details>
           ) : null}
 
           {error ? (
             <p role="alert" className="mt-4 rounded-xl bg-coral/10 px-4 py-3 text-sm text-coral ring-1 ring-coral/25">
               {error}{" "}
-              <button type="button" onClick={() => inputRef.current?.click()} className="font-medium underline underline-offset-2">
+              <button type="button" disabled={preparing} onClick={() => inputRef.current?.click()} className="font-medium underline underline-offset-2">
                 Choose a different image
               </button>
             </p>
           ) : null}
 
-          <div className="image-caption-switch" role="group" aria-label="Image investigation intent"><button type="button" aria-pressed={!captionMode && !claim.trim()} onClick={() => { setCaptionMode(false); onClaimChange(''); }}><span>Trace this photograph</span><small>NO CLAIM</small></button><button type="button" aria-pressed={captionMode || Boolean(claim.trim())} onClick={() => { setCaptionMode(true); }}><span>Check its attached caption</span><small>CHECK CAPTION</small></button></div>
+          <div className="image-caption-switch" role="group" aria-label="Image investigation intent"><button type="button" disabled={preparing} aria-pressed={!captionMode && !claim.trim()} onClick={() => { setCaptionMode(false); onClaimChange(''); }}><span>Trace this photograph</span><small>NO CLAIM</small></button><button type="button" disabled={preparing} aria-pressed={captionMode || Boolean(claim.trim())} onClick={() => { setCaptionMode(true); }}><span>Check its attached caption</span><small>CHECK CAPTION</small></button></div>
           <div className="image-caption-input" hidden={!captionMode && !claim.trim()}>
             <label htmlFor="ct-claim" className="text-sm font-medium">
-              Claim or caption (optional)
+              Caption to check
             </label>
             <textarea
               id="ct-claim"
+              disabled={preparing}
               value={claim}
               maxLength={CLAIM_MAX}
               rows={2}
@@ -248,7 +234,7 @@ export default function UploadForm({
               className="mt-2 w-full resize-y rounded-xl bg-white/70 px-4 py-3 text-[16px] text-ink ring-1 ring-ink/15 placeholder:text-ink-soft"
             />
             <div className="mt-1 flex items-center justify-between text-xs text-ink-soft">
-              <p id="ct-claim-help">Leave blank to trace the image&apos;s history.</p>
+              <p id="ct-claim-help">Enter the caption to check, or choose “Trace this photograph.”</p>
               <p aria-label={`${CLAIM_MAX - claim.length} characters remaining`}>
                 {claim.length}/{CLAIM_MAX}
               </p>

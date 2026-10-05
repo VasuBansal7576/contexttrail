@@ -1,0 +1,104 @@
+{
+  "project": "contexttrail",
+  "runtime": "all",
+  "compositions": [
+    {
+      "composition": "launch-02",
+      "source": "compositions/launch-20261005/launch-02.html",
+      "tweens": [
+        {
+          "id": "#intro-cover-fromTo-2400",
+          "target": "#intro-cover",
+          "method": "fromTo",
+          "start": 2.4,
+          "duration": 0.8,
+          "end": 3.2,
+          "shape": "flat",
+          "keyframes": [
+            {
+              "pct": 0,
+              "time": 2.4,
+              "properties": {
+                "x": 1050,
+                "y": 95,
+                "scale": 0.528,
+                "rotation": 4,
+                "opacity": 0
+              }
+            },
+            {
+              "pct": 100,
+              "time": 3.2,
+              "properties": {
+                "x": 770,
+                "y": 95,
+                "scale": 0.528,
+                "rotation": -1,
+                "opacity": 1
+              }
+            }
+          ],
+          "path": [
+            {
+              "x": 1050,
+              "y": 95
+            },
+            {
+              "x": 770,
+              "y": 95
+            }
+          ]
+        },
+        {
+          "id": "#intro-cover-to-5600",
+          "target": "#intro-cover",
+          "method": "to",
+          "start": 5.6,
+          "duration": 0.8,
+          "end": 6.4,
+          "shape": "flat",
+          "keyframes": [
+            {
+              "pct": 0,
+              "time": 5.6,
+              "properties": {
+                "x": 0,
+                "y": 0,
+                "scale": 1,
+                "rotation": 0
+              }
+            },
+            {
+              "pct": 100,
+              "time": 6.4,
+              "properties": {
+                "x": 0,
+                "y": 0,
+                "scale": 1,
+                "rotation": 0
+              }
+            }
+          ],
+          "path": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ]
+        }
+      ],
+      "traces": [],
+      "cssKeyframes": [],
+      "anime": []
+    }
+  ],
+  "_meta": {
+    "version": "0.8.127",
+    "latestVersion": "0.8.127",
+    "updateAvailable": false
+  }
+}

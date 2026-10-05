@@ -320,10 +320,10 @@ export default function TimelineView({
             return (
               <motion.article
                 key={id}
-                initial={mounted && !reduce ? { opacity: 0, y: 20 } : false}
-                whileInView={{ opacity: 1, y: 0 }}
+                initial={mounted && !reduce ? { opacity: 0, transform: "translateY(8px)" } : false}
+                whileInView={{ opacity: 1, transform: "translateY(0)" }}
                 viewport={{ once: true, margin: "-40px" }}
-                transition={{ duration: mounted && !reduce ? 0.4 : 0 }}
+                transition={{ duration: mounted && !reduce ? 0.2 : 0, ease: [0.23, 1, 0.32, 1] }}
                 className={cn(
                   "relative grid gap-3 border-l-2 pb-8 pl-6 last:pb-0 sm:grid-cols-[110px_1fr] sm:gap-6 sm:pl-8",
                   info.dashed ? "border-dashed border-ink/30" : "border-solid",

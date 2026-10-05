@@ -1,0 +1,18 @@
+{
+  "provider": "kokoro",
+  "voice": "am_michael",
+  "speed": 1.08,
+  "lang": "en",
+  "bgm": { "mode": "none" },
+  "lines": [
+    { "id": "launch-01", "text": "An image gets reposted. A clip loses its date. An answer sounds certain. But where did it come from?" },
+    { "id": "launch-02", "text": "Hi, I'm Vasu. I built ContextTrail. A place to follow the question, and keep the evidence." },
+    { "id": "launch-03", "text": "Start with an image, a video, or a question. This Earthrise run retained thirteen source records, with reporting origins still unresolved." },
+    { "id": "launch-04", "text": "Open the passage. NASA names Bill Anders aboard Apollo Eight. Keep the publication date beside the quote. A page date isn't the photograph's date." },
+    { "id": "launch-05", "text": "Pin exactly what the source supports. Then select an answer's sentence to inspect the evidence behind it." },
+    { "id": "launch-06", "text": "Questions get their own investigation. Here, twelve sources, three inspected quotes, and nine leads still waiting for a closer look." },
+    { "id": "launch-07", "text": "For video, each searched moment keeps its own source trail. This lead's identity is still unconfirmed." },
+    { "id": "launch-08", "text": "Save the case and come back. Keep version history. Set a watch to return for new evidence." },
+    { "id": "launch-09", "text": "Because the question doesn't end when the tab closes. ContextTrail. Follow the question." }
+  ]
+}

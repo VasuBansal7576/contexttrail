@@ -6,6 +6,10 @@ Bring a question, claim, image or video. ContextTrail finds sources, retains rea
 compares scoped claims and keeps the trail for later inspection. Scheduled watches follow
 new sources while the local server is running. Manual evidence entry is optional.
 
+## Public trial and launch film
+
+The public edition uses ChatGPT sign-in, server-side provider credentials and private per-user casebooks. It shares the authored nine-chapter interface with the local app. See [hosting setup and limits](hosting/sites/README.md) and the [real-run launch film source](videos/contexttrail/LAUNCH-README.md).
+
 ## Revision and release status
 
 The research application includes [PR #6](https://github.com/VasuBansal7576/contexttrail/pull/6),
@@ -96,7 +100,7 @@ Read [live usage](docs/live-usage.md) before enabling providers. Live operation 
 server-only `SERPAPI_API_KEY`, `TYPESAFE_API_KEY`, pinned `TYPESAFE_MODEL=jev-1.13.0`, explicit
 single-host persistent deployment configuration, a durable existing usage ledger and an
 operator-verified allocation. Keys alone are insufficient. Never commit `.env.local`.
-Hosted/serverless live access currently fails closed.
+The standard Next.js build fails closed on unsupported serverless hosts. The separate [ChatGPT Sites adapter](hosting/sites/README.md) uses D1 reservations and private R2 persistence to support a bounded public question/image trial. Native video, audio and scheduled background watches require the local app.
 
 | Workflow | Maximum search attempts | Upload attempts | Jev requests | Jev questions |
 | --- | ---: | ---: | ---: | ---: |

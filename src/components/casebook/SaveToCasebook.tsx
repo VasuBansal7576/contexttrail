@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { parseCaseRecord } from '@/lib/cases/parse';
 import type { ClaimReport } from '@/lib/research/claim-report';
 import { importResearchCase } from '@/lib/research/client';
+import { useSavedCaseNavigation } from './CasebookShell';
 
 export async function stableImportId(value: unknown): Promise<string> {
   function canonical(v: unknown): string {
@@ -16,6 +17,7 @@ export async function stableImportId(value: unknown): Promise<string> {
   return `import-${Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')}`;
 }
 export default function SaveToCasebook({ value, question, claimReport, videoReport, autoSave = false }: { value: unknown; question: string; claimReport?: ClaimReport; videoReport?: SavedVideoReport; autoSave?: boolean }) {
+  const rememberSavedCase = useSavedCaseNavigation();
   const record = useMemo(() => { try { return parseCaseRecord(value); } catch { return null; } }, [value]);
   const busy = useRef(false);
   const [state, setState] = useState<{ busy: boolean; error: string | null; caseId: string | null }>({ busy: false, error: null, caseId: null });
@@ -26,9 +28,10 @@ export default function SaveToCasebook({ value, question, claimReport, videoRepo
       const input = { question, createdAt: record.createdAt, caseRecord: record, ...(claimReport ? { claimReport } : {}), ...(videoReport ? { videoReport } : {}) };
       const result = await importResearchCase({ ...input, operationId: await stableImportId({ kind: 'import_case', ...input }) });
       setState({ busy: false, error: null, caseId: result.caseId });
+      rememberSavedCase?.(result.caseId, Boolean(videoReport));
     } catch (error) { setState({ busy: false, caseId: null, error: error instanceof Error ? error.message : 'Save failed. Retry to check the saved case.' }); }
     finally { busy.current = false; }
-  }, [record, question, claimReport, videoReport]);
+  }, [record, question, claimReport, videoReport, rememberSavedCase]);
   useEffect(() => { if (autoSave) void save(); }, [autoSave, save]);
   if (!record) return null;
   return <section className="paper-sheet saved-research-action" aria-label="Save investigation">

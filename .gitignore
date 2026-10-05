@@ -59,3 +59,14 @@ videos/*/.waveform-cache/
 
 # Fresh launch encode copied into the local companion.
 .lavish/contexttrail-assets/contexttrail-launch-fresh.mp4
+
+# Disposable release captures and build state.
+videos/*/snapshots-launch*/
+videos/*/render-*.log
+runs/2026-10-05/**/*.png
+runs/2026-10-05/**/*.jpg
+:memory:.ses
+hosting/sites/node_modules/
+hosting/sites/dist/
+hosting/sites/.wrangler/
+hosting/sites/.sites-runtime/

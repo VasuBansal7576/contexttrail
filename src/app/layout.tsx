@@ -15,12 +15,14 @@ const instrumentSerif = localFont({
   ],
   variable: "--font-instrument-serif",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 const geistSans = localFont({
   src: [{ path: "./fonts/geist-sans-latin.woff2", weight: "100 900", style: "normal" }],
   variable: "--font-geist-sans",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {

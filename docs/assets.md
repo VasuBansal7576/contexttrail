@@ -39,7 +39,7 @@ This credit does not assert a universal license for other NASA materials.
   positioned 68px beyond the right edge, 326px below its top and rotated −22°.
   The implementation preserves the original bytes, rotation and approximately
   49% collage-relative scale. The crop/edge extension stays within the cover's
-  available margin; narrow screens use a 47% scale and a smaller extension.
+  authored stage, which scales as one composition at every viewport size.
 - The hand is decorative, excluded from the accessibility tree and pointer
   hit-testing. Visible cover credits identify it as generated illustration;
   neither the hand nor the cover photograph enters investigation evidence.
@@ -58,3 +58,9 @@ The application bundles Instrument Serif and Geist Sans WOFF2 files plus its
 icon and favicon. Original font distribution and license files still need to
 be reconciled and included before release. No project-wide software license
 has been selected here. This document does not grant rights to those assets.
+
+## Authored surface and cover ornament — 5 October 2026
+
+- `public/reference-paper-texture.svg` is the unchanged decoded SVG tile embedded in the selected local `ContextTrail.html`. The app applies its original opacity and blend mode.
+- The cover ornament now uses the exact 90 × 90 polygon, gold fill, position and 17° rotation supplied in the authored HTML. The prior 114 × 114 raster crop was removed because it baked in a paper rectangle and rotation. This is reuse of the supplied reference geometry, not replacement artwork. It is decorative and excluded from the accessibility tree.
+- The cover photograph uses the identical embedded JPEG bytes and the authored background crop, including the border area.

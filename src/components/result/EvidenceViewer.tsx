@@ -1,7 +1,7 @@
 /**
  * Screen 6 — Evidence viewer (spec sections 3.14, 4.8).
  *
- * Dark immersive modal. Shows submitted and retrieved images side by side
+ * Paper folio matching the authored casebook. Shows submitted and retrieved images side by side
  * (accessible toggle on narrow screens), source details with attributed
  * excerpts, and collapsible technical details. Missing images or excerpts
  * render as explicit limitations — never substituted or invented.
@@ -9,7 +9,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
+import PaperDialog from "../casebook/PaperDialog";
 import {
   attributableSpan,
   claimComparisonsFor,
@@ -456,34 +456,19 @@ export default function EvidenceViewer({
 
   const position = items.length > 0 ? `${Math.min(index + 1, items.length)} of ${items.length}` : "0 of 0";
 
+  if (!open) return null;
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/70" />
-        <Dialog.Content
-          aria-describedby={undefined}
-          onCloseAutoFocus={(e) => {
-            // Backstop only: the parent restores focus synchronously as the
-            // viewer closes, so focus is never parked on <body> in between.
-            e.preventDefault();
-            onRestoreFocus();
-          }}
-          // `overflow-x-hidden` is a backstop, not the fix: every long value
-          // below wraps on its own, so nothing is clipped or dropped. It stops
-          // one unbreakable token from turning the whole dialog into a
-          // horizontally scrolling surface.
-          className="fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-deep text-white"
-        >
-          <div className="mx-auto w-full min-w-0 max-w-[1280px] px-5 py-5 sm:px-8">
+    <PaperDialog title={title} description="Inspect the retrieved image, exact source words and their limits." wide onClose={onClose} onRestoreFocus={onRestoreFocus}>
+          <div className="image-source-folio">
+
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <Dialog.Close asChild>
                 <button
                   type="button"
+                  onClick={onClose}
                   className="inline-flex min-h-[44px] items-center gap-2 rounded-full px-4 text-sm text-white/80 ring-1 ring-white/25 transition hover:text-white hover:ring-white/50"
                 >
                   <span aria-hidden="true">←</span> Back to timeline
                 </button>
-              </Dialog.Close>
               <div className="flex items-center gap-2" role="group" aria-label="Browse evidence">
                 <button
                   type="button"
@@ -573,9 +558,7 @@ export default function EvidenceViewer({
 
                 {/* Source details */}
                 <div className="min-w-0">
-                  <Dialog.Title className="font-serif text-3xl leading-tight break-words">
-                    {title}
-                  </Dialog.Title>
+                  <h3 className="source-record-heading">Source details</h3>
                   {domain ? <p className="mt-1 break-all text-sm text-white/60">{domain}</p> : null}
                   <p className="mt-2 break-words text-sm text-white/60">
                     {shownDate
@@ -732,8 +715,6 @@ export default function EvidenceViewer({
               <p className="mt-10 text-center text-white/60">No evidence selected.</p>
             )}
           </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    </PaperDialog>
   );
 }

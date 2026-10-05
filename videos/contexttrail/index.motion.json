@@ -1,0 +1,12 @@
+{
+  "duration": 90,
+  "assertions": [
+    {"kind":"appearsBy","selector":"#opening-title","bySec":0.7},
+    {"kind":"appearsBy","selector":"#question-sheet","bySec":7.0},
+    {"kind":"appearsBy","selector":"#intro-brand","bySec":11.3},
+    {"kind":"appearsBy","selector":"#origin-note","bySec":24.5},
+    {"kind":"appearsBy","selector":"#date-note","bySec":36.5},
+    {"kind":"appearsBy","selector":"#video-status","bySec":66.5},
+    {"kind":"appearsBy","selector":"#end-cta","bySec":85.4}
+  ]
+}

@@ -5,6 +5,19 @@ import { followupSearches, researchFocus } from './search-plan';
 import { CASE_SCHEMA_VERSION, type CaseRecord, type CaseEvidence } from '../cases/model';
 function source(id: string, text: string, attribution: 'page_quote' | 'search_snippet' = 'page_quote'): CaseEvidence { return { id, title: id, sourceUrl: `https://${id}.example.org/record`, content: { kind: 'text', text, attribution }, publicationDate: { status: 'unknown', reason: 'No date' }, provenance: { method: 'page_extraction', toolVersion: null, capturedAt: null, retrievedAt: '2026-10-04T00:00:00Z', rights: 'unknown', retention: 'reference_only', contentHash: null } }; }
 function record(evidence: CaseEvidence[]): CaseRecord { return { schemaVersion: CASE_SCHEMA_VERSION, id: 'controlled-dossier', revision: 1, createdAt: '2026-10-04T00:00:00Z', claims: [], assets: [], evidence, occurrences: [], relations: [], coverage: { scope: 'retrieved_evidence', completeness: 'partial', omittedEvidenceCount: 0, originalPublication: { status: 'unknown', reason: 'No original established' }, searches: [], limitations: [] } }; }
+it('shows exact inspected assertions from an image trace without inventing a claim assessment', () => {
+  const text = 'Taken aboard Apollo 8 by Bill Anders, this iconic picture shows Earth peeking out from beyond the lunar surface.';
+  const r = record([source('nasa', text), source('search', 'An uninspected search result must never become an answer assertion.', 'search_snippet')]);
+  const statements = sourceStatements(null, r);
+  expect(statements).toHaveLength(1);
+  expect(statements[0].relation).toBe('insufficient');
+  expect(text.slice(statements[0].quote.start, statements[0].quote.end)).toBe(statements[0].quote.text);
+});
+it('keeps the month abbreviation attached to its date and preserves exact offsets', () => {
+  const text = 'On Dec. 24, 1968, Apollo 8 astronauts became the first humans to orbit the Moon.';
+  const statements = sourceStatements(null, record([source('nasa', text)]));
+  expect(statements[0].quote).toMatchObject({start: 0, end: text.length, text});
+});
 it('keeps decimal figures and exact source offsets without padding gaps with uninspected leads', () => {
   const question = 'How did UPI payment adoption change in India?';
   const r = record([source('one', 'UPI payment adoption grew to 24.51 billion transactions in India.\nHowever, UPI payment adoption also faces fraud and access limitations in India.'), source('snippet', 'UPI payment adoption was introduced by an original report.', 'search_snippet')]);

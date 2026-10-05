@@ -38,23 +38,36 @@ const facets: Record<ResearchFocus, ResearchFacet[]> = {
   ],
 };
 function words(text: string) { return new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(word => word.length >= 3 && !/^(?:the|and|for|that|this|with|from|have|were|been|their|they|more|than|which|when|also|why|how|what|did|does|can|could|would|should|will|claim|question|evidence|explanation|explanations|distinguish|distinguishes|quickly|according)$/.test(word))); }
+function sourceSentences(text: string): Array<{passage: string; start: number}> {
+  const spans: Array<{passage: string; start: number}> = [];
+  let pendingStart: number | null = null;
+  for (const match of text.matchAll(/.+?(?:[.!?](?=\s|$)|(?=\n|$))/g)) {
+    const fragment = match[0].trim();
+    const start: number = pendingStart ?? (match.index ?? 0) + match[0].indexOf(fragment);
+    if (/\b(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec|Mr|Mrs|Ms|Dr|Prof|St)\.$/i.test(fragment)) { pendingStart = start; continue; }
+    const end = (match.index ?? 0) + match[0].trimEnd().length;
+    spans.push({passage: text.slice(start, end), start});
+    pendingStart = null;
+  }
+  if (pendingStart !== null) spans.push({passage: text.slice(pendingStart).trimEnd(), start: pendingStart});
+  return spans;
+}
 export interface SourceStatement { evidence: CaseEvidence; quote: QuoteReference; relation: string }
 /** Every statement is an exact span of retained page text. Search snippets cannot become an inspected assertion. */
-export function sourceStatements(report: ClaimReport, record: CaseRecord): SourceStatement[] {
-  const wanted = words(report.question), statements: SourceStatement[] = [];
-  const acronyms = new Set((report.question.match(/\b[A-Z][A-Z0-9]{1,8}\b/g) ?? []).map(word => word.toLowerCase()));
+export function sourceStatements(report: ClaimReport | null, record: CaseRecord): SourceStatement[] {
+  const wanted = report ? words(report.question) : null, statements: SourceStatement[] = [];
+  const acronyms = new Set(((report?.question ?? '').match(/\b[A-Z][A-Z0-9]{1,8}\b/g) ?? []).map(word => word.toLowerCase()));
   for (const evidence of record.evidence) {
     if (evidence.content.kind !== 'text' || evidence.content.attribution !== 'page_quote') continue;
-    const assessment = report.sources.find(source => source.evidenceId === evidence.id);
+    const assessment = report?.sources.find(source => source.evidenceId === evidence.id);
     if (assessment?.relevance !== null && assessment?.relevance !== undefined && assessment.relevance < 0.5) continue;
     const text = evidence.content.text;
     const heading = evidence.title?.trim().toLowerCase().replace(/(?:\.{3}|…)$/, '').trim();
     const titleLike = (passage: string) => Boolean(heading && (passage.toLowerCase().replace(/[.!]$/, '') === heading || /(?:\.{3}|…)$/.test(evidence.title?.trim() ?? '') && heading.length >= 24 && passage.toLowerCase().startsWith(heading) && passage.length < heading.length + 80));
-    const spans = [...text.matchAll(/.+?(?:[.!?](?=\s|$)|(?=\n|$))/g)].map(match => {
-      const passage = match[0].trim(), start = (match.index ?? 0) + match[0].indexOf(passage);
+    const spans = sourceSentences(text).map(({passage, start}) => {
       const terms = words(passage);
-      return { passage, start, overlap: [...terms].filter(word => wanted.has(word)).length, anchor: [...terms].some(word => acronyms.has(word)) };
-    }).filter(span => span.passage.length >= 40 && span.passage.length <= 1200 && !span.passage.endsWith('?') && !titleLike(span.passage) && span.passage.trim().toLowerCase() !== evidence.title?.trim().toLowerCase() && wanted.size > 0 && (span.anchor || span.overlap >= Math.min(2, wanted.size)))
+      return { passage, start, overlap: [...terms].filter(word => wanted?.has(word)).length, anchor: [...terms].some(word => acronyms.has(word)) };
+    }).filter(span => span.passage.length >= 40 && span.passage.length <= 1200 && !span.passage.endsWith('?') && !titleLike(span.passage) && span.passage.trim().toLowerCase() !== evidence.title?.trim().toLowerCase() && (wanted === null || wanted.size > 0 && (span.anchor || span.overlap >= Math.min(2, wanted.size))))
       .sort((a, b) => b.overlap - a.overlap || a.start - b.start).slice(0, 12);
     for (const span of spans) statements.push({ evidence, relation: assessment?.relation ?? 'insufficient', quote: { evidenceId: evidence.id, start: span.start, end: span.start + span.passage.length, text: span.passage, attribution: 'page_quote' } });
   }

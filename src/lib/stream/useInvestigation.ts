@@ -282,6 +282,17 @@ function httpErrorMessage(status: number): { code: string; message: string } {
   };
 }
 
+/** Only local input-validation messages are exposed; transport/provider failures keep safe defaults. */
+export async function requestFailure(response: Response): Promise<{code: string; message: string}> {
+  const fallback = httpErrorMessage(response.status);
+  if (response.status !== 400 || !response.headers.get('content-type')?.includes('application/json')) return fallback;
+  try {
+    const body: unknown = await response.json();
+    if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string' && body.error.trim() && body.error.length <= 500) return {code:'invalid_input',message:body.error};
+  } catch { /* Invalid error responses retain the transport explanation. */ }
+  return fallback;
+}
+
 /** Watchdog: treat a hung connection as a real failure, not a silent stall. */
 const STREAM_WATCHDOG_MS = 90_000;
 
@@ -379,7 +390,7 @@ export function useInvestigation() {
         });
 
         if (!response.ok) {
-          const { code, message } = httpErrorMessage(response.status);
+          const { code, message } = await requestFailure(response);
           fail(code, message);
           return;
         }

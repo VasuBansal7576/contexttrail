@@ -6,6 +6,7 @@ import {CasebookShell,CoverActions} from './CasebookShell';
 import {ChapterTourStep} from './ChapterTour';
 import {SourceLinkedAnswer} from './SourceLinkedAnswer';
 import {SourceMap} from './SourceMap';
+import {EvidenceWorkbench} from './EvidenceWorkbench';
 import {Changes} from './Casebook';
 import {assessClaimSource,buildClaimReport} from '@/lib/research/claim-report';
 import {inquiryCase,researchWorkflow} from '@/lib/research/workflow';
@@ -55,13 +56,31 @@ it('keeps the answer assertions bound to original retained text and URL after a 
   const corrected=researchWorkflow({kind:'update',document:initial.document,operationId:'correct',expectedRevision:1,change:{kind:'evidence',value:{...original,sourceUrl:'https://new.example.org/changed',content:{kind:'text',text:'A different current record.',attribution:'page_quote'}},assets:[]}});
   await act(async()=>root.render(React.createElement(SourceLinkedAnswer,{view:parseResearchCaseView(corrected)})));
   expect(container.textContent).toContain('Needs review. These assertions come from the original report’s retained evidence');expect(container.textContent).toContain(original.content.kind==='text'?original.content.text:'');
-  expect(container.querySelector('a[href="https://one.example.org/report"]')).not.toBeNull();expect(container.querySelector('a[href="https://new.example.org/changed"]')).toBeNull();
   expect(container.textContent).toContain('Quoted from retained sources');
+  await act(async()=>container.querySelector<HTMLButtonElement>('.answer-evidence button')?.click());
+  const dialog=document.querySelector('[role="dialog"]');
+  expect(dialog).not.toBeNull();
+  expect(dialog?.textContent).toContain(original.content.kind==='text'?original.content.text:'');
+  expect(dialog?.querySelector('a[href="https://one.example.org/report"]')).not.toBeNull();
+  expect(dialog?.querySelector('a[href="https://new.example.org/changed"]')).toBeNull();
 });
 it('leaves unlinked reporting origins unresolved rather than drawing an inferred citation edge',async()=>{
   const view=parseResearchCaseView(fixture());
   await act(async()=>root.render(React.createElement(SourceMap,{view,onInspect:vi.fn(),onCitation:vi.fn()})));
   expect(container.querySelectorAll('.source-map-canvas svg>path')).toHaveLength(0);expect(container.textContent).toContain('Lineage unresolved');expect(container.textContent).toContain('0 inspected references');
+});
+
+it('keeps the guided source selection visible when it crosses the authored four-card page',async()=>{
+  const initial=parseResearchCaseView(fixture()),first=initial.caseRecord.evidence[0];
+  const record={...initial.caseRecord,evidence:Array.from({length:6},(_,i)=>({...first,id:`tour-source-${i}`,title:`Retained source ${i+1}`,sourceUrl:`https://source-${i}.example.org/report`}))};
+  const view=parseResearchCaseView(researchWorkflow({kind:'import_case',operationId:'source-tour-pagination',question:initial.question,createdAt:record.createdAt,caseRecord:record}));
+  const renderStep=(step:number)=>React.createElement(ChapterTourStep.Provider,{value:step,children:React.createElement(SourceMap,{view,onInspect:vi.fn(),onCitation:vi.fn()})});
+  await act(async()=>root.render(renderStep(4)));
+  expect(container.querySelectorAll('.source-map-node')).toHaveLength(2);
+  expect(container.querySelector('.source-map-node[aria-pressed=true]')?.textContent).toContain('Retained source 5');
+  await act(async()=>root.render(renderStep(0)));
+  expect(container.querySelectorAll('.source-map-node')).toHaveLength(4);
+  expect(container.querySelector('.source-map-node[aria-pressed=true]')?.textContent).toContain('Retained source 1');
 });
 
 it('starts the authored cover tour immediately and the chapter chooser pauses it without provider requests',async()=>{
@@ -102,16 +121,85 @@ it('keeps the saved video chapter available for an actual media case',async()=>{
   await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'evidence',caseId:'media-case',mediaCase:true,children:React.createElement('main')})));
   expect(container.querySelector('a[href="/casebook?case=media-case&chapter=video"]')).not.toBeNull();
 });
-it('reflows the reading surface on a phone instead of shrinking the entire casebook',async()=>{
-  vi.stubGlobal('innerWidth',390);vi.stubGlobal('innerHeight',844);
+it('returns to the saved video after visiting the cover and reloading',async()=>{
+  await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'video',caseId:'media-case',mediaCase:true,children:React.createElement('main')})));
+  await act(async()=>root.unmount());
+  root=createRoot(container);
+  await act(async()=>root.render(React.createElement(CasebookShell,{children:React.createElement('main')})));
+  expect(container.querySelector('nav[aria-label="Chapters"] a[href="/casebook?case=media-case&chapter=video"]')).not.toBeNull();
+  await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'questions',caseId:'text-case',mediaCase:false,children:React.createElement('main')})));
+  expect(container.querySelector('nav[aria-label="Chapters"] a[href="/video"]')).not.toBeNull();
+});
+it('keeps the complete authored stage when the panel or phone viewport resizes',async()=>{
+  vi.stubGlobal('innerWidth',1090);vi.stubGlobal('innerHeight',760);
   await act(async()=>root.render(React.createElement(CasebookShell,{chapter:'questions',children:React.createElement('main')})));
-  expect(container.querySelector('.desktop-folio')).toBeNull();
+  const stage=container.querySelector('.casebook-app');
+  expect(stage).toBeInstanceOf(HTMLElement);
+  if(!(stage instanceof HTMLElement))throw new Error('Missing casebook stage');
+  expect(container.querySelector('.desktop-folio')).not.toBeNull();
+  expect(Number(stage.style.getPropertyValue('--folio-scale'))).toBeCloseTo(1090/1440);
+  for(const [width,height] of [[1100,760],[900,600],[390,844],[1440,600]]){
+    vi.stubGlobal('innerWidth',width);vi.stubGlobal('innerHeight',height);
+    await act(async()=>window.dispatchEvent(new Event('resize')));
+    expect(container.querySelector('.desktop-folio')).not.toBeNull();
+    expect(Number(stage.style.getPropertyValue('--folio-scale'))).toBeCloseTo(Math.min(width/1440,height/900));
+    expect(stage.querySelectorAll('nav[aria-label="Chapters"] a')).toHaveLength(9);
+  }
 });
 
-it('shows the actual starting snapshot without inventing a blank before comparison',async()=>{
+it('keeps the comparison layout while explicitly marking the missing earlier snapshot',async()=>{
   await act(async()=>root.render(React.createElement(Changes,{view:parseResearchCaseView(fixture())})));
-  expect(container.querySelectorAll('.revision-paper')).toHaveLength(1);
+  expect(container.querySelectorAll('.revision-paper')).toHaveLength(2);
+  expect(container.querySelector('.revision-paper')?.textContent).toContain('Earlier snapshot / unavailable');
+  expect(container.querySelector('.revision-paper')?.textContent).toContain('No earlier snapshot.');
   expect(container.textContent).toContain('first retained version');
   expect(container.textContent).toContain('No later source correction is recorded');
   expect(container.textContent).not.toContain('Before this source was retained');
+});
+
+it('uses every rapid keyboard chapter input without decorative navigation delay',async()=>{
+  const {ChapterTurnProvider}=await import('./ChapterTurn');
+  Object.defineProperty(window,'matchMedia',{value:()=>({matches:false}),configurable:true});
+  await act(async()=>root.render(React.createElement(ChapterTurnProvider,{children:React.createElement(CasebookShell,{children:React.createElement('main')})})));
+  await act(async()=>{window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight'}));window.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight'}));});
+  expect(navigation.push.mock.calls.map(call=>call[0])).toEqual(['/investigate','/video']);
+  expect(container.querySelector('.folio-turn-viewport')).toBeNull();
+  expect(container.querySelector('.instant-navigation')).not.toBeNull();
+});
+it('lets a new pointer destination replace a pending page turn',async()=>{
+  vi.useFakeTimers();
+  const {ChapterTurnProvider}=await import('./ChapterTurn');
+  Object.defineProperty(window,'matchMedia',{value:()=>({matches:false}),configurable:true});
+  await act(async()=>root.render(React.createElement(ChapterTurnProvider,{children:React.createElement(CasebookShell,{children:React.createElement('main')})})));
+  await act(async()=>{container.querySelector<HTMLAnchorElement>('nav[aria-label=Chapters] a[href="/investigate"]')?.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));vi.advanceTimersByTime(150);container.querySelector<HTMLAnchorElement>('nav[aria-label=Chapters] a[href="/video"]')?.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));vi.advanceTimersByTime(310);});
+  expect(navigation.push).toHaveBeenCalledTimes(1);
+  expect(navigation.push).toHaveBeenCalledWith('/video');
+});
+
+it('keeps dropdown selection on its source page and resets pagination after changing anchor type',async()=>{
+  const initial=parseResearchCaseView(fixture()),first=initial.caseRecord.evidence[0];
+  const record={...initial.caseRecord,evidence:Array.from({length:17},(_,i)=>({...first,id:`source-${i}`,title:`Retained source ${i+1}`,sourceUrl:`https://source-${i}.example.org/report`}))};
+  const view=parseResearchCaseView(researchWorkflow({kind:'import_case',operationId:'pagination-test',question:initial.question,createdAt:record.createdAt,caseRecord:record}));
+  await act(async()=>root.render(React.createElement(EvidenceWorkbench,{view,onInspect:vi.fn(),onFinding:vi.fn(),onAdd:vi.fn()})));
+  const select=container.querySelector('select');if(!select)throw new Error('Missing source selector');
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')?.set?.call(select,'source-16');select.dispatchEvent(new Event('change',{bubbles:true}));});
+  expect(container.querySelector('.evidence-source-tabs>button[aria-pressed=true]')?.textContent).toContain('17Retained source 17');
+  expect(container.querySelector('.evidence-leaf-content h2')?.textContent).toBe('Retained source 17');
+  await act(async()=>container.querySelector<HTMLButtonElement>('.evidence-kind-tabs>button:nth-child(2)')?.click());
+  await act(async()=>container.querySelector<HTMLButtonElement>('.evidence-kind-tabs>button:first-child')?.click());
+  expect(container.querySelector('.evidence-source-tabs>button[aria-pressed=true]')?.textContent).toContain('01Retained source 1');
+});
+
+it('keeps three authored research cards per page without losing the fourth facet',async()=>{
+  const {ResearchDossier}=await import('./ResearchDossier');
+  const view=parseResearchCaseView(fixture());if(!view.claimReport)throw new Error('Missing claim report');
+  const report=view.claimReport;
+  await act(async()=>root.render(React.createElement(ResearchDossier,{report,caseRecord:view.caseRecord})));
+  expect(container.querySelectorAll('.dossier-tabs>button')).toHaveLength(3);
+  await act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='More parts →')?.click());
+  expect(container.querySelectorAll('.dossier-tabs>button')).toHaveLength(1);
+  expect(container.querySelector('.dossier-tabs>button')?.textContent).toContain('DOther explanations and limits');
+  expect(container.querySelector('.research-dossier.instant-selection')).not.toBeNull();
+  await act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent==='← Previous parts')?.click());
+  expect(container.querySelectorAll('.dossier-tabs>button')).toHaveLength(3);
 });

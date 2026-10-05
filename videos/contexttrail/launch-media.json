@@ -1,0 +1,45 @@
+{
+  "ui": {
+    "method": "Actual production app interactions through computer use; successive states captured unchanged. Editorial camera framing is applied outside the app.",
+    "origin": "http://127.0.0.1:3241",
+    "image_case": "5d1b0875-3884-42d0-a5a9-5278dfa06dc7",
+    "question_case": "research-afec2a13-1ba9-44fc-9b70-ceef89fa46ad",
+    "video_case": "research-55069ef5-81db-4f94-95fb-9c129582f445",
+    "watch": "Paused UPI watch; no new check or resume performed.",
+    "finding": "Local source-bound finding saved during actual demo. Reviewer label ContextTrail launch demo."
+  },
+  "video": {
+    "path": "assets/delhi-caption-input.mp4",
+    "ownership": "Existing user project supplied recording",
+    "offset": 10.5,
+    "display": "Original recording alongside retained source UI. Not reconstructed as persisted app frames."
+  },
+  "voice": {
+    "provider": "local Kokoro",
+    "voice": "am_michael",
+    "identity": "Generated narration; not a recording or clone of Vasu."
+  },
+  "music": {
+    "path": "assets/launch-20261005/original-score.wav",
+    "rights": "Original synthesized composition authored locally by build-launch-20261005.py",
+    "bpm": 96
+  },
+  "references": "REFERENCES-20261005.md",
+  "ui_assets": [
+    "assets/launch-20261005/cover.png",
+    "assets/launch-20261005/image-ai-answers.png",
+    "assets/launch-20261005/image-changes.png",
+    "assets/launch-20261005/image-evidence-nasa.png",
+    "assets/launch-20261005/image-finding.png",
+    "assets/launch-20261005/image-input.png",
+    "assets/launch-20261005/image-sources.png",
+    "assets/launch-20261005/nasa-inspector.png",
+    "assets/launch-20261005/pin-finding-form.png",
+    "assets/launch-20261005/question-real.png",
+    "assets/launch-20261005/saved-casebook.png",
+    "assets/launch-20261005/video-input.png",
+    "assets/launch-20261005/video-moment-10-5.png",
+    "assets/launch-20261005/watch-list.png",
+    "assets/launch-20261005/watch-paused-inspector.png"
+  ]
+}

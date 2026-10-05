@@ -1,47 +1,37 @@
 # Authored frontend reference
 
-The selected design is the owner’s `/Users/vasu/Desktop/Product HTMLs/ContextTrail.html`, titled **ContextTrail — A Place for the Question**. The owner reidentified this exact file on 4 October 2026. The other `product-concepts-2026/contexttrail/index.html` is not the selected reference.
+The selected reference is `/Users/vasu/Desktop/Product HTMLs/ContextTrail.html`, titled **ContextTrail — A Place for the Question**. An unchanged copy is rendered on loopback port 3240. The current app is built and served from an isolated preview at http://127.0.0.1:3241/.
 
-The original HTML uses a 1440×900 stage, scaled to the window, with a 106px chapter transport. Instrument Serif, Geist Sans, warm paper, blue, brick, gold, the NASA Earthrise photograph and engraved hand establish the direction. The app reuses the same font/image assets. The hand meets the photograph’s edge on the cover.
+The owner explicitly selected **real investigation data throughout**. Preserve the HTML's composition, typography, texture, colors, artwork and interaction arrangement while displaying actual retained records. Its fictional origin chain, correction, video frames, watch events and AI statements are illustrative content, not evidence to import.
 
-The complete HTML source, CSS, records and interaction handlers were inspected. Direct browser interaction with the original file URL was blocked by browser policy. This record does not claim the original was clicked or its guided tour watched. The production application itself is tested with computer use on loopback. The reference’s fictional records and photographic crops are illustrative, not retrieved evidence.
+## Layout contract
 
-| Chapter | Authored interaction | Product implementation |
-| --- | --- | --- |
-| Cover | Collage, entry action, chapter transport | Collage, walkthrough and chapter chooser; working intake routes in the chapter surfaces |
-| Image | Trace or check the attached caption | Real image selection, public-image option, caption input and provider submission |
-| Video | Select moments, read aligned context, leave unmatched intervals | Completed search offsets select their actual retained source trails; original bytes are explicitly unavailable after reopen |
-| Questions | Select competing explanations and inspect evidence | Select evidence facets and read exact retained sentence spans; missing facets remain open |
-| Evidence | Passage, image region, table cell; pin exact selection | Real retained materials and persisted findings with quote offsets, image pixels or cell coordinates |
-| Sources | Select nodes and inspect supporting attribution | Real supplied/read citations only; unresolved lineage is not counted as independent origin |
-| Changes | Compare retained versions and select revisions | Source records and retained materials have separate controls; material revision/digest selects actual image/table versions |
-| Watch | Change preference and inspect events | Real local scheduler, paused/running states, retained checks and changes; hosted scheduling remains incomplete |
-| AI answers | Select an assertion and inspect its anchored source | Select original retained quotations and their exact passages; generated synthesis remains incomplete |
+A 1440 × 900 stage scales together at every width and height; the chapter transport is 106px. Do not disable the stage at a viewport breakpoint while retaining absolute artwork. Long content scrolls inside its paper panel. Dialog folios use the same composition scale.
 
-Previous/next buttons, keyboard arrows, guided chapter playback, contents and About dialogs work in the app. Playback also selects retained evidence within each chapter, pauses when the tab is hidden, and stops on user inspection. It never submits searches, starts watches or saves findings. The selected case follows navigation across its research chapters. The 1440×900 stage and 106px transport now scale together at every width, as in the selected reference. Long records scroll within the stage or paper panels. At phone width the stage controls are small; dialogs use the available viewport for reading.
+Instrument Serif and Geist Sans are the exact supplied font bytes, with automatic fallback metric adjustment disabled. Use the original paper texture, warm paper/blue/brick/gold/charcoal colors, supplied Earthrise crop, star polygon, orbital paths and engraved hand. Cover title and transport bounds match the rendered HTML. Real record titles and quotations naturally have different lengths.
 
-## Production verification on 4 October
+Questions uses the authored 405px heading column and three cards per page. Evidence uses the 325px index, 94px gap and 831px paper. Sources uses four authored paper positions and a bounded detail column, with real pagination. Changes keeps paired papers, including an explicit unavailable earlier snapshot when only one exists. Watch uses compact inbox rows with retained checks and controls in its folio. AI answers uses a compact quotation and opens full source/anchor details in a paper folio.
 
-The production build and full suite pass: 108 test files, 1,712 tests passed, 17 skipped. Automated checks cover saved-case persistence, correction/re-review, exact table binding, original report quotations after correction, unresolved source lineage, timed source selection and tour case navigation. Those checks do not establish source quality or original-media identity.
+## Chapter behavior
 
-Computer-use checks use the built app at loopback port 3220. The public cover and image captures are in `runs/2026-10-04/reference-cover-production.png` and `reference-image-production.png`. The image action and provider notice fit above the chapter bar. Selecting the 10.5-second Delhi sample changes its retained passage to The Quint’s Jasola-demolition reporting, with identity still unresolved. A separately labelled synthetic control verifies the table’s original 20 and corrected 21, persisted exact cell selection, and the affected finding’s review warning. That control is excluded from factual demonstrations.
+| Chapter | Actual implementation |
+| --- | --- |
+| Cover | Authored collage, walkthrough, chapter chooser, About, persistent transport |
+| Image | Image/public URL intake, caption intent, live retrieval, paper source inspection, saved-case reopen |
+| Video | Real retained offsets, source trails and recognition; unavailable original bytes are explicit |
+| Questions | Real evidence facets, three-card pagination and exact sentence spans; unsupported facets stay open |
+| Evidence | Actual passage, image-region or table-cell findings; original selections persist after correction |
+| Sources | Actual supplied/read citations only; unresolved lineage is not counted as corroboration |
+| Changes | Actual source/material versions and affected historical findings; no fabricated earlier snapshot |
+| Watch | Local scheduler state, retained checks and baselines; no invented example events |
+| AI answers | Original retained quotations and exact anchors, including image-trace page quotes without a claim report |
 
-The source chapter's six nodes, pagination and selected record fit within the stage; long records scroll inside the right panel. Computer use verifies timed selection, manual pause, watch question prefill, interval selection and baseline expansion. An initial Chrome viewport override did not apply. Subsequent checks use an isolated hidden Codex browser at an actual 390×844 viewport, without changing the owner's Chrome tabs. Those earlier checks exposed implicit mobile grid placement, which was repaired in that build. The subsequent owner-requested fidelity repair replaces that reflow with the authored scaled stage; earlier phone screenshots document the previous layout.
+Previous/next, keyboard arrows, timed guided playback, chooser and About work. Keyboard routing is immediate and consecutive input is honored. Pointer page turns can retarget. Playback selects retained data, pauses while hidden or after inspection, and never submits searches or starts watches. Saving a new case immediately updates all research chapter links; Cover/reload preserve real media navigation.
 
-Earlier phone computer use verified the cover entry and contents dialog, reopening the actual saved district-level UPI investigation, research-facet selection, source pagination and the in-app retained-source dialog, unavailable image evidence, source-revision selection, watch question prefill and hourly/daily selection, and the source-linked quotation. That earlier build’s Questions, Sources, Watch and Answers reported a 390px document width with no horizontal overflow. Captures are `runs/2026-10-04/reference-cover-phone.jpg`, `reference-questions-phone.jpg` and `reference-source-inspection-phone.jpg`. This does not claim every form or media upload is phone-verified.
+## Current verification — 5 October 2026
 
-The production screenshots verify the app’s current rendering. They are not a rendered pixel comparison with the blocked original. Remaining layout and workflow defects found in real runs must be fixed and recorded; this document does not close the broader product acceptance goals.
+All nine surfaces were operated with computer use against the rendered HTML. Fresh image and question retrieval completed, saved and reopened. The pending local allowance was resolved with bounded appended grants, preserving all historic reservations. Actual SerpApi account/model checks authenticate; final free balance is 241 searches.
 
-## Latest UI and film repair
+The final production build and full suite pass: 109 test files, 1,734 tests passed, 17 intentional skips. Final Chrome viewport checks observed 320 × 800 and 2560 × 1440 without horizontal overflow; earlier unreliable overrides are not counted as passes. Actual 200% browser zoom and OS reduced-motion mode were not exercised. Production development fixtures return 404.
 
-Restored cover actions, per-chapter durations and selection intervals from the reference source. The nine-chapter tour totals 2:52; pause/resume keeps elapsed reading time and inspection pauses selection. A root-layout paper wipe survives route navigation. Returning to the cover retains the selected case in the chapter links. A long automatic video intake scrolls inside its paper panel rather than behind the transport.
-
-Current browser checks exercise the cover chooser and walkthrough, image/video/question intake, saved UPI research selection, evidence inspection, source selection, changes, watch prefill, answers and return-to-cover case retention. The recut introduces ContextTrail before UPI and runs 49.5 seconds. Its final invitation is clickable in the companion. See [launch review](product/launch-reference-review.md) for the measured pacing and verification limits.
-
-## Owner-rejected launch and live-run repairs
-
-The owner rejected the 49.47-second launch and the previous UI delivery. Neither is an accepted release. See [current judge-run verification](product/judge-live-verification.md) for the reproduced clipping, blank media routing, first-version whitespace and exhausted-allowance defects, their browser verification, and the fresh submitted question. Narrow screens now reflow; the earlier statement that every width uses a scaled desktop stage describes the rejected implementation. No rendered equivalence to the blocked local reference is claimed.
-
-## Fresh-question layout repair
-
-The metro run showed a fourth unused card column and an empty default History facet. Factual questions now use record/scope/challenge facets; the selected facet must contain a passage when one is available. Desktop three-card results fill three columns. The 390 × 844 layout uses compact full-width rows. The source dialog prioritizes the retained paragraph and publication/retrieval dates, with interpretation guidance expandable below. These changes were exercised with the same saved case. They do not retroactively recover the January primary source or establish pixel parity with the original file.
+See [current design QA](../design-qa.md) for exact real case IDs, interactions, source geometry, provider verification and limits; [Emil audit](../runs/2026-10-05/emil-audit/audit.md) records the repairs and worst-case data work. These current records supersede earlier reports of a blocked file URL, phone reflow or pending live allocation.

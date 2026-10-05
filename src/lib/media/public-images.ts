@@ -12,3 +12,12 @@ export type PublicImageId = keyof typeof PUBLIC_IMAGES;
 export function isPublicImageId(value: unknown): value is PublicImageId {
   return typeof value === "string" && Object.hasOwn(PUBLIC_IMAGES, value);
 }
+
+/** Format check only. Public DNS, redirects, MIME type and size remain server checks. */
+export function publicImageUrlFormatError(raw: string): string | null {
+  const message = "Use an already-public HTTPS image URL without login, tokens, query parameters or a custom port.";
+  try {
+    const url = new URL(raw);
+    return raw.length > 2048 || url.protocol !== "https:" || url.username || url.password || url.search || url.port ? message : null;
+  } catch { return message; }
+}

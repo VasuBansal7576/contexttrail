@@ -22,3 +22,7 @@ Actual app screenshots retain their source text and dates. Scene 3 intentionally
 The pointing hand comes from the product illustration. No decorative stock footage, invented result cards, gradient blooms or fake evidence. Captions and the interactive companion preserve the exact narration. Respect reduced motion in the companion.
 
 The canonical composition is index.html with compositions/scene1.html through scene7.html. Each scene owns a paused GSAP timeline registered under its composition ID. The root schedules the scenes and voice assets. Source evidence, budgets and product acceptance belong to the app's docs and real-run record, not this design file.
+
+
+## 2026-10-05 launch cut
+90.000s landscape editorial film; Instrument Serif + Geist Sans. Paper #f2eddc, sheet #faf6e8, ink #222c29, rust #a93f2e, blue #234d70, gold #e2bd58. Local fonts/scripts, readable quote holds, 96 BPM beat grid, generated narration. Nine independently registered sub-compositions plus caption track.

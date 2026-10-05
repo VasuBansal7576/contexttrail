@@ -101,3 +101,32 @@ it('bounds partial-error grid columns while preserving complete long stage detai
   expect(container.querySelectorAll('.progress-evidence article')).toHaveLength(2);
   expect(scrollTo).toHaveBeenCalledTimes(1);
 });
+
+it('rejects credential or query-bearing public image URLs before starting an investigation', async()=>{
+  await render(snapshot());
+  const url = container.querySelector<HTMLInputElement>('#ct-public-url');
+  if(!url) throw new Error('Missing public URL field');
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set?.call(url,'https://example.org/photo.jpg?token=private');url.dispatchEvent(new Event('input',{bubbles:true}));});
+  await act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent?.includes('Use public image URL'))?.click());
+  expect(container.querySelector('[role=alert]')?.textContent).toContain('without login, tokens, query parameters');
+  expect(url.getAttribute('aria-invalid')).toBe('true');
+  expect(start).not.toHaveBeenCalled();
+  expect(container.querySelector<HTMLInputElement>('#ct-image-input')).not.toBeNull();
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set?.call(url,'https://example.org/photo.jpg');url.dispatchEvent(new Event('input',{bubbles:true}));});
+  await act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent?.includes('Use public image URL'))?.click());
+  expect(container.textContent).toContain('Its preview is checked when the investigation starts.');
+  expect(container.querySelector('.image-specimen-sheet img')).toBeNull();
+  expect(container.querySelector<HTMLInputElement>('#ct-image-input')).not.toBeNull();
+});
+it('requires a caption when that intent is selected, while keeping trace available', async()=>{
+  await render(snapshot());
+  const click = async(text:string)=>act(async()=>[...container.querySelectorAll('button')].find(button=>button.textContent?.includes(text))?.click());
+  await click("NASA's public Earthrise");await click('Check its attached caption');
+  expect(container.querySelector<HTMLButtonElement>('button[type=submit]')?.disabled).toBe(true);
+  await act(async()=>container.querySelector('form')?.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+  expect(start).not.toHaveBeenCalled();
+  await click('Trace this photograph');
+  expect(container.querySelector<HTMLButtonElement>('button[type=submit]')?.disabled).toBe(false);
+  await act(async()=>container.querySelector('form')?.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
+  expect(start).toHaveBeenCalledWith({publicImageId:'nasa-earthrise',claim:null});
+});
