@@ -1,71 +1,99 @@
 # ContextTrail
 
-The [current product brief](docs/product/brief.md) records the broader automatic research product requested by the owner. [Completion work](docs/product/work-log.md) records the active implementation and real-run verification. The [current specification](contexttrail_master_product_ux_architecture_spec_v1.1.md) tracks implementation and acceptance. The older image-first specification is preserved under `docs/archive`. The [frontend reference](docs/frontend-reference.md) identifies the exact authored HTML and its chapter interactions.
+*Follow the question.*
 
-Bring a question, claim, image or video. ContextTrail finds sources, retains readable evidence,
-compares scoped claims and keeps the trail for later inspection. Scheduled watches follow
-new sources while the local server is running. Manual evidence entry is optional.
+An image travels with a new caption. A claim gets repeated until its source disappears. An answer sounds certain, but the evidence is hard to inspect.
 
-## Public trial and launch film
+ContextTrail gives you a place to investigate and keep the details. Start with a question, claim, image, or local media file. Follow the retrieved sources, read retained passages, compare explanations, and return when something changes.
 
-[Try ContextTrail on ChatGPT Sites](https://contexttrail.zippy17.chatgpt.site). The public edition uses ChatGPT sign-in, server-side provider credentials and private per-user casebooks. It shares the authored nine-chapter interface with the local app. The bounded trial supports question and image investigations, with three attempts per account per UTC day and shared provider limits through 18 October 2026. Native video/audio processing and scheduled watches run locally. See [hosting setup and limits](hosting/sites/README.md) and the [real-run launch film source](videos/contexttrail/LAUNCH-README.md).
+**[Try ContextTrail](https://contexttrail.zippy17.chatgpt.site)** · **[Watch the 90-second demo](https://youtu.be/iRT1YDrCMDI)**
 
-[Watch the launch and real application demo on YouTube](https://youtu.be/iRT1YDrCMDI). The 90-second film introduces the problem, Vasu and ContextTrail, then follows retained evidence through the app. The public video and repository were verified in Chrome Incognito without signing in.
+Built by Vasu for the SerpApi India Hackathon 2026, in the Knowledge & Public Interest track.
 
-## Revision and release status
+## What you can do
 
-The research application includes [PR #6](https://github.com/VasuBansal7576/contexttrail/pull/6),
-[PR #7](https://github.com/VasuBansal7576/contexttrail/pull/7), and the repairs recorded in the
-[issue index](docs/issue-followups-20261002.md). Historical counts and browser records belong
-to their recorded revisions. Run the checks below on the revision you intend to review.
+- **Investigate a question or claim.** Retrieve sources, inspect what they say, and see support, challenges, context, and gaps tied to retained passages.
+- **Follow an image.** Find visual matches and earlier retrieved appearances, with publication dates and caption context kept distinct.
+- **Investigate local video and audio.** Inspect sampled frames and timestamped speech, then research usable recognized wording.
+- **Keep a casebook.** Save investigations, source anchors, findings, and revision history. Reopen the evidence without repeating a search.
+- **Connect and revisit cases.** Compare supplied media, group related retained wording, and check watched questions for new evidence.
 
-Offline verification checks contracts and interface behavior. It does not establish live
-retrieval quality, an original upload, or a strong historical-reuse demonstration.
-[Release and submission gates](docs/release.md) track that remaining work.
+The interface connects nine chapters: Cover, Image, Video, Questions, Evidence, Sources, Changes, Watch, and AI answers.
 
-## Install and preview
+## Try the public app
 
-Use Node.js 22.13 or newer and npm. CI uses Node 24. Native video ingestion and comparison
-require FFmpeg and FFprobe on PATH.
+Open [ContextTrail on ChatGPT Sites](https://contexttrail.zippy17.chatgpt.site) and sign in with ChatGPT to investigate a question or upload an image. Provider keys are configured on the backend. Your saved casebook is private to your account.
+
+The launch trial allows **three investigation attempts per account per UTC day**, subject to a shared provider allowance, through **18 October 2026**. Failed or cancelled runs also consume their reservation. See [trial limits and hosting details](hosting/sites/README.md).
+
+| Capability | Public app | Local app |
+| --- | --- | --- |
+| Question, claim, and image research | Available | Available with live configuration |
+| Saved casebooks | Private to your signed-in account | Stored on your local disk |
+| Source page inspection | HTML | HTML and selectable-text PDFs |
+| Video, audio, and supplied-media comparison | Run locally | Requires native tools |
+| Watched questions | Manual checks | Manual and scheduled checks while the server runs |
+
+## Run locally
+
+Use Node.js 24 and npm. Clone the repository, then start the interface:
 
 ```sh
+git clone https://github.com/VasuBansal7576/contexttrail.git
+cd contexttrail
 npm ci
 cp .env.example .env.local
 npm run dev -- -H 127.0.0.1
 ```
 
-The template disables live retrieval, local research storage and media decoding. No provider
-keys are required for preview, tests, typecheck or build. Submitting an investigation with
-live access disabled returns the actual configuration error. Production never substitutes a
-fixture for a failed provider request.
+Open [127.0.0.1:3000](http://127.0.0.1:3000). This starts a keyless preview. Live retrieval, persistent local cases, and native media processing are disabled in the template.
 
-For persistent local cases and supplied-media comparison, explicitly opt into the loopback
-services. Use a persistent directory you control:
+### Enable real investigations
+
+Follow the [local live-usage setup](docs/live-usage.md) to configure your server credentials and finite provider allowance:
+
+- `SERPAPI_API_KEY` for retrieval.
+- `TYPESAFE_API_KEY` and `TYPESAFE_MODEL=jev-1.13.0` for structured assessments.
+- A persistent usage ledger, verified allocation, and explicit live-operation settings.
+
+Keep credentials in ignored `.env.local`, using server-only names. Keys alone do not enable provider calls. The local app reserves the full bounded allowance before each run.
+
+To save local cases and enable native processing, set these values in `.env.local`. Replace the example path with a persistent directory you control:
+
+```dotenv
+CONTEXTTRAIL_RESEARCH_LOCAL=1
+CONTEXTTRAIL_MEDIA_LOCAL=1
+CONTEXTTRAIL_RESEARCH_DATA_DIR=/absolute/path/to/contexttrail-cases
+```
+
+Install FFmpeg and FFprobe for video decoding and media comparison. For speech recognition, install `whisper-cli`, then run:
+
+```sh
+node scripts/setup-local-speech.mjs
+```
+
+The setup script downloads and verifies the pinned multilingual Whisper small model, about 488 MB. Original audio stays local; recognized wording can be sent to the configured research providers. Restart the app after changing configuration.
+
+For a production build, stop the development server, then run:
 
 ```sh
 npm run build
-CONTEXTTRAIL_RESEARCH_LOCAL=1 \
-CONTEXTTRAIL_MEDIA_LOCAL=1 \
-CONTEXTTRAIL_RESEARCH_DATA_DIR=/absolute/path/to/persistent/local-cases \
-  npm start -- -H 127.0.0.1 -p 3119
+npm start -- -H 127.0.0.1
 ```
 
-Provider access remains disabled. Research storage is single-user and bound to loopback.
-Do not rebuild a checkout while its Next.js server is running; use a separate worktree for
-builds and browser verification.
+## How the evidence is assembled
 
-| Entry | Input and behavior | Details |
-| --- | --- | --- |
-| `/investigate` | Image or reviewed public image URL, optional caption; Trace or Claim-check | [Live usage](docs/live-usage.md) |
-| `/questions` | Question or claim; automatic source retrieval, retained passages and scoped comparison | [Automatic research](docs/automatic-investigation.md) |
-| `/video` | Full-track local visual scan and speech recognition; up to three distinct frame searches and a separate spoken-source trail | [Automatic research](docs/automatic-investigation.md) |
-| `/audio` | Local multilingual speech recognition and automatic source research from usable recognized wording | [Automatic research](docs/automatic-investigation.md) |
-| `/compare` | Two supplied images, videos, or a mixed pair; local sampled comparison | [Media bridge](docs/local-media-application.md) |
-| `/families` | Automatically connect exact or similar retained wording across saved investigations | [Automatic research](docs/automatic-investigation.md) |
-| `/watch` | Automatic hourly/daily source checks, retained changes and failures | [Scheduled watches](docs/automatic-watches.md) |
-| `/casebook` | Saved cases, findings, retained material and correction history | [Casebook](docs/casebook-interface.md) |
+SerpApi Google Search, Google News, and Google Lens retrieve source leads. ContextTrail reads accessible pages and retains passages with their source URLs and dates. TypeSafe/Jev assesses the relationship between those passages and the investigation. The casebook keeps the evidence available for later inspection.
 
-## Verification
+Search snippets stay distinct from inspected page quotes. Publication dates, retrieval dates, and media offsets retain their own meanings. The earliest retrieved appearance can leave the original publication unresolved, and a model assessment carries uncertainty. Sampled frames establish evidence about those samples; whole-video identity needs additional evidence.
+
+The cover's Earthrise collage is illustrative. Its example captions are separate from investigation results.
+
+## Development
+
+The local application uses Next.js, React, TypeScript, Tailwind CSS, and Framer Motion. The public edition projects the shared UI into a Cloudflare Worker with D1 for account-bound indexes and usage reservations, and private R2 storage for case revisions.
+
+Run the offline checks:
 
 ```sh
 npm test
@@ -73,97 +101,26 @@ npm run typecheck
 npm run build
 ```
 
-There is no configured ESLint gate. The obsolete interactive `next lint` script has been
-removed; the commands above are the maintained checks. CI verifies every pull request base,
-including stacked integration branches, with live access disabled and native FFmpeg required.
+These checks do not call live providers. [Verification and release records](docs/release.md) document the separate real browser runs and hosted storage checks.
 
-After a production build, the local service contracts have additional offline checks:
+The main implementation lives in:
 
-```sh
-npm run research:verify
-node scripts/verify-media-http.mjs
-node scripts/verify-casebook-ui.mjs
-```
+- `src/lib/investigation/`: image research, identity, dates, and usage limits.
+- `src/lib/research/`: automatic research, saved cases, and watches.
+- `src/lib/pages/`: page acquisition and readable evidence extraction.
+- `src/lib/serpapi/` and `src/lib/jev/`: provider clients.
+- `hosting/sites/`: the public deployment adapter.
+- `videos/contexttrail/`: the editable launch-film source.
 
-Read each script's documented options before running it. These exercise generated or controlled
-evidence, not live providers. The image verification harness is at
-`.agents/skills/verify-contexttrail/bin/control-contexttrail`. Its
-[feature map](.agents/skills/verify-contexttrail/features/README.md) lists the maintained
-landing, upload, investigation, result, viewer, session and accessibility drives. It snapshots
-a pinned revision, owns its server, preserves artifacts and rejects unsupported drives.
-`RUN_LIVE_TESTS=1` is a harness admission requirement, not an npm-test provider switch.
+## Read more
 
-Keep source/unit, function-probe, real-UI, public-contract-boundary and live evidence distinct.
-A controlled result is not a fact check, and a successful build is not release acceptance.
+- [Automatic investigations](docs/automatic-investigation.md)
+- [Casebook and retained evidence](docs/casebook-interface.md)
+- [Precise evidence anchors](docs/precise-evidence-anchors.md)
+- [Scheduled watches](docs/automatic-watches.md)
+- [Public deployment setup](hosting/sites/README.md)
+- [Launch-film source and verification](videos/contexttrail/LAUNCH-README.md)
 
-## Live configuration and bounds
+## Credits and licensing
 
-Read [live usage](docs/live-usage.md) before enabling providers. Live operation requires
-server-only `SERPAPI_API_KEY`, `TYPESAFE_API_KEY`, pinned `TYPESAFE_MODEL=jev-1.13.0`, explicit
-single-host persistent deployment configuration, a durable existing usage ledger and an
-operator-verified allocation. Keys alone are insufficient. Never commit `.env.local`.
-The standard Next.js build fails closed on unsupported serverless hosts. The separate [ChatGPT Sites adapter](hosting/sites/README.md) uses D1 reservations and private R2 persistence to support a bounded public question/image trial. Native video, audio and scheduled background watches require the local app.
-
-| Workflow | Maximum search attempts | Upload attempts | Jev requests | Jev questions |
-| --- | ---: | ---: | ---: | ---: |
-| Image Trace | 4 | 1 | 60 | 113 |
-| Image Claim-check | 6 | 1 | 60 | 272 |
-| Topic or audio | 6 | 0 | 12 | 60 |
-| Video, no caption (up to three frames and spoken research) | 18 | 3 | 192 | 399 |
-| Video, caption (up to three frames and spoken research) | 24 | 3 | 192 | 876 |
-
-Reviewed public-image URLs use zero upload attempts. The retired Lens About This Image
-surface is no longer dispatched or repurposed. At most one adaptive search and five source
-page reads remain permitted. The full worst-case allowance is reserved before dispatch;
-failures and cancellations do not refund it. Topic research reads up to ten pages and follows up to two explicitly cited references within that same read/source ceiling. Counts distinguish attempted, returned and
-retained results. They do not represent independent sources or complete web coverage.
-
-For local speech recognition, install trusted FFmpeg/FFprobe and `whisper-cli`, then run
-`node scripts/setup-local-speech.mjs`. Setup verifies the pinned official multilingual
-Whisper small model (about 488 MB), stores it under ignored `.local-models/`, and adds
-its path to ignored `.env.local` while preserving other configuration. Restart the app.
-Original audio stays local; usable recognized text can be sent to the configured search
-and assessment providers. Repeated uncertain recognition is retained but excluded from
-automatic query wording. See [speech and scan details](docs/automatic-investigation.md).
-
-## Evidence and retention
-
-Only provider-reported exact matches or accepted verified near matches can enter media history.
-Near-match promotion remains disabled pending measured acceptance. Contextual pages and visual
-leads stay separate. Unknown/disputed dates never become dated occurrences, and an article's
-publication date is distinct from reported event time, filming time or original capture time.
-Reporting-domain counts do not establish independent origins. Trace has no claim verdict.
-
-Image uploads accept JPEG, PNG and WebP. Browser preprocessing caps the long edge at 1600 px
-and targets 450 KB; the server rejects images over 500 KB. Processed input bytes stay in memory.
-Image saves retain a validated evidence projection, not the full provider report or uploaded
-image bytes. Topic saves retain their report and exact source bindings. Supplied-media comparison
-saves retain checked sampled frames and the comparison report, never original videos.
-
-Automatic investigations save by default; the reader can opt out before submitting. Unsaved results
-are lost on reload. Video saves retain the complete bounded report and its original evidence,
-excluding video and sampled image bytes. The historical viewer
-opens exact retained text, image regions and table cells when a current source is missing or changed.
-Read the [automatic retention contract](docs/automatic-investigation.md) and
-[casebook documentation](docs/casebook-interface.md). Corrections preserve history and require
-review; reopening does not rerun retrieval or renew an earlier finding's review.
-
-## Source and design records
-
-| Area | Location |
-| --- | --- |
-| Image executor, budgets, identity, dates and deterministic policy | `src/lib/investigation/` |
-| Automatic research and local persistent service | `src/lib/research/` |
-| Safe page acquisition/extraction | `src/lib/pages/` |
-| Provider transports | `src/lib/serpapi/`, `src/lib/jev/` |
-| Saved findings and material contracts | [Precise anchors](docs/precise-evidence-anchors.md) |
-| Native matching evaluation | [Evaluation](docs/local-media-matching-evaluation.md) |
-| Product specification | `contexttrail_master_product_ux_architecture_spec_v1.1.md` |
-
-The cover's NASA Earthrise collage is illustrative. Its example captions are not retrieved
-evidence. [Asset credits](docs/assets.md) records the source, font/reference gaps and provenance.
-The supplied design reference has no established reuse permission. A project-wide software
-license remains an owner decision. Do not infer a license from public repository visibility.
-
-The [issue follow-up index](docs/issue-followups-20261002.md) distinguishes implemented work,
-PR dependencies and pending acceptance for every open issue. Historical reports remain on GitHub.
+The cover photograph is credited to NASA / Bill Anders. [Asset credits](docs/assets.md) record the artwork, fonts, and remaining attribution checks. A project-wide software license has not yet been selected. Public repository access does not grant a reuse license.
