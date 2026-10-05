@@ -10,6 +10,8 @@ new sources while the local server is running. Manual evidence entry is optional
 
 [Try ContextTrail on ChatGPT Sites](https://contexttrail.zippy17.chatgpt.site). The public edition uses ChatGPT sign-in, server-side provider credentials and private per-user casebooks. It shares the authored nine-chapter interface with the local app. The bounded trial supports question and image investigations, with three attempts per account per UTC day and shared provider limits through 18 October 2026. Native video/audio processing and scheduled watches run locally. See [hosting setup and limits](hosting/sites/README.md) and the [real-run launch film source](videos/contexttrail/LAUNCH-README.md).
 
+[Watch the launch and real application demo on YouTube](https://youtu.be/iRT1YDrCMDI). The 90-second film introduces the problem, Vasu and ContextTrail, then follows retained evidence through the app. The public video and repository were verified in Chrome Incognito without signing in.
+
 ## Revision and release status
 
 The research application includes [PR #6](https://github.com/VasuBansal7576/contexttrail/pull/6),

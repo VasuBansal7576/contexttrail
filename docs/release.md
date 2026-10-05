@@ -8,7 +8,7 @@ Current implementation and real-run status are recorded in [the product work log
 
 Verification included 1,734 passing canonical tests (17 intentional skips), typecheck and production builds, 18 isolated actual D1/R2 boundary checks, and real question and uploaded-image runs through the hosted Worker preview. The question was saved, reopened, reloaded and inspected at a retained page passage. These runs establish working retrieval and persistence; they do not establish an original image upload or a provenance verdict.
 
-The approved 90-second launch film is rendered and retained locally. YouTube publication and final hackathon submission remain pending their required confirmations and participant information. The historical research gates below retain their original scope.
+The approved [90-second launch film](https://youtu.be/iRT1YDrCMDI) is published publicly on YouTube and retained locally. YouTube reported no copyright-check issues. The video played in Chrome Incognito without sign-in, and the public repository also opened in that window. The hackathon draft includes both links and the participant information supplied by the owner; final submission awaits specific rules/terms acceptance. The historical research gates below retain their original scope.
 
 Checked against the combined application and issue roster on 2 October 2026.
 This file records gates, not release approval. Historical audits and test counts remain in
