@@ -11,7 +11,7 @@ for (const path of ['src','public']) {
   cpSync(join(root,path),join(destination,path),{recursive:true,filter:path=>!(/\.test\.[jt]sx?$|\/__tests__(\/|$)/.test(path))});
 }
 for (const entry of readdirSync(config)) {
-  if (['overrides','tests','prepare.mjs','README.md'].includes(entry)) continue;
+  if (['overrides','prepare.mjs','README.md'].includes(entry)) continue;
   const source=join(config,entry),target=join(destination,entry);
   cpSync(source,target,{recursive:true});
 }
@@ -46,4 +46,5 @@ let text=readFileSync(vite,'utf8');
 text=text.replace('return {\n    server:',`return {\n    resolve:{alias:{jsdom:new URL('./src/lib/hosted/html.ts',import.meta.url).pathname}},\n    server:`);
 writeFileSync(vite,text);
 writeFileSync(join(destination,'src/app/globals.css'),readFileSync(join(destination,'src/app/globals.css'),'utf8')+`\n.public-trial-account{display:flex;gap:1rem;align-items:center;justify-content:space-between;padding:.45rem 4%;background:#242c2c;color:#eee5ce;font:12px var(--font-geist-sans),sans-serif;position:relative;z-index:100}.public-trial-account a{color:#eac75e;text-decoration:underline}.public-trial-account{height:30px;box-sizing:border-box;position:fixed;inset:0 0 auto}.desktop-folio{top:30px}\n`);
+writeFileSync(join(destination,'README.md'),`# ContextTrail public trial\n\nCanonical application and launch film: https://github.com/VasuBansal7576/contexttrail\n\nThis official ChatGPT Sites Worker projection uses the same application UI and evidence logic, with private per-account D1/R2 storage and a shared bounded server-side provider allowance. Question and image research work online; native video/audio and scheduled watches require the local app.\n\nRun npm run install:ci, npm run typecheck, node tests/boundaries.mjs ., then npm run dev. Local sign-in uses the official Sites test identity. Local live configuration belongs in ignored .dev.vars; production keys are secret Sites environment variables. See the canonical repository hosting/sites/README.md for deployment, limits and recovery.\n`);
 console.log(JSON.stringify({prepared:destination,uiSource:join(root,'src'),runtimeDataCopied:false}));

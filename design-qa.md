@@ -60,3 +60,11 @@ Screenshots supplement the actual interactions above. Some older captures contai
 ## Owner-reported hover contrast follow-up
 
 The saved-case list had an omitted interaction state: on the Answers chapter, a cream hover background retained cream text. The shared row now uses dark title, number and revision text, a readable muted caption, and a dark keyboard-focus outline. Reproduced and verified in the actual browser for independent hover and keyboard focus. The production preview was rebuilt with this CSS-only repair.
+
+## Public Sites acceptance, 5 October 2026
+
+The isolated hosted Worker test passed 16 checks against actual D1/R2 bindings, including private account isolation, idempotent creation, concurrent revision conflicts, busy/daily/global admission, nonrefundable allocations and readable source extraction. A real Chrome run found the Worker's unsupported `redirect: error` mode; the hosted lease now uses manual redirects and rejects 3xx responses without forwarding credentials. The failed reservation was preserved.
+
+The corrected real question run retained 12 source leads and three inspected page passages. The saved report was reopened from D1/R2 and reloaded, then its NHPR passage, observed publication date, retrieval timestamp and source URL were inspected in the actual UI. This is bounded evidence, not a verified original-publication conclusion. Native video/audio, PDFs and scheduled background watches remain unavailable in the Worker edition; its UI states those limitations. Private credentials, provider-account financial details and unrelated social-account activity are excluded from release source.
+
+A real uploaded NASA/Bill Anders Earthrise image also completed in the hosted Worker. The result reported six confirmed image domains, one observed context and an earliest retrieved dated appearance of 2018-12-21. Those are sample observations, not original-publication claims. The image investigation was saved to the private casebook; original uploaded bytes were excluded. Both topic and image provider flows were exercised through the actual browser.

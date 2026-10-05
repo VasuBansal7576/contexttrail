@@ -188,4 +188,3 @@ export async function reserveTopicRun(config: LiveUsageConfig, signal?: AbortSig
 export async function reserveVideoRun(config: LiveUsageConfig, claim: string | null, signal?: AbortSignal): Promise<LiveRunLease> {
   return reserveAllocation(config, videoRunAllocation(claim), signal);
 }
-
