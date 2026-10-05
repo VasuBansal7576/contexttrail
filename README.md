@@ -8,7 +8,7 @@ new sources while the local server is running. Manual evidence entry is optional
 
 ## Public trial and launch film
 
-The public edition uses ChatGPT sign-in, server-side provider credentials and private per-user casebooks. It shares the authored nine-chapter interface with the local app. See [hosting setup and limits](hosting/sites/README.md) and the [real-run launch film source](videos/contexttrail/LAUNCH-README.md).
+[Try ContextTrail on ChatGPT Sites](https://contexttrail.zippy17.chatgpt.site). The public edition uses ChatGPT sign-in, server-side provider credentials and private per-user casebooks. It shares the authored nine-chapter interface with the local app. The bounded trial supports question and image investigations, with three attempts per account per UTC day and shared provider limits through 18 October 2026. Native video/audio processing and scheduled watches run locally. See [hosting setup and limits](hosting/sites/README.md) and the [real-run launch film source](videos/contexttrail/LAUNCH-README.md).
 
 ## Revision and release status
 

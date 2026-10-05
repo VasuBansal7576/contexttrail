@@ -2,6 +2,14 @@
 
 Current implementation and real-run status are recorded in [the product work log](product/work-log.md) and [the current specification](../contexttrail_master_product_ux_architecture_spec_v1.1.md). The 2 October stack and submission discussion below are historical. They are not instructions to submit or merge a new release.
 
+## Publication on 5 October 2026
+
+[The public ChatGPT Site](https://contexttrail.zippy17.chatgpt.site) was deployed successfully from Sites source commit `37f371845fb8a0f631b97a64b9c8362c7b5471ca`, version 1. This source is generated from the canonical UI and the adapter in `hosting/sites`. Secret runtime credentials remain outside Git and the deployment archive. Question and image investigations use private per-account D1/R2 persistence, three admission attempts per UTC day, shared durable provider reservations, and a trial expiry of 18 October 2026. Native video/audio and scheduled watches remain local features.
+
+Verification included 1,734 passing canonical tests (17 intentional skips), typecheck and production builds, 18 isolated actual D1/R2 boundary checks, and real question and uploaded-image runs through the hosted Worker preview. The question was saved, reopened, reloaded and inspected at a retained page passage. These runs establish working retrieval and persistence; they do not establish an original image upload or a provenance verdict.
+
+The approved 90-second launch film is rendered and retained locally. YouTube publication and final hackathon submission remain pending their required confirmations and participant information. The historical research gates below retain their original scope.
+
 Checked against the combined application and issue roster on 2 October 2026.
 This file records gates, not release approval. Historical audits and test counts remain in
 [the investigation report](https://github.com/VasuBansal7576/contexttrail/issues/3),
@@ -32,7 +40,7 @@ In particular, do not merge the entire old evidence branch over the repaired app
 | Historical linked-video recovery | Actual earlier occurrence acquired and media relation verified under existing bounds | Open, tracked in #10; offline controls cannot close it |
 | Near-match verifier | Measured held-out spatial identity acceptance and counterexamples | Disabled; no promotion until accepted |
 | Demo | Under-three-minute local functionality recording using retained real results | Separate acceptance; no duplicate provider run for recording |
-| Public live hosting | Reviewed shared durable atomic quotas and account/storage boundary | Unsupported by the current single-host gate |
+| Public live hosting | Reviewed shared durable atomic quotas and account/storage boundary | Published bounded question/image Sites edition; see the 5 October record above |
 | Redistribution | Owner-selected project license, complete font/reference/artwork provenance | Open |
 
 Normal checks use no keys or provider credits:
